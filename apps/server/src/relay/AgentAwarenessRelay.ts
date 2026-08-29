@@ -374,7 +374,7 @@ export const make = Effect.gen(function* () {
       Effect.gen(function* () {
         const notify = !BackgroundPolicy.hasFocusedClient(
           yield* backgroundPolicy.snapshot,
-          "desktop-renderer",
+          yield* DateTime.now,
         );
         const proof = yield* makePublishProof({
           privateKey: cloudLinkKeyPair.privateKey,

@@ -98,39 +98,25 @@ describe("BackgroundPolicy", () => {
     }).pipe(Effect.provide(makeLayer(nominalHostPower))),
   );
 
-  it.effect("detects focused clients by kind", () =>
+  it.effect("detects active focused clients while the host is awake and unlocked", () =>
     Effect.gen(function* () {
       const policy = yield* BackgroundPolicy.BackgroundPolicy;
-      const sessionId = AuthSessionId.make("session-1");
-      const rpcClientId = RpcClientId.make(1);
-
       yield* policy.reportClientActivity(
-        sessionId,
-        rpcClientId,
-        makeReport({ clientId: "desktop-focused", clientKind: "desktop-renderer" }),
-      );
-      yield* policy.reportClientActivity(
-        sessionId,
-        rpcClientId,
-        makeReport({
-          clientId: "desktop-blurred",
-          clientKind: "desktop-renderer",
-          focused: false,
-          recentlyInteracted: true,
-        }),
-      );
-      yield* policy.reportClientActivity(
-        sessionId,
-        rpcClientId,
-        makeReport({ clientId: "mobile-focused", clientKind: "mobile" }),
+        AuthSessionId.make("session-1"),
+        RpcClientId.make(1),
+        makeReport({ clientKind: "mobile" }),
       );
 
       const snapshot = yield* policy.snapshot;
-      assert.equal(BackgroundPolicy.hasFocusedClient(snapshot, "desktop-renderer"), true);
+      const now = snapshot.updatedAt;
+      assert.equal(BackgroundPolicy.hasFocusedClient(snapshot, now), true);
       assert.equal(
         BackgroundPolicy.hasFocusedClient(
-          { ...snapshot, leases: snapshot.leases.filter((lease) => !lease.focused) },
-          "desktop-renderer",
+          {
+            ...snapshot,
+            leases: snapshot.leases.map((lease) => ({ ...lease, focused: false })),
+          },
+          now,
         ),
         false,
       );
@@ -138,11 +124,31 @@ describe("BackgroundPolicy", () => {
         BackgroundPolicy.hasFocusedClient(
           {
             ...snapshot,
-            leases: snapshot.leases.filter((lease) => lease.clientKind === "mobile"),
+            leases: snapshot.leases.map((lease) => ({ ...lease, expiresAt: now })),
           },
-          "desktop-renderer",
+          now,
         ),
         false,
+      );
+      assert.equal(
+        BackgroundPolicy.hasFocusedClient(
+          {
+            ...snapshot,
+            hostPower: { ...snapshot.hostPower, locked: "true", stale: false },
+          },
+          now,
+        ),
+        false,
+      );
+      assert.equal(
+        BackgroundPolicy.hasFocusedClient(
+          {
+            ...snapshot,
+            hostPower: { ...snapshot.hostPower, locked: "true", stale: true },
+          },
+          now,
+        ),
+        true,
       );
     }).pipe(Effect.provide(makeLayer(nominalHostPower))),
   );

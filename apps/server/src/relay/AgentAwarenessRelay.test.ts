@@ -601,7 +601,7 @@ describe.sequential("signRelayAgentActivityPublishProof", () => {
     ),
   );
 
-  it.effect("publishes silently while the desktop is focused and notifies after focus is lost", () =>
+  it.effect("publishes silently while a client is focused and notifies after focus is lost", () =>
     Effect.scoped(
       Effect.gen(function* () {
         const originalFetch = globalThis.fetch;
