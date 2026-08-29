@@ -187,6 +187,7 @@ describe("AgentActivityPublisher", () => {
       expect(result).toEqual(deliveryResult);
       expect(sent).toHaveLength(1);
       expect(sent[0]?.target.device_id).toBe("device-1");
+      expect(sent[0]?.notify).toBe(true);
       expect(sent[0]?.aggregate).toMatchObject({
         activeCount: 1,
         activities: [
@@ -223,6 +224,7 @@ describe("AgentActivityPublisher", () => {
       const result = yield* Effect.gen(function* () {
         const publisher = yield* AgentActivityPublisher.AgentActivityPublisher;
         return yield* publisher.publish({
+          notify: true,
           environmentId: "env",
           environmentPublicKey: "environment-public-key",
           threadId: "thread",
@@ -317,6 +319,7 @@ describe("AgentActivityPublisher", () => {
       const result = yield* Effect.gen(function* () {
         const publisher = yield* AgentActivityPublisher.AgentActivityPublisher;
         return yield* publisher.publish({
+          notify: true,
           environmentId: "env",
           environmentPublicKey: "environment-public-key",
           threadId: "thread",
@@ -423,6 +426,7 @@ describe("AgentActivityPublisher", () => {
       const result = yield* Effect.gen(function* () {
         const publisher = yield* AgentActivityPublisher.AgentActivityPublisher;
         return yield* publisher.publish({
+          notify: true,
           environmentId: "env",
           environmentPublicKey: "environment-public-key",
           threadId: "thread",
@@ -516,6 +520,68 @@ describe("AgentActivityPublisher", () => {
     });
   });
 
+  it.effect("publishes Live Activity updates silently when notify is false", () => {
+    const sent: Array<Parameters<ApnsDeliveries.ApnsDeliveries["Service"]["sendForTarget"]>[0]> =
+      [];
+    let pushCalls = 0;
+
+    return Effect.gen(function* () {
+      const publisher = yield* AgentActivityPublisher.AgentActivityPublisher;
+      yield* publisher.publish({
+        environmentId: "env",
+        environmentPublicKey: "environment-public-key",
+        threadId: "thread",
+        state: { ...state, phase: "waiting_for_input" },
+        notify: false,
+      });
+
+      expect(sent).toMatchObject([{ aggregate: null, notify: false }]);
+      expect(pushCalls).toBe(0);
+    }).pipe(
+      Effect.provide(
+        AgentActivityPublisher.layer.pipe(
+          Layer.provide(
+            Layer.mergeAll(
+              Layer.succeed(AgentActivityRows.AgentActivityRows, makeAgentActivityRows()),
+              Layer.succeed(
+                EnvironmentLinks.EnvironmentLinks,
+                makeEnvironmentLinks({
+                  listDeliveryUsersForEnvironment: () =>
+                    Effect.succeed([
+                      {
+                        userId: "dev:julius",
+                        notificationsEnabled: true,
+                        liveActivitiesEnabled: false,
+                      },
+                    ]),
+                }),
+              ),
+              Layer.succeed(
+                LiveActivities.LiveActivities,
+                makeLiveActivities({ listTargets: () => Effect.succeed([target("device-1")]) }),
+              ),
+              Layer.succeed(
+                ApnsDeliveries.ApnsDeliveries,
+                makeApnsDeliveries({
+                  sendForTarget: (input) =>
+                    Effect.sync(() => {
+                      sent.push(input);
+                      return null;
+                    }),
+                  sendPushNotificationForTarget: () =>
+                    Effect.sync(() => {
+                      pushCalls += 1;
+                      return null;
+                    }),
+                }),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  });
+
   it.effect(
     "does not build Live Activity aggregates for links with Live Activities disabled",
     () => {
@@ -535,6 +601,7 @@ describe("AgentActivityPublisher", () => {
         const result = yield* Effect.gen(function* () {
           const publisher = yield* AgentActivityPublisher.AgentActivityPublisher;
           return yield* publisher.publish({
+            notify: true,
             environmentId: "env",
             environmentPublicKey: "environment-public-key",
             threadId: "thread",

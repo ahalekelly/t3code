@@ -263,6 +263,7 @@ describe("ApnsDeliveries", () => {
     return Effect.gen(function* () {
       const deliveries = yield* ApnsDeliveries.ApnsDeliveries;
       const result = yield* deliveries.sendForTarget({
+        notify: true,
         target: {
           ...target,
           activity_push_token: null,
@@ -293,6 +294,7 @@ describe("ApnsDeliveries", () => {
       // Within the freshly-armed grace window an empty aggregate delivers
       // nothing: the environment's first publish may still be in flight.
       const graced = yield* deliveries.sendForTarget({
+        notify: true,
         target,
         aggregate: null,
         nowMs: 5_000,
@@ -300,6 +302,7 @@ describe("ApnsDeliveries", () => {
       expect(graced).toBeNull();
 
       const result = yield* deliveries.sendForTarget({
+        notify: true,
         target,
         aggregate: null,
         nowMs: 5_000 + 3 * 60 * 1_000,
@@ -331,6 +334,7 @@ describe("ApnsDeliveries", () => {
     return Effect.gen(function* () {
       const deliveries = yield* ApnsDeliveries.ApnsDeliveries;
       const result = yield* deliveries.sendForTarget({
+        notify: true,
         target: {
           ...target,
           activity_push_token: null,
@@ -355,6 +359,7 @@ describe("ApnsDeliveries", () => {
     return Effect.gen(function* () {
       const deliveries = yield* ApnsDeliveries.ApnsDeliveries;
       const result = yield* deliveries.sendForTarget({
+        notify: true,
         target: {
           ...target,
           activity_push_token: null,
@@ -395,6 +400,7 @@ describe("ApnsDeliveries", () => {
     return Effect.gen(function* () {
       const deliveries = yield* ApnsDeliveries.ApnsDeliveries;
       yield* deliveries.sendForTarget({
+        notify: true,
         target,
         aggregate: inputAggregate,
         nowMs: 10_000,
@@ -418,6 +424,7 @@ describe("ApnsDeliveries", () => {
     return Effect.gen(function* () {
       const deliveries = yield* ApnsDeliveries.ApnsDeliveries;
       yield* deliveries.sendForTarget({
+        notify: true,
         target: {
           ...target,
           bundle_id: "com.t3tools.t3code.preview",
@@ -509,6 +516,7 @@ describe("ApnsDeliveries", () => {
       return Effect.gen(function* () {
         const deliveries = yield* ApnsDeliveries.ApnsDeliveries;
         const result = yield* deliveries.sendForTarget({
+          notify: true,
           target: {
             ...target,
             // A registered alert token must not turn the suppressed Live
@@ -527,6 +535,74 @@ describe("ApnsDeliveries", () => {
       }).pipe(Effect.provide(makeLayer({ attempts, queuedJobs })));
     },
   );
+
+  it.effect("queues silent updates for attention transitions when notify is false", () => {
+    const attempts: Array<DeliveryAttempts.DeliveryAttemptInput> = [];
+    const queuedJobs: Array<SignedApnsDeliveryJob> = [];
+    const waitingAggregate: RelayAgentActivityAggregateState = {
+      ...aggregate,
+      activities: [
+        {
+          ...aggregate.activities[0]!,
+          phase: "waiting_for_input",
+          status: "Input",
+        },
+      ],
+    };
+    const previousAggregateJson = JSON.stringify(aggregate);
+
+    return Effect.gen(function* () {
+      const deliveries = yield* ApnsDeliveries.ApnsDeliveries;
+      const result = yield* deliveries.sendForTarget({
+        notify: false,
+        target: {
+          ...target,
+          last_aggregate_json: previousAggregateJson,
+          last_live_activity_delivery_at: "1970-01-01T00:00:04.000Z",
+        },
+        aggregate: waitingAggregate,
+        nowMs: 5_000,
+      });
+
+      expect(result?.kind).toBe("live_activity_update");
+      expect(queuedJobs).toMatchObject([{ payload: { kind: "live_activity_update" } }]);
+      expect(queuedJobs[0]?.payload.alert ?? null).toBeNull();
+    }).pipe(Effect.provide(makeLayer({ attempts, queuedJobs })));
+  });
+
+  it.effect("does not fall back to a push notification when notify is false", () => {
+    const attempts: Array<DeliveryAttempts.DeliveryAttemptInput> = [];
+    const queuedJobs: Array<SignedApnsDeliveryJob> = [];
+    const waitingAggregate: RelayAgentActivityAggregateState = {
+      ...aggregate,
+      activities: [
+        {
+          ...aggregate.activities[0]!,
+          phase: "waiting_for_input",
+          status: "Input",
+        },
+      ],
+    };
+
+    return Effect.gen(function* () {
+      const deliveries = yield* ApnsDeliveries.ApnsDeliveries;
+      const result = yield* deliveries.sendForTarget({
+        notify: false,
+        target: {
+          ...target,
+          push_token: "apns-device-token",
+          push_to_start_token: null,
+          activity_push_token: null,
+          remote_started_at: null,
+        },
+        aggregate: waitingAggregate,
+        nowMs: 5_000,
+      });
+
+      expect(result).toBeNull();
+      expect(queuedJobs).toEqual([]);
+    }).pipe(Effect.provide(makeLayer({ attempts, queuedJobs })));
+  });
 
   it.effect(
     "queues an update inside the throttle window when a changed aggregate awaits input",
@@ -548,6 +624,7 @@ describe("ApnsDeliveries", () => {
       return Effect.gen(function* () {
         const deliveries = yield* ApnsDeliveries.ApnsDeliveries;
         const result = yield* deliveries.sendForTarget({
+          notify: true,
           target: {
             ...target,
             last_aggregate_json: previousAggregateJson,
@@ -586,6 +663,7 @@ describe("ApnsDeliveries", () => {
       return Effect.gen(function* () {
         const deliveries = yield* ApnsDeliveries.ApnsDeliveries;
         const result = yield* deliveries.sendForTarget({
+          notify: true,
           target: {
             ...target,
             last_aggregate_json: previousAggregateJson,
@@ -608,6 +686,7 @@ describe("ApnsDeliveries", () => {
     return Effect.gen(function* () {
       const deliveries = yield* ApnsDeliveries.ApnsDeliveries;
       const result = yield* deliveries.sendForTarget({
+        notify: true,
         target: {
           ...target,
           preferences_json: disabledPreferences,
@@ -650,6 +729,7 @@ describe("ApnsDeliveries", () => {
       return Effect.gen(function* () {
         const deliveries = yield* ApnsDeliveries.ApnsDeliveries;
         const result = yield* deliveries.sendForTarget({
+          notify: true,
           target: {
             ...target,
             push_token: "apns-device-token",
@@ -709,6 +789,7 @@ describe("ApnsDeliveries", () => {
     return Effect.gen(function* () {
       const deliveries = yield* ApnsDeliveries.ApnsDeliveries;
       const result = yield* deliveries.sendForTarget({
+        notify: true,
         target: {
           ...target,
           push_token: "apns-device-token",
@@ -752,6 +833,7 @@ describe("ApnsDeliveries", () => {
       return Effect.gen(function* () {
         const deliveries = yield* ApnsDeliveries.ApnsDeliveries;
         const result = yield* deliveries.sendForTarget({
+          notify: true,
           target: {
             ...target,
             push_token: "apns-device-token",
@@ -794,6 +876,7 @@ describe("ApnsDeliveries", () => {
     return Effect.gen(function* () {
       const deliveries = yield* ApnsDeliveries.ApnsDeliveries;
       const result = yield* deliveries.sendForTarget({
+        notify: true,
         target: {
           ...target,
           push_token: "apns-device-token",
@@ -832,6 +915,7 @@ describe("ApnsDeliveries", () => {
     return Effect.gen(function* () {
       const deliveries = yield* ApnsDeliveries.ApnsDeliveries;
       yield* deliveries.sendForTarget({
+        notify: true,
         target: {
           ...target,
           push_token: "apns-device-token",
