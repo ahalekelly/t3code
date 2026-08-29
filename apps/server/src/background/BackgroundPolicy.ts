@@ -3,6 +3,7 @@ import {
   type BackgroundPolicySnapshot,
   type BackgroundScope,
   type ClientActivityLease,
+  type ClientKind,
   type ClientActivityReportInput,
   type HostPowerSnapshot,
   type RpcClientId,
@@ -127,6 +128,12 @@ export function upsertClientActivityLease(
 
 function isForegroundLease(lease: ClientActivityLease, now: DateTime.Utc): boolean {
   return isLeaseActive(lease, now) && lease.visible && (lease.focused || lease.recentlyInteracted);
+}
+
+export function hasFocusedClient(snapshot: BackgroundPolicySnapshot, kind: ClientKind): boolean {
+  return snapshot.leases.some(
+    (lease) => lease.clientKind === kind && lease.visible && lease.focused,
+  );
 }
 
 function leaseHasScope(lease: ClientActivityLease, scope: BackgroundScope): boolean {
