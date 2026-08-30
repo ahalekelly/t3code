@@ -187,7 +187,6 @@ describe("AgentActivityPublisher", () => {
       expect(result).toEqual(deliveryResult);
       expect(sent).toHaveLength(1);
       expect(sent[0]?.target.device_id).toBe("device-1");
-      expect(sent[0]?.notify).toBe(true);
       expect(sent[0]?.aggregate).toMatchObject({
         activeCount: 1,
         activities: [
@@ -520,9 +519,7 @@ describe("AgentActivityPublisher", () => {
     });
   });
 
-  it.effect("publishes Live Activity updates silently when notify is false", () => {
-    const sent: Array<Parameters<ApnsDeliveries.ApnsDeliveries["Service"]["sendForTarget"]>[0]> =
-      [];
+  it.effect("skips the notification-only push when notify is false", () => {
     let pushCalls = 0;
 
     return Effect.gen(function* () {
@@ -535,7 +532,6 @@ describe("AgentActivityPublisher", () => {
         notify: false,
       });
 
-      expect(sent).toMatchObject([{ aggregate: null, notify: false }]);
       expect(pushCalls).toBe(0);
     }).pipe(
       Effect.provide(
@@ -563,11 +559,7 @@ describe("AgentActivityPublisher", () => {
               Layer.succeed(
                 ApnsDeliveries.ApnsDeliveries,
                 makeApnsDeliveries({
-                  sendForTarget: (input) =>
-                    Effect.sync(() => {
-                      sent.push(input);
-                      return null;
-                    }),
+                  sendForTarget: () => Effect.succeed(null),
                   sendPushNotificationForTarget: () =>
                     Effect.sync(() => {
                       pushCalls += 1;

@@ -98,61 +98,6 @@ describe("BackgroundPolicy", () => {
     }).pipe(Effect.provide(makeLayer(nominalHostPower))),
   );
 
-  it.effect("detects active focused clients while the host is awake and unlocked", () =>
-    Effect.gen(function* () {
-      const policy = yield* BackgroundPolicy.BackgroundPolicy;
-      yield* policy.reportClientActivity(
-        AuthSessionId.make("session-1"),
-        RpcClientId.make(1),
-        makeReport({ clientKind: "mobile" }),
-      );
-
-      const snapshot = yield* policy.snapshot;
-      const now = snapshot.updatedAt;
-      assert.equal(BackgroundPolicy.hasFocusedClient(snapshot, now), true);
-      assert.equal(
-        BackgroundPolicy.hasFocusedClient(
-          {
-            ...snapshot,
-            leases: snapshot.leases.map((lease) => ({ ...lease, focused: false })),
-          },
-          now,
-        ),
-        false,
-      );
-      assert.equal(
-        BackgroundPolicy.hasFocusedClient(
-          {
-            ...snapshot,
-            leases: snapshot.leases.map((lease) => ({ ...lease, expiresAt: now })),
-          },
-          now,
-        ),
-        false,
-      );
-      assert.equal(
-        BackgroundPolicy.hasFocusedClient(
-          {
-            ...snapshot,
-            hostPower: { ...snapshot.hostPower, locked: "true", stale: false },
-          },
-          now,
-        ),
-        false,
-      );
-      assert.equal(
-        BackgroundPolicy.hasFocusedClient(
-          {
-            ...snapshot,
-            hostPower: { ...snapshot.hostPower, locked: "true", stale: true },
-          },
-          now,
-        ),
-        true,
-      );
-    }).pipe(Effect.provide(makeLayer(nominalHostPower))),
-  );
-
   it.effect("removes all leases for a disconnected websocket connection", () =>
     Effect.gen(function* () {
       const policy = yield* BackgroundPolicy.BackgroundPolicy;

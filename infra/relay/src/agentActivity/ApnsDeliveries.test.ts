@@ -95,6 +95,10 @@ const aggregate: RelayAgentActivityAggregateState = {
     },
   ],
 };
+const waitingAggregate: RelayAgentActivityAggregateState = {
+  ...aggregate,
+  activities: [{ ...aggregate.activities[0]!, phase: "waiting_for_input", status: "Input" }],
+};
 
 const enabledPreferences = JSON.stringify({
   liveActivitiesEnabled: true,
@@ -539,16 +543,6 @@ describe("ApnsDeliveries", () => {
   it.effect("queues silent updates for attention transitions when notify is false", () => {
     const attempts: Array<DeliveryAttempts.DeliveryAttemptInput> = [];
     const queuedJobs: Array<SignedApnsDeliveryJob> = [];
-    const waitingAggregate: RelayAgentActivityAggregateState = {
-      ...aggregate,
-      activities: [
-        {
-          ...aggregate.activities[0]!,
-          phase: "waiting_for_input",
-          status: "Input",
-        },
-      ],
-    };
     const previousAggregateJson = JSON.stringify(aggregate);
 
     return Effect.gen(function* () {
@@ -573,16 +567,6 @@ describe("ApnsDeliveries", () => {
   it.effect("does not fall back to a push notification when notify is false", () => {
     const attempts: Array<DeliveryAttempts.DeliveryAttemptInput> = [];
     const queuedJobs: Array<SignedApnsDeliveryJob> = [];
-    const waitingAggregate: RelayAgentActivityAggregateState = {
-      ...aggregate,
-      activities: [
-        {
-          ...aggregate.activities[0]!,
-          phase: "waiting_for_input",
-          status: "Input",
-        },
-      ],
-    };
 
     return Effect.gen(function* () {
       const deliveries = yield* ApnsDeliveries.ApnsDeliveries;
