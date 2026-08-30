@@ -756,6 +756,30 @@ describe("ApnsDeliveries", () => {
     },
   );
 
+  it.effect("ends the card without a companion push when notify is false", () => {
+    const attempts: Array<DeliveryAttempts.DeliveryAttemptInput> = [];
+    const queuedJobs: Array<SignedApnsDeliveryJob> = [];
+
+    return Effect.gen(function* () {
+      const deliveries = yield* ApnsDeliveries.ApnsDeliveries;
+      const result = yield* deliveries.sendForTarget({
+        notify: false,
+        target: {
+          ...target,
+          push_token: "apns-device-token",
+          preferences_json: disabledPreferences,
+        },
+        aggregate: waitingAggregate,
+        nowMs: 5_000,
+      });
+
+      expect(result?.kind).toBe("live_activity_end");
+      expect(queuedJobs).toMatchObject([{ payload: { kind: "live_activity_end" } }]);
+      expect(queuedJobs[0]?.payload.alert ?? null).toBeNull();
+      expect(attempts).toEqual([]);
+    }).pipe(Effect.provide(makeLayer({ attempts, queuedJobs })));
+  });
+
   it.effect("does not queue alert pushes when notification permission is disabled", () => {
     const attempts: Array<DeliveryAttempts.DeliveryAttemptInput> = [];
     const queuedJobs: Array<SignedApnsDeliveryJob> = [];

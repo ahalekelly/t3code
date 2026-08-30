@@ -1231,11 +1231,14 @@ export const make = Effect.gen(function* () {
         });
         return result;
       }
-      const notification = notificationForAggregate({
-        target: input.target,
-        aggregate: input.aggregate,
-        nowMs: input.nowMs,
-      });
+      // Silent publishes update the card without any alert or companion push.
+      const notification = input.notify
+        ? notificationForAggregate({
+            target: input.target,
+            aggregate: input.aggregate,
+            nowMs: input.nowMs,
+          })
+        : null;
       // The end event doubles as the "task finished" moment. When a companion
       // push notification is about to ring the device (below), the activity end
       // stays silent; otherwise the end itself carries the alert so LA-only
@@ -1260,12 +1263,7 @@ export const make = Effect.gen(function* () {
         aggregate: delivery.aggregate,
         alert,
       });
-      if (
-        input.notify &&
-        delivery.kind === "live_activity_end" &&
-        notification &&
-        input.target.push_token
-      ) {
+      if (delivery.kind === "live_activity_end" && notification && input.target.push_token) {
         yield* deliveryQueue.enqueuePushNotification({
           userId: input.target.user_id,
           deviceId: input.target.device_id,
