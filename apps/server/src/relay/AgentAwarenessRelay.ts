@@ -372,10 +372,7 @@ export const make = Effect.gen(function* () {
       readonly reason: string;
     }) =>
       Effect.gen(function* () {
-        const notify = !BackgroundPolicy.hasFocusedClient(
-          yield* backgroundPolicy.snapshot,
-          yield* DateTime.now,
-        );
+        const notify = !BackgroundPolicy.hasFocusedClient(yield* backgroundPolicy.snapshot);
         const proof = yield* makePublishProof({
           privateKey: cloudLinkKeyPair.privateKey,
           relayIssuer: relayConfig.issuer,

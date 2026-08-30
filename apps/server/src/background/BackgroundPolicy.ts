@@ -131,12 +131,10 @@ function isForegroundLease(lease: ClientActivityLease, now: DateTime.Utc): boole
 
 // A user is watching the app when a live, visible, focused client exists and
 // the host is awake and unlocked. Relay activity updates stay silent while watched.
-export function hasFocusedClient(snapshot: BackgroundPolicySnapshot, now: DateTime.Utc): boolean {
+export function hasFocusedClient(snapshot: BackgroundPolicySnapshot): boolean {
   const { hostPower } = snapshot;
   if (!hostPower.stale && (hostPower.suspended || hostPower.locked === "true")) return false;
-  return snapshot.leases.some(
-    (lease) => isLeaseActive(lease, now) && lease.visible && lease.focused,
-  );
+  return snapshot.leases.some((lease) => lease.visible && lease.focused);
 }
 
 function leaseHasScope(lease: ClientActivityLease, scope: BackgroundScope): boolean {
