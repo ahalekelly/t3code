@@ -62,6 +62,7 @@ export function createEnvironmentVoiceTranscriber(input: {
           try {
             throwIfVoiceTranscriptionAborted(transcriptionSignal);
             const recordingResponse = await fetchImpl(uri, { signal: transcriptionSignal });
+            if (!recordingResponse.ok) throw new Error("Could not read the voice recording.");
             const audio = await recordingResponse.blob();
             throwIfVoiceTranscriptionAborted(transcriptionSignal);
 
@@ -108,16 +109,16 @@ export function createEnvironmentVoiceTranscriber(input: {
             });
             throwIfVoiceTranscriptionAborted(transcriptionSignal);
             if (!response.ok) {
-              throw new Error((await response.text()) || `Transcription failed (${response.status}).`);
+              throw new Error(
+                (await response.text()) || `Transcription failed (${response.status}).`,
+              );
             }
             return decodeResponse(await response.json()).text;
           } catch (cause) {
             if (transcriptionSignal.aborted) {
-              throw new VoiceTranscriptionError(
-                "cancelled",
-                "Voice transcription was cancelled.",
-                { cause },
-              );
+              throw new VoiceTranscriptionError("cancelled", "Voice transcription was cancelled.", {
+                cause,
+              });
             }
             throw transcriptionError(
               "transcription-failed",

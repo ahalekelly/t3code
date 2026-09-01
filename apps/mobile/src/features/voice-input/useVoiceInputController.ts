@@ -32,7 +32,7 @@ import { normalizeVoiceInputDecibels, VOICE_WAVEFORM_SAMPLE_COUNT } from "./voic
 import { appAtomRegistry } from "../../state/atom-registry";
 import { mobilePreferencesAtom } from "../../state/preferences";
 import { serverEnvironment } from "../../state/server";
-import { environmentSession, usePreparedConnection } from "../../state/session";
+import { environmentSession } from "../../state/session";
 import { transcriptionEnvironment } from "../../state/transcription";
 
 const INITIAL_STATE: VoiceInputState = { phase: "idle", error: null, errorAction: null };
@@ -86,7 +86,6 @@ export function useVoiceInputController(input: {
   const services = useAtomValue(
     serverEnvironment.transcriptionServicesValueAtom(input.environmentId),
   );
-  const preparedConnection = usePreparedConnection(input.environmentId);
   const localTranscriber = getLocalVoiceTranscriber();
   const selectedSource =
     input.environmentId !== null && AsyncResult.isSuccess(preferences)
@@ -95,14 +94,12 @@ export function useVoiceInputController(input: {
   const voiceSelectionRef = useRef({
     environmentId: input.environmentId,
     services,
-    preparedConnection,
     localTranscriber,
     selectedSource,
   });
   voiceSelectionRef.current = {
     environmentId: input.environmentId,
     services,
-    preparedConnection,
     localTranscriber,
     selectedSource,
   };

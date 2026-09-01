@@ -1,6 +1,6 @@
 # Voice input
 
-> For maintainers. Using T3 Code? See [voice input on iPhone](../user/composer.md#voice-input-on-iphone).
+> For maintainers. Using T3 Code? See [voice input on mobile](../user/composer.md#voice-input-on-mobile).
 
 Voice input produces editable composer text. Mobile records on the client and transcribes either locally with Apple's `SpeechAnalyzer` and `SpeechTranscriber` on supported iOS 26+ devices or through an environment-provided OpenAI service. Web and desktop do not capture voice.
 

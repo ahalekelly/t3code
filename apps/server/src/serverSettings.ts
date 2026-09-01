@@ -166,13 +166,10 @@ export function redactServerSettingsForClient(settings: ServerSettings): ServerS
     providerInstances,
     transcription: {
       ...settings.transcription,
-      openAiApiKey: {
-        ...openAiApiKey,
-        value: "",
-        ...(openAiApiKey.value.length > 0 || openAiApiKey.valueRedacted
-          ? { valueRedacted: true }
-          : { valueRedacted: undefined }),
-      },
+      openAiApiKey:
+        openAiApiKey.value.length > 0 || openAiApiKey.valueRedacted
+          ? { ...openAiApiKey, value: "", valueRedacted: true }
+          : { value: "", sensitive: true },
     },
   };
 }
@@ -539,9 +536,7 @@ const make = Effect.gen(function* () {
                   cause,
                 }),
             ),
-            Effect.map((secret) =>
-              Option.isSome(secret) ? textDecoder.decode(secret.value) : "",
-            ),
+            Effect.map((secret) => (Option.isSome(secret) ? textDecoder.decode(secret.value) : "")),
           )
         : openAiApiKey.value;
       return {
@@ -669,12 +664,13 @@ const make = Effect.gen(function* () {
       const openAiApiKey = next.transcription.openAiApiKey;
       if (!openAiApiKey.valueRedacted) {
         const operation = openAiApiKey.value.length > 0 ? "write-secret" : "remove-secret";
-        yield* (openAiApiKey.value.length > 0
-          ? secretStore.set(
-              TRANSCRIPTION_OPENAI_API_KEY_SECRET_NAME,
-              textEncoder.encode(openAiApiKey.value),
-            )
-          : secretStore.remove(TRANSCRIPTION_OPENAI_API_KEY_SECRET_NAME)
+        yield* (
+          openAiApiKey.value.length > 0
+            ? secretStore.set(
+                TRANSCRIPTION_OPENAI_API_KEY_SECRET_NAME,
+                textEncoder.encode(openAiApiKey.value),
+              )
+            : secretStore.remove(TRANSCRIPTION_OPENAI_API_KEY_SECRET_NAME)
         ).pipe(
           Effect.mapError(
             (cause) =>

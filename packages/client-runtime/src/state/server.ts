@@ -315,7 +315,9 @@ export function applyServerConfigProjection(
         config: {
           ...projection.config,
           settings: event.payload.settings,
-          transcriptionServices: event.payload.transcriptionServices,
+          ...(event.payload.transcriptionServices === undefined
+            ? {}
+            : { transcriptionServices: event.payload.transcriptionServices }),
         },
         latestEvent: event,
         source: "live",
@@ -750,9 +752,7 @@ export function createServerEnvironmentAtoms<R, E>(
           return config?.environment.capabilities.transcription === true
             ? (config.transcriptionServices ?? [])
             : [];
-        }).pipe(
-          Atom.withLabel(`environment-data:server:transcription-services:${environmentId}`),
-        ),
+        }).pipe(Atom.withLabel(`environment-data:server:transcription-services:${environmentId}`)),
   );
 
   return {

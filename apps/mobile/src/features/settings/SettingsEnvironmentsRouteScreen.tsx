@@ -144,7 +144,6 @@ export function SettingsEnvironmentsRouteScreen() {
                   onRemove={onRemoveEnvironmentPress}
                   onUpdate={handleUpdateEnvironment}
                 />
-                <EnvironmentTranscriptionRow environmentId={environment.environmentId} />
               </View>
             ))}
           </View>
@@ -178,12 +177,22 @@ export function SettingsEnvironmentsRouteScreen() {
               }
             : {})}
         />
+        {[...localEnvironments, ...connectedCloudEnvironments].map((environment) => (
+          <EnvironmentTranscriptionRow
+            key={`transcription-${environment.environmentId}`}
+            environmentId={environment.environmentId}
+            environmentLabel={environment.environmentLabel}
+          />
+        ))}
       </ScrollView>
     </View>
   );
 }
 
-function EnvironmentTranscriptionRow(props: { readonly environmentId: EnvironmentId }) {
+function EnvironmentTranscriptionRow(props: {
+  readonly environmentId: EnvironmentId;
+  readonly environmentLabel: string;
+}) {
   const services = useAtomValue(
     serverEnvironment.transcriptionServicesValueAtom(props.environmentId),
   );
@@ -233,9 +242,9 @@ function EnvironmentTranscriptionRow(props: { readonly environmentId: Environmen
       }}
     >
       <Pressable
-        accessibilityLabel={`Voice transcription: ${selectedLabel}`}
+        accessibilityLabel={`${props.environmentLabel} voice transcription: ${selectedLabel}`}
         accessibilityRole="button"
-        className="flex-row items-center justify-between border-t border-border px-4 py-3"
+        className="mt-3 flex-row items-center justify-between rounded-[24px] bg-card px-4 py-3"
       >
         <View className="flex-row items-center gap-3">
           <SymbolView
@@ -244,7 +253,10 @@ function EnvironmentTranscriptionRow(props: { readonly environmentId: Environmen
             tintColorClassName="accent-icon-muted"
             type="monochrome"
           />
-          <Text className="text-sm text-foreground">Voice transcription</Text>
+          <View>
+            <Text className="text-sm text-foreground">Voice transcription</Text>
+            <Text className="text-xs text-foreground-muted">{props.environmentLabel}</Text>
+          </View>
         </View>
         <Text className="text-sm text-foreground-muted">{selectedLabel}</Text>
       </Pressable>

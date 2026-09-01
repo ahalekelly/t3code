@@ -11,11 +11,7 @@ import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
-import {
-  HttpBody,
-  HttpClient,
-  HttpClientResponse,
-} from "effect/unstable/http";
+import { HttpBody, HttpClient, HttpClientResponse } from "effect/unstable/http";
 
 import {
   base64UrlDecodeUtf8,
@@ -98,20 +94,20 @@ export const readTranscriptionBody = Effect.fn("Transcription.readBody")(functio
 ) {
   const chunks: Uint8Array[] = [];
   let received = 0;
-  const result = yield* Stream.runForEach(stream, (chunk) =>
-    Effect.sync(() => {
-      received += chunk.byteLength;
-      if (received <= claims.sizeBytes) chunks.push(chunk);
-    }),
-  ).pipe(Effect.exit);
-  if (result._tag === "Failure") {
-    return { ok: false, detail: "Failed to read transcription audio." } as const;
-  }
+  const result = yield* Stream.runForEach(stream, (chunk) => {
+    received += chunk.byteLength;
+    if (received > claims.sizeBytes) return Effect.fail("oversized" as const);
+    chunks.push(chunk);
+    return Effect.void;
+  }).pipe(Effect.exit);
   if (received !== claims.sizeBytes) {
     return {
       ok: false,
       detail: `Body was ${received} bytes, expected ${claims.sizeBytes}.`,
     } as const;
+  }
+  if (result._tag === "Failure") {
+    return { ok: false, detail: "Failed to read transcription audio." } as const;
   }
   const body = new Uint8Array(received);
   let offset = 0;

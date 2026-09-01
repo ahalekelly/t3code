@@ -15,6 +15,4 @@ export function createTranscriptionEnvironmentAtoms<R, E>(
   };
 }
 
-export type TranscriptionEnvironmentAtoms = ReturnType<
-  typeof createTranscriptionEnvironmentAtoms
->;
+export type TranscriptionEnvironmentAtoms = ReturnType<typeof createTranscriptionEnvironmentAtoms>;

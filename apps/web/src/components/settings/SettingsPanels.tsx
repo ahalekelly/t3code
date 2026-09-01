@@ -2527,9 +2527,7 @@ export function GeneralSettingsPanel() {
                 className="min-w-0 flex-1"
                 onChange={(event) => setTranscriptionKeyDraft(event.target.value)}
                 placeholder={
-                  settings.transcription.openAiApiKey.valueRedacted
-                    ? "Key configured"
-                    : "sk-..."
+                  settings.transcription.openAiApiKey.valueRedacted ? "Key configured" : "sk-..."
                 }
                 type="password"
                 value={transcriptionKeyDraft}

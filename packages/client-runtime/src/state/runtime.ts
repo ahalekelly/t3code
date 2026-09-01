@@ -394,7 +394,7 @@ export function createRuntimeCommand<R, ER, W, A, E>(
           return executeAtomQuery(registry, atom, {
             reportDefect: false,
             reportFailure: false,
-            signal,
+            ...(signal === undefined ? {} : { signal }),
           });
         }),
       ),
@@ -423,7 +423,7 @@ export function createRuntimeStreamCommand<R, ER, W, A, E>(
           return executeAtomQuery(registry, atom, {
             reportDefect: false,
             reportFailure: false,
-            signal,
+            ...(signal === undefined ? {} : { signal }),
           });
         }),
       ),

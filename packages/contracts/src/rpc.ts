@@ -707,6 +707,7 @@ export const WsTranscriptionCreateUrlRpc = Rpc.make(WS_METHODS.transcriptionCrea
   error: Schema.Union([
     TranscriptionSigningKeyError,
     TranscriptionUnavailableError,
+    ServerSettingsError,
     EnvironmentAuthorizationError,
   ]),
 });
