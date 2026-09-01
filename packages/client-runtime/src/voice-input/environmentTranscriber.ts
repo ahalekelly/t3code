@@ -14,7 +14,17 @@ import {
   type VoiceTranscriber,
 } from "./transcription.ts";
 
-const decodeResponse = Schema.decodeUnknownSync(TranscriptionResponse);
+const decodeResponse = Schema.decodeUnknownSync(Schema.fromJsonString(TranscriptionResponse));
+
+export interface EnvironmentVoiceTranscriptionTransport {
+  readonly sizeBytes: (uri: string) => Promise<number>;
+  readonly upload: (input: {
+    readonly uri: string;
+    readonly url: string;
+    readonly mimeType: string;
+    readonly signal: AbortSignal;
+  }) => Promise<{ readonly status: number; readonly bodyText: string }>;
+}
 
 function transcriptionError(
   code: "preparation-failed" | "transcription-failed",
@@ -30,15 +40,14 @@ export function createEnvironmentVoiceTranscriber(input: {
   readonly environmentId: EnvironmentId;
   readonly serviceId: string;
   readonly locale: string;
+  readonly mimeType: string;
+  readonly transport: EnvironmentVoiceTranscriptionTransport;
   readonly registry: AtomRegistry.AtomRegistry;
   readonly environment: TranscriptionEnvironmentAtoms;
   readonly getServices: () => ReadonlyArray<TranscriptionService>;
   readonly isConnected: () => boolean;
   readonly resolveUrl: (relativeUrl: string) => string | null;
-  readonly fetch?: typeof fetch;
 }): VoiceTranscriber {
-  const fetchImpl = input.fetch ?? fetch;
-
   return {
     prepare: async ({ signal }) => {
       throwIfVoiceTranscriptionAborted(signal);
@@ -61,9 +70,7 @@ export function createEnvironmentVoiceTranscriber(input: {
           const { signal: transcriptionSignal } = options;
           try {
             throwIfVoiceTranscriptionAborted(transcriptionSignal);
-            const recordingResponse = await fetchImpl(uri, { signal: transcriptionSignal });
-            if (!recordingResponse.ok) throw new Error("Could not read the voice recording.");
-            const audio = await recordingResponse.blob();
+            const sizeBytes = await input.transport.sizeBytes(uri);
             throwIfVoiceTranscriptionAborted(transcriptionSignal);
 
             const minted = await runAtomCommand(
@@ -72,8 +79,8 @@ export function createEnvironmentVoiceTranscriber(input: {
               {
                 environmentId: input.environmentId,
                 input: {
-                  mimeType: audio.type || "audio/mp4",
-                  sizeBytes: audio.size,
+                  mimeType: input.mimeType,
+                  sizeBytes,
                   locale: input.locale,
                 },
               },
@@ -101,19 +108,17 @@ export function createEnvironmentVoiceTranscriber(input: {
                 "The selected transcription environment is disconnected.",
               );
             }
-            const response = await fetchImpl(url, {
-              method: "POST",
-              headers: { "Content-Type": audio.type || "audio/mp4" },
-              body: audio,
+            const response = await input.transport.upload({
+              uri,
+              url,
+              mimeType: input.mimeType,
               signal: transcriptionSignal,
             });
             throwIfVoiceTranscriptionAborted(transcriptionSignal);
-            if (!response.ok) {
-              throw new Error(
-                (await response.text()) || `Transcription failed (${response.status}).`,
-              );
+            if (response.status < 200 || response.status >= 300) {
+              throw new Error(response.bodyText || `Transcription failed (${response.status}).`);
             }
-            return decodeResponse(await response.json()).text;
+            return decodeResponse(response.bodyText).text;
           } catch (cause) {
             if (transcriptionSignal.aborted) {
               throw new VoiceTranscriptionError("cancelled", "Voice transcription was cancelled.", {

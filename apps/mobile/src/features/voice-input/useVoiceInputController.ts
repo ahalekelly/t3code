@@ -28,6 +28,7 @@ import {
   type VoiceInputState,
 } from "@t3tools/client-runtime/voice-input";
 import { resolveAssetUrl } from "@t3tools/client-runtime/state/assets";
+import { environmentVoiceTransport } from "./environmentVoiceTransport";
 import { normalizeVoiceInputDecibels, VOICE_WAVEFORM_SAMPLE_COUNT } from "./voiceInputMetering";
 import { appAtomRegistry } from "../../state/atom-registry";
 import { mobilePreferencesAtom } from "../../state/preferences";
@@ -144,6 +145,8 @@ export function useVoiceInputController(input: {
           environmentId,
           serviceId: source,
           locale: Intl.DateTimeFormat().resolvedOptions().locale,
+          mimeType: "audio/mp4",
+          transport: environmentVoiceTransport,
           registry: appAtomRegistry,
           environment: transcriptionEnvironment,
           getServices: () =>
