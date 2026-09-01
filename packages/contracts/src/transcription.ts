@@ -4,7 +4,7 @@ import { NonNegativeInt, TrimmedNonEmptyString } from "./baseSchemas.ts";
 
 export const TRANSCRIPTION_MAX_AUDIO_BYTES = 25 * 1024 * 1024;
 export const TRANSCRIPTION_URL_TTL_MS = 10 * 60_000;
-export const DEFAULT_OPENAI_TRANSCRIPTION_MODEL = "gpt-4o-transcribe";
+export const DEFAULT_OPENAI_TRANSCRIPTION_MODEL = "gpt-4o-mini-transcribe";
 
 export const TranscriptionService = Schema.Struct({
   id: TrimmedNonEmptyString.check(Schema.isMaxLength(64)),
