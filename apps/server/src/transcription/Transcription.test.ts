@@ -38,7 +38,7 @@ const secretStoreLayer = Layer.succeed(
 const settingsLayer = ServerSettings.layerTest({
   transcription: {
     openAiApiKey: { value: "sk-test", sensitive: true },
-    model: "gpt-4o-mini-transcribe",
+    model: "gpt-transcribe",
   },
 });
 
