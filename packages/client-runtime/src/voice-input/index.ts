@@ -11,6 +11,7 @@ export {
   type VoiceRecorder,
   type VoiceRecorderStatus,
 } from "./controller.ts";
+export { createEnvironmentVoiceTranscriber } from "./environmentTranscriber.ts";
 export {
   VoiceTranscriptionError,
   throwIfVoiceTranscriptionAborted,
