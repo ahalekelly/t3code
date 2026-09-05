@@ -30,7 +30,6 @@ import * as Persistence from "../platform/persistence.ts";
 import type { WsRpcProtocolClient } from "../rpc/protocol.ts";
 import type { RpcSession } from "../rpc/session.ts";
 import {
-  applyServerConfigProjection,
   makeEnvironmentServerConfigState,
   isLegacyUpdateHandoffLoss,
   matchesServerUpdateReadyEvent,
@@ -42,6 +41,7 @@ import {
   serverUpdateStateForServerVersion,
   validateServerUpdateReadyEvent,
 } from "./server.ts";
+import { applyServerConfigProjection } from "./serverConfigProjection.ts";
 
 const CONFIG = {
   availableEditors: [],
@@ -73,6 +73,7 @@ function session(client: WsRpcProtocolClient): RpcSession {
   return {
     client,
     initialConfig: Effect.succeed(CONFIG),
+    subscribeServerConfig: (input) => client.subscribeServerConfig(input),
     ready: Effect.void,
     probe: Effect.void,
     closed: Effect.never,
@@ -307,6 +308,29 @@ describe("server state projection", () => {
     const result = Option.getOrThrow(projected);
     expect(result.config.settings).toBe(settings);
     expect(result.latestEvent.type).toBe("settingsUpdated");
+  });
+
+  it("updates transcription services and preserves them when settings omit the catalog", () => {
+    const services = [{ id: "openai", label: "OpenAI" }];
+    const snapshot = applyServerConfigProjection(Option.none(), snapshotEvent(CONFIG));
+    const updated = applyServerConfigProjection(snapshot, {
+      version: 1,
+      type: "settingsUpdated",
+      payload: { settings: CONFIG.settings, transcriptionServices: services },
+    });
+    expect(Option.getOrThrow(updated).config.transcriptionServices).toEqual(services);
+    const retained = applyServerConfigProjection(updated, {
+      version: 1,
+      type: "settingsUpdated",
+      payload: { settings: CONFIG.settings },
+    });
+    expect(Option.getOrThrow(retained).config.transcriptionServices).toEqual(services);
+    const cleared = applyServerConfigProjection(retained, {
+      version: 1,
+      type: "settingsUpdated",
+      payload: { settings: CONFIG.settings, transcriptionServices: [] },
+    });
+    expect(Option.getOrThrow(cleared).config.transcriptionServices).toEqual([]);
   });
 
   it("carries published environment themes in and out of the projected snapshot", () => {
