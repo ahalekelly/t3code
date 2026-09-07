@@ -202,9 +202,16 @@ const config: ExpoConfig = {
         }
       : {}),
     infoPlist: {
-      // Personal Team builds install alongside the App Store app, so give them a
-      // distinct home screen name.
-      ...(isIosPersonalTeamBuild ? { CFBundleDisplayName: `${variant.appName} Custom` } : {}),
+      ...(isIosPersonalTeamBuild
+        ? {
+            // Personal Team builds install alongside the App Store app, so give
+            // them a distinct home screen name.
+            CFBundleDisplayName: `${variant.appName} Custom`,
+            // Clerk's iOS SDK derives its OAuth redirect from the bundle identifier,
+            // and only the App Store identifiers are authorized on our Clerk instance.
+            ClerkRedirectUrl: `${variant.iosBundleIdentifier}://callback`,
+          }
+        : {}),
       NSAppTransportSecurity: {
         NSAllowsArbitraryLoads: true,
       },
