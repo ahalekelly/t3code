@@ -81,8 +81,12 @@ describe("environment transcription", () => {
       const result = yield* transcribeWithOpenAi(claims, new Uint8Array([1, 2, 3]));
       assert.deepEqual(result, { ok: true, text: "transcribed text" });
     }).pipe(
-      Effect.provide(clientLayer(Response.json({ text: "transcribed text" }) as WebResponse)),
-      Effect.provide(settingsLayer),
+      Effect.provide(
+        Layer.mergeAll(
+          clientLayer(Response.json({ text: "transcribed text" }) as WebResponse),
+          settingsLayer,
+        ),
+      ),
     ),
   );
 
@@ -95,8 +99,12 @@ describe("environment transcription", () => {
         detail: "OpenAI transcription failed with status 429.",
       });
     }).pipe(
-      Effect.provide(clientLayer(new Response("rate limited", { status: 429 }) as WebResponse)),
-      Effect.provide(settingsLayer),
+      Effect.provide(
+        Layer.mergeAll(
+          clientLayer(new Response("rate limited", { status: 429 }) as WebResponse),
+          settingsLayer,
+        ),
+      ),
     ),
   );
 
@@ -106,17 +114,19 @@ describe("environment transcription", () => {
       const interrupted = yield* Deferred.make<void>();
       const pending = transcribeWithOpenAi(claims, new Uint8Array([1, 2, 3])).pipe(
         Effect.provide(
-          Layer.succeed(
-            HttpClient.HttpClient,
-            HttpClient.make(() =>
-              Deferred.succeed(started, undefined).pipe(
-                Effect.andThen(Effect.never),
-                Effect.ensuring(Deferred.succeed(interrupted, undefined)),
+          Layer.mergeAll(
+            Layer.succeed(
+              HttpClient.HttpClient,
+              HttpClient.make(() =>
+                Deferred.succeed(started, undefined).pipe(
+                  Effect.andThen(Effect.never),
+                  Effect.ensuring(Deferred.succeed(interrupted, undefined)),
+                ),
               ),
             ),
+            settingsLayer,
           ),
         ),
-        Effect.provide(settingsLayer),
       );
       const fiber = yield* Effect.forkChild(pending);
       yield* Deferred.await(started);

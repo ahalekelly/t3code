@@ -88,9 +88,9 @@ export type ReadTranscriptionBodyResult =
   | { readonly ok: true; readonly body: Uint8Array }
   | { readonly ok: false; readonly detail: string };
 
-export const readTranscriptionBody = Effect.fn("Transcription.readBody")(function* (
+export const readTranscriptionBody = Effect.fn("Transcription.readBody")(function* <E>(
   claims: TranscriptionClaims,
-  stream: Stream.Stream<Uint8Array, unknown>,
+  stream: Stream.Stream<Uint8Array, E>,
 ) {
   const chunks: Uint8Array[] = [];
   let received = 0;

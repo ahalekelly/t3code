@@ -18,6 +18,7 @@ import { useSharedValue } from "react-native-reanimated";
 
 import type { ComposerEditorSelection } from "../../components/ComposerEditor";
 import { getLocalVoiceTranscriber } from "../../native/voiceTranscription";
+import { getNativeShowcaseScene } from "../showcase/nativeShowcaseScene";
 import {
   createEnvironmentVoiceTranscriber,
   VoiceInputController,
@@ -268,7 +269,10 @@ export function useVoiceInputController(input: {
   const cancel = useCallback(() => controller.cancel(), [controller]);
 
   return {
-    isAvailable: localTranscriber !== null || services.length > 0,
+    // Store screenshots show the dictation button even on simulators, whose
+    // on-device transcription is unavailable.
+    isAvailable:
+      localTranscriber !== null || services.length > 0 || getNativeShowcaseScene() !== null,
     state,
     audioLevels,
     elapsedSeconds,
