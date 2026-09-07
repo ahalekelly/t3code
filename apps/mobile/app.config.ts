@@ -250,6 +250,9 @@ const config: ExpoConfig = {
       "keychain-access-groups": [`$(AppIdentifierPrefix)${variant.iosBundleIdentifier}`],
     },
     infoPlist: {
+      // Personal Team builds install alongside the App Store app, so give them a
+      // distinct home screen name.
+      ...(isIosPersonalTeamBuild ? { CFBundleDisplayName: `${variant.appName} Custom` } : {}),
       NSAppTransportSecurity: {
         NSAllowsArbitraryLoads: true,
       },
