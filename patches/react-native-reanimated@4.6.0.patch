@@ -1,0 +1,335 @@
+diff --git a/lib/module/createAnimatedComponent/AnimatedComponent.native.js b/lib/module/createAnimatedComponent/AnimatedComponent.native.js
+index dfdba3c7353a9625f712ff43deda0b1c64100119..5cd18746c49ee7e9aae372ba5d7f9a584acc066c 100644
+--- a/lib/module/createAnimatedComponent/AnimatedComponent.native.js
++++ b/lib/module/createAnimatedComponent/AnimatedComponent.native.js
+@@ -95,12 +95,9 @@ export default class AnimatedComponent extends ReanimatedAnimatedComponent {
+     if (!FORCE_REACT_RENDER_FOR_SETTLED_ANIMATIONS) {
+       return;
+     }
+-    // Settled updates arrive as one bag with no style-vs-props origin, so
+-    // partition them by the keys of attached animated props — only values
+-    // from `useAnimatedProps` or shared values passed as inline top-level
+-    // props may be passed as top-level props, all the other ones are
+-    // style-only.
+-    const animatedPropsKeys = new Set([...this._animatedProps.flatMap(animatedProp => Object.keys(animatedProp.initial?.value ?? {})), ...Object.keys(this._InlinePropManager._inlineTopLevelProps)]);
++    // Animated props can add keys after mounting and omit them again once
++    // settled. Keep their origin so cleanup cannot reset native props to defaults.
++    const animatedPropsKeys = new Set([...this._animatedProps.flatMap(animatedProp => animatedProp.animatedPropsKeys.value), ...Object.keys(this._InlinePropManager._inlineTopLevelProps)]);
+     if (animatedPropsKeys.size === 0) {
+       this.setState(state => ({
+         settledStyle: {
+diff --git a/lib/module/hook/useAnimatedStyle.js b/lib/module/hook/useAnimatedStyle.js
+index ceab87a14d8db322f4f3170ec4704fb3eb7966ec..30f7a28b517c7c562838ef3378ddce957524a906 100644
+--- a/lib/module/hook/useAnimatedStyle.js
++++ b/lib/module/hook/useAnimatedStyle.js
+@@ -7,6 +7,7 @@ import { IS_JEST } from "../common/index.js";
+ import { startMapper, stopMapper } from "../core.js";
+ import { updateProps } from "../updateProps/index.js";
+ import { makeViewDescriptorsSet } from "../ViewDescriptorsSet.js";
++import { makeMutable } from "../mutables.js";
+ import { buildWorkletsHash, checkSharedValueUsage, prepareAnimation, runAnimations, styleUpdater } from "./useAnimatedStyleCommon.js";
+ import { useSharedValue } from "./useSharedValue.js";
+ import { isAnimated, shallowEqual, validateAnimatedStyles } from "./utils.js";
+@@ -160,6 +161,7 @@ For more, see the docs: \`https://docs.swmansion.com/react-native-reanimated/doc
+         isAnimationCancelled: false,
+         isAnimationRunning: false
+       }),
++      animatedPropsKeys: isAnimatedProps ? makeMutable(Object.keys(initialStyle)) : null,
+       viewDescriptors: makeViewDescriptorsSet(),
+       styleUpdaterContainer: {
+         current: undefined
+@@ -169,7 +171,8 @@ For more, see the docs: \`https://docs.swmansion.com/react-native-reanimated/doc
+   const {
+     initial,
+     remoteState,
+-    viewDescriptors
++    viewDescriptors,
++    animatedPropsKeys
+   } = animatedUpdaterData.current;
+   const shareableViewDescriptors = viewDescriptors.shareableViewDescriptors;
+   dependencies.push(shareableViewDescriptors);
+@@ -187,6 +190,20 @@ For more, see the docs: \`https://docs.swmansion.com/react-native-reanimated/doc
+         return newValues;
+       };
+     }
++    if (animatedPropsKeys) {
++      const propsUpdater = updaterFn;
++      updaterFn = () => {
++        'worklet';
++        const values = propsUpdater();
++        const previousKeys = animatedPropsKeys.value;
++        const keys = Object.keys(values);
++        if (keys.some((key) => !previousKeys.includes(key))) {
++          animatedPropsKeys.value = [...new Set([...previousKeys, ...keys])];
++        }
++        return values;
++      };
++    }
++
+     if (IS_JEST) {
+       fun = forceUpdate => {
+         'worklet';
+@@ -224,12 +241,14 @@ For more, see the docs: \`https://docs.swmansion.com/react-native-reanimated/doc
+     animatedStyleHandle.current = IS_JEST ? {
+       viewDescriptors,
+       initial,
++      animatedPropsKeys,
+       jestAnimatedValues,
+       toJSON: animatedStyleHandleToJSON,
+       styleUpdaterContainer
+     } : {
+       viewDescriptors,
+       initial,
++      animatedPropsKeys,
+       styleUpdaterContainer
+     };
+   }
+diff --git a/lib/module/hook/useAnimatedStyle.native.js b/lib/module/hook/useAnimatedStyle.native.js
+index 960be67bef54bb6bcad46706be0d8429aef1b56d..58d244196af9eb9aa4472560396564ee2e5c160c 100644
+--- a/lib/module/hook/useAnimatedStyle.native.js
++++ b/lib/module/hook/useAnimatedStyle.native.js
+@@ -6,6 +6,7 @@ import { initialUpdaterRun } from "../animation/index.js";
+ import { logger } from "../common/index.js";
+ import { startMapper, stopMapper } from "../core.js";
+ import { makeViewDescriptorsSet } from "../ViewDescriptorsSet.js";
++import { makeMutable } from "../mutables.js";
+ import { buildWorkletsHash, checkSharedValueUsage, styleUpdater } from "./useAnimatedStyleCommon.js";
+ import { useSharedValue } from "./useSharedValue.js";
+ import { validateAnimatedStyles } from "./utils.js";
+@@ -54,6 +55,7 @@ export function useAnimatedStyle(updater, _dependencies, adapters, isAnimatedPro
+         isAnimationCancelled: false,
+         isAnimationRunning: false
+       }),
++      animatedPropsKeys: isAnimatedProps ? makeMutable(Object.keys(initialStyle)) : null,
+       viewDescriptors: makeViewDescriptorsSet(),
+       styleUpdaterContainer: {
+         current: undefined
+@@ -63,7 +65,8 @@ export function useAnimatedStyle(updater, _dependencies, adapters, isAnimatedPro
+   const {
+     initial,
+     remoteState,
+-    viewDescriptors
++    viewDescriptors,
++    animatedPropsKeys
+   } = animatedUpdaterData.current;
+   const shareableViewDescriptors = viewDescriptors.shareableViewDescriptors;
+   dependencies.push(shareableViewDescriptors);
+@@ -80,6 +83,20 @@ export function useAnimatedStyle(updater, _dependencies, adapters, isAnimatedPro
+         return newValues;
+       };
+     }
++    if (animatedPropsKeys) {
++      const propsUpdater = updaterFn;
++      updaterFn = () => {
++        'worklet';
++        const values = propsUpdater();
++        const previousKeys = animatedPropsKeys.value;
++        const keys = Object.keys(values);
++        if (keys.some((key) => !previousKeys.includes(key))) {
++          animatedPropsKeys.value = [...new Set([...previousKeys, ...keys])];
++        }
++        return values;
++      };
++    }
++
+     const fun = forceUpdate => {
+       'worklet';
+ 
+@@ -109,6 +126,7 @@ export function useAnimatedStyle(updater, _dependencies, adapters, isAnimatedPro
+     animatedStyleHandle.current = {
+       viewDescriptors,
+       initial,
++      animatedPropsKeys,
+       styleUpdaterContainer
+     };
+   }
+diff --git a/lib/typescript/hook/commonTypes.d.ts b/lib/typescript/hook/commonTypes.d.ts
+index c1cb3be782b2c4c940a23b3ed394ba71825d8e4a..25f23db8168e9103aa0a5f86a083dc548de5052b 100644
+--- a/lib/typescript/hook/commonTypes.d.ts
++++ b/lib/typescript/hook/commonTypes.d.ts
+@@ -59,6 +59,7 @@ export interface AnimatedStyleHandle<Style = DefaultStyle> {
+         value: AnimatedStyle<Style>;
+         updater: () => AnimatedStyle<Style>;
+     };
++    animatedPropsKeys: SharedValue<string[]> | null;
+     styleUpdaterContainer: StyleUpdaterContainer;
+ }
+ export interface JestAnimatedStyleHandle<Style = DefaultStyle> extends AnimatedStyleHandle<Style> {
+diff --git a/lib/typescript/hook/useAnimatedStyleCommon.d.ts b/lib/typescript/hook/useAnimatedStyleCommon.d.ts
+index d7b4c10edc7b4628703067471851e55a1a9053b2..6c88dc046416b2eb0afb300e5f2a2c460526a53b 100644
+--- a/lib/typescript/hook/useAnimatedStyleCommon.d.ts
++++ b/lib/typescript/hook/useAnimatedStyleCommon.d.ts
+@@ -15,6 +15,7 @@ export interface AnimatedUpdaterData {
+     };
+     remoteState: AnimatedState;
+     viewDescriptors: ViewDescriptorsSet;
++    animatedPropsKeys: SharedValue<string[]> | null;
+     styleUpdaterContainer: StyleUpdaterContainer;
+ }
+ export declare function prepareAnimation(frameTimestamp: number, animatedProp: AnimatedStyle<any>, lastAnimation: AnimatedStyle<any>, lastValue: AnimatedStyle<any>): void;
+diff --git a/src/createAnimatedComponent/AnimatedComponent.native.tsx b/src/createAnimatedComponent/AnimatedComponent.native.tsx
+index fdde1e4a51f66367041431c98c9e350e29da706a..abd733746451f3a847ccbcdffb9425a3a342f719 100644
+--- a/src/createAnimatedComponent/AnimatedComponent.native.tsx
++++ b/src/createAnimatedComponent/AnimatedComponent.native.tsx
+@@ -147,14 +147,11 @@ export default class AnimatedComponent
+     if (!FORCE_REACT_RENDER_FOR_SETTLED_ANIMATIONS) {
+       return;
+     }
+-    // Settled updates arrive as one bag with no style-vs-props origin, so
+-    // partition them by the keys of attached animated props — only values
+-    // from `useAnimatedProps` or shared values passed as inline top-level
+-    // props may be passed as top-level props, all the other ones are
+-    // style-only.
++    // Animated props can add keys after mounting and omit them again once
++    // settled. Keep their origin so cleanup cannot reset native props to defaults.
+     const animatedPropsKeys = new Set([
+       ...this._animatedProps.flatMap((animatedProp) =>
+-        Object.keys(animatedProp.initial?.value ?? {})
++        animatedProp.animatedPropsKeys.value
+       ),
+       ...Object.keys(this._InlinePropManager._inlineTopLevelProps),
+     ]);
+diff --git a/src/hook/commonTypes.ts b/src/hook/commonTypes.ts
+index 753eb3a1411ec10d6780fdd9ef5e84885263bd68..ed34f32c027a2c57b90cf64edbc0ce0fbc9bb258 100644
+--- a/src/hook/commonTypes.ts
++++ b/src/hook/commonTypes.ts
+@@ -115,6 +115,7 @@ export interface AnimatedStyleHandle<Style = DefaultStyle> {
+     value: AnimatedStyle<Style>;
+     updater: () => AnimatedStyle<Style>;
+   };
++  animatedPropsKeys: SharedValue<string[]> | null;
+   styleUpdaterContainer: StyleUpdaterContainer;
+ }
+ 
+diff --git a/src/hook/useAnimatedStyle.native.ts b/src/hook/useAnimatedStyle.native.ts
+index 3c6cae584ce78527f3f74be5ec24bc9af1d97b89..afe69a49a075b4e053f0ec651696b56a9191fab2 100644
+--- a/src/hook/useAnimatedStyle.native.ts
++++ b/src/hook/useAnimatedStyle.native.ts
+@@ -9,6 +9,7 @@ import type { AnimatedPropsAdapterWorklet } from '../commonTypes';
+ import { startMapper, stopMapper } from '../core';
+ import type { AnimatedProps } from '../createAnimatedComponent/commonTypes';
+ import { makeViewDescriptorsSet } from '../ViewDescriptorsSet';
++import { makeMutable } from '../mutables';
+ import type {
+   AnimatedStyleHandle,
+   DefaultStyle,
+@@ -84,12 +85,13 @@ export function useAnimatedStyle<Style extends DefaultStyle | AnimatedProps>(
+         isAnimationCancelled: false,
+         isAnimationRunning: false,
+       }),
++      animatedPropsKeys: isAnimatedProps ? makeMutable(Object.keys(initialStyle)) : null,
+       viewDescriptors: makeViewDescriptorsSet(),
+       styleUpdaterContainer: { current: undefined },
+     };
+   }
+ 
+-  const { initial, remoteState, viewDescriptors } = animatedUpdaterData.current;
++  const { initial, remoteState, viewDescriptors, animatedPropsKeys } = animatedUpdaterData.current;
+   const shareableViewDescriptors = viewDescriptors.shareableViewDescriptors;
+ 
+   dependencies.push(shareableViewDescriptors);
+@@ -107,6 +109,20 @@ export function useAnimatedStyle<Style extends DefaultStyle | AnimatedProps>(
+       }) as WorkletFunction<[], Style>;
+     }
+ 
++    if (animatedPropsKeys) {
++      const propsUpdater = updaterFn;
++      updaterFn = () => {
++        'worklet';
++        const values = propsUpdater();
++        const previousKeys = animatedPropsKeys.value;
++        const keys = Object.keys(values);
++        if (keys.some((key) => !previousKeys.includes(key))) {
++          animatedPropsKeys.value = [...new Set([...previousKeys, ...keys])];
++        }
++        return values;
++      };
++    }
++
+     const fun = (forceUpdate?: boolean) => {
+       'worklet';
+       styleUpdater(
+@@ -149,6 +165,7 @@ export function useAnimatedStyle<Style extends DefaultStyle | AnimatedProps>(
+     animatedStyleHandle.current = {
+       viewDescriptors,
+       initial,
++      animatedPropsKeys,
+       styleUpdaterContainer,
+     };
+   }
+diff --git a/src/hook/useAnimatedStyle.ts b/src/hook/useAnimatedStyle.ts
+index e042e1e606b9187c8be7f64d60a254b589da96a4..3b4e116656040486ef872194a1646b2ae11cf946 100644
+--- a/src/hook/useAnimatedStyle.ts
++++ b/src/hook/useAnimatedStyle.ts
+@@ -18,6 +18,7 @@ import { startMapper, stopMapper } from '../core';
+ import type { AnimatedProps } from '../createAnimatedComponent/commonTypes';
+ import { updateProps } from '../updateProps';
+ import { makeViewDescriptorsSet } from '../ViewDescriptorsSet';
++import { makeMutable } from '../mutables';
+ import type {
+   AnimatedStyleHandle,
+   DefaultStyle,
+@@ -252,12 +253,13 @@ For more, see the docs: \`https://docs.swmansion.com/react-native-reanimated/doc
+         isAnimationCancelled: false,
+         isAnimationRunning: false,
+       }),
++      animatedPropsKeys: isAnimatedProps ? makeMutable(Object.keys(initialStyle)) : null,
+       viewDescriptors: makeViewDescriptorsSet(),
+       styleUpdaterContainer: { current: undefined },
+     };
+   }
+ 
+-  const { initial, remoteState, viewDescriptors } = animatedUpdaterData.current;
++  const { initial, remoteState, viewDescriptors, animatedPropsKeys } = animatedUpdaterData.current;
+   const shareableViewDescriptors = viewDescriptors.shareableViewDescriptors;
+ 
+   dependencies.push(shareableViewDescriptors);
+@@ -276,6 +278,20 @@ For more, see the docs: \`https://docs.swmansion.com/react-native-reanimated/doc
+       }) as WorkletFunction<[], Style>;
+     }
+ 
++    if (animatedPropsKeys) {
++      const propsUpdater = updaterFn;
++      updaterFn = () => {
++        'worklet';
++        const values = propsUpdater();
++        const previousKeys = animatedPropsKeys.value;
++        const keys = Object.keys(values);
++        if (keys.some((key) => !previousKeys.includes(key))) {
++          animatedPropsKeys.value = [...new Set([...previousKeys, ...keys])];
++        }
++        return values;
++      };
++    }
++
+     if (IS_JEST) {
+       fun = (forceUpdate?: boolean) => {
+         'worklet';
+@@ -336,6 +352,7 @@ For more, see the docs: \`https://docs.swmansion.com/react-native-reanimated/doc
+       ? {
+           viewDescriptors,
+           initial,
++          animatedPropsKeys,
+           jestAnimatedValues,
+           toJSON: animatedStyleHandleToJSON,
+           styleUpdaterContainer,
+@@ -343,6 +360,7 @@ For more, see the docs: \`https://docs.swmansion.com/react-native-reanimated/doc
+       : {
+           viewDescriptors,
+           initial,
++          animatedPropsKeys,
+           styleUpdaterContainer,
+         };
+   }
+diff --git a/src/hook/useAnimatedStyleCommon.ts b/src/hook/useAnimatedStyleCommon.ts
+index a2faa9820145e8bbf904b9cd890fc5446a1fc4cb..23a43f32c17035d9f38c0929e0b6e5269cff154b 100644
+--- a/src/hook/useAnimatedStyleCommon.ts
++++ b/src/hook/useAnimatedStyleCommon.ts
+@@ -33,6 +33,7 @@ export interface AnimatedUpdaterData {
+   };
+   remoteState: AnimatedState;
+   viewDescriptors: ViewDescriptorsSet;
++  animatedPropsKeys: SharedValue<string[]> | null;
+   styleUpdaterContainer: StyleUpdaterContainer;
+ }
+ 
