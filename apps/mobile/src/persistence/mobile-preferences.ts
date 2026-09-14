@@ -7,6 +7,10 @@ import * as Schema from "effect/Schema";
 import * as Semaphore from "effect/Semaphore";
 import type { ProviderInstanceId, SidebarProjectGroupingMode } from "@t3tools/contracts";
 import type { ComposerEnterBehavior } from "../lib/composerEnterBehavior";
+import {
+  VOICE_TRANSCRIPTION_SOURCE_LABELS,
+  type VoiceTranscriptionSource,
+} from "../features/voice-input/voiceTranscriptionSources";
 import { MOBILE_THEME_IDS, type MobileThemeId, type MobileThemeMode } from "../lib/mobileTheme";
 import * as MobileDatabase from "./mobile-database";
 import * as MobileSecureStorage from "./mobile-secure-storage";
@@ -43,6 +47,8 @@ export interface Preferences {
   /** Fresh keys reset both shelves to collapsed when users update. */
   readonly threadListSettledShelfExpanded?: boolean;
   readonly threadListSnoozedShelfExpanded?: boolean;
+  /** Unset means on-device; any OpenAI source needs the key kept in the keychain. */
+  readonly voiceTranscriptionSource?: VoiceTranscriptionSource;
 }
 
 export class MobilePreferencesLoadError extends Schema.TaggedError<MobilePreferencesLoadError>()(
@@ -103,6 +109,7 @@ function sanitizePreferences(parsed: Preferences): Preferences {
     modelFavorites?: Preferences["modelFavorites"];
     threadListSettledShelfExpanded?: boolean;
     threadListSnoozedShelfExpanded?: boolean;
+    voiceTranscriptionSource?: VoiceTranscriptionSource;
   } = {};
 
   if (typeof parsed.liveActivitiesEnabled === "boolean") {
@@ -186,6 +193,12 @@ function sanitizePreferences(parsed: Preferences): Preferences {
   }
   if (typeof parsed.threadListSnoozedShelfExpanded === "boolean") {
     preferences.threadListSnoozedShelfExpanded = parsed.threadListSnoozedShelfExpanded;
+  }
+  if (
+    typeof parsed.voiceTranscriptionSource === "string" &&
+    parsed.voiceTranscriptionSource in VOICE_TRANSCRIPTION_SOURCE_LABELS
+  ) {
+    preferences.voiceTranscriptionSource = parsed.voiceTranscriptionSource;
   }
   return preferences;
 }
