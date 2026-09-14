@@ -726,11 +726,15 @@ function AppSettingsSection() {
   const hiddenUpdateTapCount = useRef(0);
 
   const version = Constants.expoConfig?.version ?? "0.0.0";
+  // CFBundleVersion from the embedded Info.plist. Personal Team builds set it to
+  // the T3 Code server release they are based on, so it names what you installed.
+  const buildNumber = Constants.platform?.ios?.buildNumber;
+  const versionName = buildNumber ? `${version} (${buildNumber})` : version;
   // Fall back to "production" to match resolveAppVariant in app.config.ts, so a
   // missing variant never mislabels a production build as development.
   const variant = (Constants.expoConfig?.extra?.appVariant as string | undefined) ?? "production";
   const variantLabel = variant === "production" ? "" : capitalize(variant);
-  const versionLabel = variantLabel ? `${version} · ${variantLabel}` : version;
+  const versionLabel = variantLabel ? `${versionName} · ${variantLabel}` : versionName;
   const updateCheckAvailable = isAppUpdateCheckAvailable();
   const busy =
     updateState === "checking" || updateState === "downloading" || updateState === "restarting";
