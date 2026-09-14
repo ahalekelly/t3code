@@ -16,6 +16,40 @@ index e76a8be1b1c8faa64ec6dfa83764764094133aff..17b36ad1319765e2b6db0551d32e07d7
        : nil
  
      return ClerkNativeBridge.shared.makeAuthViewController(
+diff --git a/ios/ClerkNativeBridge.swift b/ios/ClerkNativeBridge.swift
+index fccd156a5013e74efc7be228af811ca5c9eb57cc..f6648da9b95f4081bb9abc19e69c95930ca5ff95 100644
+--- a/ios/ClerkNativeBridge.swift
++++ b/ios/ClerkNativeBridge.swift
+@@ -234,10 +234,27 @@ final class ClerkNativeBridge {
+ 
+   private static func makeClerkOptions() -> Clerk.Options {
+     let middleware = Clerk.Options.MiddlewareConfig(request: [ClerkExpoHeaderMiddleware()])
++    let redirectConfig = redirectConfigFromInfoPlist() ?? .init()
+     guard let service = keychainService else {
+-      return .init(middleware: middleware)
++      return .init(redirectConfig: redirectConfig, middleware: middleware)
+     }
+-    return .init(keychainConfig: .init(service: service), middleware: middleware)
++    return .init(
++      keychainConfig: .init(service: service),
++      redirectConfig: redirectConfig,
++      middleware: middleware
++    )
++  }
++
++  /// `ClerkRedirectUrl` in Info.plist overrides the SDK's `{bundleIdentifier}://callback`
++  /// default for builds whose bundle identifier is not an authorized Clerk redirect.
++  private static func redirectConfigFromInfoPlist() -> Clerk.Options.RedirectConfig? {
++    guard let redirectUrl = Bundle.main.object(forInfoDictionaryKey: "ClerkRedirectUrl") as? String else {
++      return nil
++    }
++    guard let scheme = URL(string: redirectUrl)?.scheme else {
++      fatalError("ClerkRedirectUrl must be a custom-scheme URL: \(redirectUrl)")
++    }
++    return .init(redirectUrl: redirectUrl, callbackUrlScheme: scheme)
+   }
+ 
+   @MainActor
 diff --git a/ios/ClerkNativeViewHost.swift b/ios/ClerkNativeViewHost.swift
 index 0d91f0e749f121595c17bc803663df6ac90e4163..8f8a89df97a54168b8b45d0e9c197ca3953b7028 100644
 --- a/ios/ClerkNativeViewHost.swift
