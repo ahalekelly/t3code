@@ -19,6 +19,7 @@ import { getLocalVoiceTranscriber } from "../../native/voiceTranscription";
 import { getNativeShowcaseScene } from "../showcase/nativeShowcaseScene";
 import { mobilePreferencesAtom } from "../../state/preferences";
 import { openAiApiKeyAtom } from "../../state/voiceTranscription";
+import { withDictationDisclaimer } from "./dictationDisclaimer";
 import { createOpenAiVoiceTranscriber } from "./openAiVoiceTranscriber";
 import { DEFAULT_VOICE_TRANSCRIPTION_SOURCE } from "./voiceTranscriptionSources";
 import {
@@ -151,8 +152,9 @@ export function useVoiceInputController(input: {
       },
       commitDraft: (text, selection) => {
         const current = latestInputRef.current;
+        // The disclaimer lands after the caret, so the controller's selection holds.
         current.onChangeSelection(selection);
-        current.onChangeDraftMessage(text);
+        current.onChangeDraftMessage(withDictationDisclaimer(text));
       },
       onStateChange: setState,
     });
