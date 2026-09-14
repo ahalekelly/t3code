@@ -2,8 +2,10 @@
 
 Transcription edits a composer draft. It does not submit an agent turn. Audio is
 temporary client input, and only normal message submission sends the resulting
-text. The current implementation transcribes locally on supported iOS devices;
-environment-backed transcription is not implemented.
+text. Settings → Voice Input picks the transcription source on mobile: the
+device's own model on supported iOS devices, or an OpenAI model that the phone
+uploads the recording to directly. The OpenAI key lives only in the device
+keychain, and the T3 environment is not involved either way.
 
 The [shared controller](../../packages/client-runtime/src/voice-input/controller.ts)
 owns the operation while the client supplies capture and transcription. Preparation
@@ -17,4 +19,7 @@ once started. Releasing the session or deleting its recording when the abort sig
 fires would race that work. The [transcription contract](../../packages/client-runtime/src/voice-input/transcription.ts)
 therefore requires implementations to settle only after their work has stopped;
 the [Apple binding](../../apps/mobile/src/native/voiceTranscription.ios.ts) checks
-cancellation between native calls and discards late results.
+cancellation between native calls and discards late results. The
+[OpenAI binding](../../apps/mobile/src/features/voice-input/openAiVoiceTranscriber.ts)
+aborts the upload through the same signal and reports `cancelled` when the signal
+fired before the upload settled.

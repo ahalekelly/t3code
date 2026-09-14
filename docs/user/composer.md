@@ -140,8 +140,13 @@ minutes long. Canceling, leaving the screen, or an audio interruption discards t
 recording and preserves your existing draft. While recording, the screen stays
 awake; it can sleep normally once recording stops.
 
-Transcription runs on your device. T3 Code deletes the temporary audio after
-transcription or cancellation; only the message text is sent when you submit.
+T3 Code deletes the temporary audio after transcription or cancellation; only the
+message text is sent when you submit.
+
+**Settings → Voice Input** chooses where transcription runs: on this device, or
+with one of the OpenAI models. The OpenAI sources upload each recording straight
+from your phone using the API key you store on the same screen, which stays in
+your device keychain.
 
 ## Commands and skills
 
