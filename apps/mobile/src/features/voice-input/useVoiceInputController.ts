@@ -7,7 +7,9 @@ import {
   type RecordingStatus,
 } from "expo-audio";
 import { File } from "expo-file-system";
+import { useAtomValue } from "@effect/atom-react";
 import { useFocusEffect } from "@react-navigation/native";
+import { AsyncResult } from "effect/unstable/reactivity";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AppState } from "react-native";
 import { useSharedValue } from "react-native-reanimated";
@@ -15,17 +17,32 @@ import { useSharedValue } from "react-native-reanimated";
 import type { ComposerEditorSelection } from "../../components/ComposerEditor";
 import { getLocalVoiceTranscriber } from "../../native/voiceTranscription";
 import { getNativeShowcaseScene } from "../showcase/nativeShowcaseScene";
+import { mobilePreferencesAtom } from "../../state/preferences";
+import { openAiApiKeyAtom } from "../../state/voiceTranscription";
+import { createOpenAiVoiceTranscriber } from "./openAiVoiceTranscriber";
+import { DEFAULT_VOICE_TRANSCRIPTION_SOURCE } from "./voiceTranscriptionSources";
 import {
   VoiceInputController,
+  VoiceTranscriptionError,
   VOICE_RECORDING_LIMIT_SECONDS,
   voiceInputBlocksSubmission,
   voiceInputFreezesEditor,
   type VoiceDraftSnapshot,
   type VoiceInputState,
+  type VoiceTranscriber,
 } from "@t3tools/client-runtime/voice-input";
 import { normalizeVoiceInputDecibels, VOICE_WAVEFORM_SAMPLE_COUNT } from "./voiceInputMetering";
 
 const INITIAL_STATE: VoiceInputState = { phase: "idle", error: null, errorAction: null };
+/** Selecting an OpenAI source without a key is a setup mistake, not a reason to fall back. */
+const MISSING_OPENAI_KEY_TRANSCRIBER: VoiceTranscriber = {
+  prepare: async () => {
+    throw new VoiceTranscriptionError(
+      "unavailable",
+      "Add an OpenAI API key in Settings → Voice Input.",
+    );
+  },
+};
 const VOICE_METERING_INTERVAL_MS = 80;
 const VOICE_RECORDING_OPTIONS = {
   ...RecordingPresets.HIGH_QUALITY,
@@ -86,6 +103,15 @@ export function useVoiceInputController(input: {
   }
   const latestInputRef = useRef(input);
   latestInputRef.current = input;
+  const openAiApiKeyResult = useAtomValue(openAiApiKeyAtom);
+  const openAiApiKey = AsyncResult.isSuccess(openAiApiKeyResult) ? openAiApiKeyResult.value : null;
+  const preferencesResult = useAtomValue(mobilePreferencesAtom);
+  const transcriptionSource = AsyncResult.isSuccess(preferencesResult)
+    ? (preferencesResult.value.voiceTranscriptionSource ?? DEFAULT_VOICE_TRANSCRIPTION_SOURCE)
+    : DEFAULT_VOICE_TRANSCRIPTION_SOURCE;
+  const transcriptionConfig = { source: transcriptionSource, apiKey: openAiApiKey };
+  const transcriptionConfigRef = useRef(transcriptionConfig);
+  transcriptionConfigRef.current = transcriptionConfig;
 
   const handleRecorderStatus = useCallback((status: RecordingStatus) => {
     controllerRef.current?.handleRecorderStatus({
@@ -100,7 +126,12 @@ export function useVoiceInputController(input: {
   if (!controllerRef.current) {
     controllerRef.current = new VoiceInputController({
       recorder,
-      getTranscriber: getLocalVoiceTranscriber,
+      getTranscriber: () => {
+        const { source, apiKey } = transcriptionConfigRef.current;
+        if (source === "local") return getLocalVoiceTranscriber();
+        if (apiKey === null) return MISSING_OPENAI_KEY_TRANSCRIBER;
+        return createOpenAiVoiceTranscriber({ apiKey, model: source });
+      },
       requestPermission: async () => {
         const permission = await requestRecordingPermissionsAsync();
         return { granted: permission.granted, canAskAgain: permission.canAskAgain };
@@ -206,7 +237,10 @@ export function useVoiceInputController(input: {
   return {
     // Store screenshots show the dictation button even on simulators, whose
     // on-device transcription is unavailable.
-    isAvailable: getLocalVoiceTranscriber() !== null || getNativeShowcaseScene() !== null,
+    isAvailable:
+      (transcriptionSource === "local"
+        ? getLocalVoiceTranscriber() !== null
+        : openAiApiKey !== null) || getNativeShowcaseScene() !== null,
     state,
     audioLevels,
     elapsedSeconds,
