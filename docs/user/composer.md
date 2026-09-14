@@ -141,7 +141,9 @@ recording and preserves your existing draft. While recording, the screen stays
 awake; it can sleep normally once recording stops.
 
 T3 Code deletes the temporary audio after transcription or cancellation; only the
-message text is sent when you submit.
+message text is sent when you submit. Messages containing dictated text end with a
+short note marking them as a voice transcription, so the agent expects misheard
+words.
 
 **Settings → Voice Input** chooses where transcription runs: on this device, or
 with one of the OpenAI models. The OpenAI sources upload each recording straight
