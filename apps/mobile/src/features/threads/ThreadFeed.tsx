@@ -119,6 +119,8 @@ import {
   type MediaVideoPreviewSource,
 } from "../../lib/videoPreviewSource";
 import { CopyTextButton } from "../../components/CopyTextButton";
+import { ReadResponseButton } from "../../components/ReadResponseButton";
+import { reportResponseSpeechError, responseSpeech } from "../../lib/responseSpeech";
 import { parseReviewCommentMessageSegments } from "../review/reviewCommentSelection";
 import type { ReviewDiffTheme } from "../review/shikiReviewHighlighter";
 import {
@@ -1355,6 +1357,7 @@ function renderFeedEntry(
   props: Pick<
     ThreadFeedProps,
     | "environmentId"
+    | "threadId"
     | "onUseArtifactTemplate"
     | "skills"
     | "dispatchingMessageId"
@@ -1739,6 +1742,14 @@ function renderFeedEntry(
               buttonSize={28}
               iconSize={13}
             />
+            {Platform.OS === "ios" && renderedText.trim().length > 0 ? (
+              <ReadResponseButton
+                scope={scopedThreadKey(props.environmentId, props.threadId)}
+                messageId={message.id}
+                text={renderedText}
+                tintColor={iconSubtleColor}
+              />
+            ) : null}
             <Text className="font-t3-medium text-xs tabular-nums text-foreground-secondary">
               {timestampLabel}
             </Text>
@@ -1949,6 +1960,16 @@ function ThreadFeedPlaceholder(props: {
 
 export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
   const navigation = useNavigation();
+  useFocusEffect(
+    useCallback(() => {
+      const scope = scopedThreadKey(props.environmentId, props.threadId);
+      return () => {
+        if (responseSpeech.getSnapshot()?.scope === scope) {
+          void responseSpeech.stop().catch(reportResponseSpeechError);
+        }
+      };
+    }, [props.environmentId, props.threadId]),
+  );
   const { themeAppearance } = useAppearancePreferences();
   const copyFeedbackTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const disclosureSettleFrameRef = useRef<number | null>(null);
@@ -2755,6 +2776,7 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
         <ThreadMediaVisibility>
           {renderFeedEntry(info, {
             environmentId: props.environmentId,
+            threadId: props.threadId,
             dispatchingMessageId: props.dispatchingMessageId,
             onEditPendingMessage: props.onEditPendingMessage,
             copiedRowId,
@@ -2829,6 +2851,7 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
       onToggleWorkGroup,
       onToggleWorkRow,
       props.environmentId,
+      props.threadId,
       props.onUseArtifactTemplate,
       props.skills,
       renderMarkdownImage,
