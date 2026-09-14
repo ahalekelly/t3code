@@ -3,6 +3,10 @@
 Give the agent a task in the composer. Add files, quote a previous response, or
 include a skill when the task needs more context.
 
+On iOS, tap the speaker beside Copy beneath a response to read it aloud. Tap again
+to stop. Reading another response, leaving the thread, or starting dictation stops
+the current reading.
+
 Messages can contain up to 120,000 characters. Longer drafts stay in the composer
 so you can shorten them or split them into several messages.
 
