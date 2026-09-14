@@ -392,6 +392,23 @@ export function ComposerDictationPrimaryAction(props: {
   return <ComposerDictationStartAction {...props} />;
 }
 
+/** Sits where the send arrow lives, finishing the dictation straight into a send. */
+export function ComposerDictationSendAction(props: {
+  readonly presentation: VoiceComposerPresentation;
+  readonly onSend: () => void;
+}) {
+  if (props.presentation.trailingAction !== "confirm") return null;
+  return (
+    <VoiceActionButton
+      accessibilityLabel="Finish dictation and send"
+      disabled={!props.presentation.confirmationEnabled}
+      icon="arrow.up"
+      onPress={props.onSend}
+      variant="primary"
+    />
+  );
+}
+
 export function ComposerDictationStartAction(props: {
   readonly state: VoiceInputState;
   readonly isAvailable: boolean;

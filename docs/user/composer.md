@@ -84,7 +84,9 @@ and use **Attach again** or remove the missing file before sending.
 
 On supported iPhones with iOS 26 or later, use the composer's microphone to record,
 then confirm to transcribe. Text is inserted where your selection was when
-recording started, ready for you to review and edit before sending.
+recording started, ready for you to review and edit before sending. The send
+button beside the check mark transcribes and sends the message right away,
+skipping the review.
 
 The first use may download Apple's speech model and needs a network connection.
 Later transcription works offline for that language. Recordings can be up to five
