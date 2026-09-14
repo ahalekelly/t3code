@@ -71,6 +71,7 @@ import { useComposerCommandMenu } from "./use-composer-command-menu";
 import {
   ComposerDictationCancelAction,
   ComposerDictationPrimaryAction,
+  ComposerDictationSendAction,
   ComposerDictationStatus,
   ComposerDictationToolbar,
 } from "../voice-input/ComposerDictationControl";
@@ -477,6 +478,7 @@ export function NewTaskDraftScreen(props: {
     disabled: isIncomingShareTransferPending || isImportingShare || flow.submitting,
     onChangeDraftMessage: flow.setPrompt,
     onChangeSelection: composerMenu.onSelectionChange,
+    onSubmit: () => void handleStart(),
   });
   const voicePresentation = resolveVoiceComposerPresentation(
     voiceInput.state,
@@ -1735,7 +1737,12 @@ export function NewTaskDraftScreen(props: {
                 onConfirm={voiceInput.stop}
                 onCancel={voiceInput.cancel}
               />
-              {voicePresentation.showsSend ? (
+              {voicePresentation.trailingAction === "confirm" ? (
+                <ComposerDictationSendAction
+                  presentation={voicePresentation}
+                  onSend={voiceInput.stopAndSend}
+                />
+              ) : voicePresentation.showsSend ? (
                 <ComposerActionButton
                   accessibilityLabel={
                     attachmentBlockReason ??

@@ -95,6 +95,7 @@ import {
   ComposerDictationCancelAction,
   ComposerDictationDraftContent,
   ComposerDictationPrimaryAction,
+  ComposerDictationSendAction,
   ComposerDictationStartAction,
   ComposerDictationStatus,
   ComposerDictationToolbar,
@@ -396,6 +397,7 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
     selection: composerMenu.selection,
     onChangeDraftMessage: props.onChangeDraftMessage,
     onChangeSelection: composerMenu.onSelectionChange,
+    onSubmit: () => void handleSend(),
   });
   const voicePresentation = resolveVoiceComposerPresentation(
     voiceInput.state,
@@ -980,7 +982,12 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
                     onConfirm={voiceInput.stop}
                     onCancel={voiceInput.cancel}
                   />
-                  {showStopAction ? (
+                  {voicePresentation.trailingAction === "confirm" ? (
+                    <ComposerDictationSendAction
+                      presentation={voicePresentation}
+                      onSend={voiceInput.stopAndSend}
+                    />
+                  ) : showStopAction ? (
                     <ComposerActionButton
                       accessibilityLabel="Stop agent"
                       icon="stop.fill"

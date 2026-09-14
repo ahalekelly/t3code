@@ -87,8 +87,11 @@ export function useVoiceInputController(input: {
   readonly disabled?: boolean;
   readonly onChangeDraftMessage: (value: string) => void;
   readonly onChangeSelection: (selection: ComposerEditorSelection) => void;
+  readonly onSubmit: () => void;
 }) {
   const [state, setState] = useState<VoiceInputState>(INITIAL_STATE);
+  const sendRequestedRef = useRef(false);
+  const pendingSendTextRef = useRef<string | null>(null);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const keepAwakeId = useId();
   const keepAwakeSessionRef = useRef(0);
@@ -155,11 +158,23 @@ export function useVoiceInputController(input: {
       },
       commitDraft: (text, selection) => {
         const current = latestInputRef.current;
+        const committed = withDictationDisclaimer(text);
         // The disclaimer lands after the caret, so the controller's selection holds.
         current.onChangeSelection(selection);
-        current.onChangeDraftMessage(withDictationDisclaimer(text));
+        current.onChangeDraftMessage(committed);
+        if (sendRequestedRef.current) {
+          sendRequestedRef.current = false;
+          pendingSendTextRef.current = committed;
+        }
       },
-      onStateChange: setState,
+      onStateChange: (next) => {
+        // Settling without a commit (cancel, empty transcript, stale draft,
+        // failed transcription) must not leave a later manual finish armed.
+        if (next.phase === "error" || (next.phase === "idle" && !pendingSendTextRef.current)) {
+          sendRequestedRef.current = false;
+        }
+        setState(next);
+      },
     });
   }
 
@@ -245,11 +260,25 @@ export function useVoiceInputController(input: {
     return () => clearInterval(intervalId);
   }, [audioLevels, controller, recorder, state.phase]);
 
+  // The controller commits the draft and goes idle in the same render, so the
+  // send waits for the composer to report the committed text back rather than
+  // firing against a stale submit closure.
+  useEffect(() => {
+    if (pendingSendTextRef.current === null) return;
+    if (state.phase !== "idle" || input.draftMessage !== pendingSendTextRef.current) return;
+    pendingSendTextRef.current = null;
+    latestInputRef.current.onSubmit();
+  }, [input.draftMessage, latestInputRef, pendingSendTextRef, state.phase]);
+
   const start = useCallback(() => {
     if (!latestInputRef.current.disabled) void controller.start();
   }, [controller]);
   const stop = useCallback(() => controller.stop(), [controller]);
   const cancel = useCallback(() => controller.cancel(), [controller]);
+  const stopAndSend = useCallback(() => {
+    sendRequestedRef.current = true;
+    return controller.stop();
+  }, [controller]);
 
   return {
     // Store screenshots show the dictation button even on simulators, whose
@@ -266,6 +295,7 @@ export function useVoiceInputController(input: {
     blocksSubmission: voiceInputBlocksSubmission(state),
     start,
     stop,
+    stopAndSend,
     cancel,
   };
 }
