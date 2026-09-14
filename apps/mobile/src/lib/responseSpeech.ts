@@ -1,8 +1,8 @@
-import * as Speech from "expo-speech";
 import { Alert } from "react-native";
 import { parseMarkdownWithOptions } from "react-native-nitro-markdown/headless";
 
 import { markdownSpeechText } from "./markdownSpeechText";
+import { pocketSpeech } from "./pocketSpeech";
 import { SerializedAsyncQueue } from "./serialized-async-queue";
 
 type SpokenResponse = { readonly scope: string; readonly messageId: string };
@@ -18,7 +18,10 @@ function setActiveResponse(response: SpokenResponse | null) {
 
 export function reportResponseSpeechError(error: unknown) {
   console.error("Failed to read response aloud", error);
-  Alert.alert("Could not read response aloud", "Please try again.");
+  Alert.alert(
+    "Could not read response aloud",
+    error instanceof Error ? error.message : "Please try again.",
+  );
 }
 
 export const responseSpeech = {
@@ -31,7 +34,7 @@ export const responseSpeech = {
   getSnapshot: () => activeResponse,
   stop() {
     setActiveResponse(null);
-    return queue.run(() => Speech.stop());
+    return queue.run(() => pocketSpeech.stop());
   },
   async toggle({ scope, messageId }: SpokenResponse, markdown: string) {
     const response = { scope, messageId };
@@ -50,22 +53,37 @@ export const responseSpeech = {
       ).trim();
       if (!text) throw new Error("This response has no readable text.");
 
-      // Native completion/cancellation events can arrive after another response starts.
+      if (!pocketSpeech.isVoiceDownloaded()) {
+        const download = await new Promise<boolean>((resolve) => {
+          Alert.alert(
+            "Download offline voice?",
+            "The English voice needs a one-time 236 MB download. Keep the app open while it downloads. Your responses stay on this device.\n\nPocket TTS by Kyutai. Voice license: creativecommons.org/licenses/by/4.0",
+            [
+              { text: "Cancel", style: "cancel", onPress: () => resolve(false) },
+              { text: "Download", onPress: () => resolve(true) },
+            ],
+            { cancelable: true, onDismiss: () => resolve(false) },
+          );
+        });
+        if (activeResponse !== response) return;
+        if (!download) {
+          setActiveResponse(null);
+          return;
+        }
+      }
+
+      // A previous reading can finish after another response starts.
       const finish = () => {
         if (activeResponse === response) setActiveResponse(null);
       };
-      Speech.speak(text, {
-        useApplicationAudioSession: false,
-        onDone: finish,
-        onStopped: finish,
-        onError: (error) => {
-          if (activeResponse !== response) return;
-          finish();
-          reportResponseSpeechError(error);
-        },
+      void pocketSpeech.speak(text).then(finish, (error: unknown) => {
+        if (activeResponse !== response) return;
+        finish();
+        reportResponseSpeechError(error);
       });
     } catch (error) {
-      if (activeResponse === response) setActiveResponse(null);
+      if (activeResponse !== response) return;
+      setActiveResponse(null);
       reportResponseSpeechError(error);
     }
   },

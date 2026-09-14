@@ -408,6 +408,10 @@ const config: ExpoConfig = {
           extraPods: [
             { name: "GoogleUtilities", modular_headers: true },
             { name: "RecaptchaInterop", modular_headers: true },
+            {
+              name: "PocketTTSRuntime",
+              podspec: "../modules/t3-pocket-speech/PocketTTSRuntime.podspec",
+            },
           ],
         },
       },
@@ -420,6 +424,7 @@ const config: ExpoConfig = {
     // target (which must exist before the compile phase can be attached).
     ...(!isIosPersonalTeamBuild ? ["./plugins/withWidgetLogoAsset.cjs", widgetsPlugin] : []),
     "./plugins/withIosSceneLifecycle.cjs",
+    "./plugins/withPocketSpeech.cjs",
     "./plugins/withAndroidCleartextTraffic.cjs",
     "./plugins/withAndroidGradleHeap.cjs",
     "./plugins/withAndroidInputBackground.cjs",
