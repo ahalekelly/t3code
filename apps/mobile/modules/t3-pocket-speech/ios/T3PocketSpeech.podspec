@@ -9,7 +9,7 @@ Pod::Spec.new do |s|
   s.source = { :path => '.' }
   s.static_framework = true
   s.dependency 'ExpoModulesCore'
-  s.dependency 'PocketTTSRuntime', '0.4.1.1'
+  s.dependency 'PocketTTSRuntime', '0.4.1.2'
   s.source_files = '*.swift'
   s.frameworks = 'AVFoundation', 'CryptoKit'
   s.resource_bundles = { 'T3PocketSpeechNotices' => ['../THIRD_PARTY_NOTICES.md'] }
