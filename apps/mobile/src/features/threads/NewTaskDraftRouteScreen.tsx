@@ -11,6 +11,7 @@ import { msg, T, useGT } from "gt-react-native";
 import { useEffect, useState } from "react";
 import { View } from "react-native";
 import { useAtomValue } from "@effect/atom-react";
+import { EnvironmentId } from "@t3tools/contracts";
 import {
   isAtomCommandInterrupted,
   runAtomCommand,
@@ -24,6 +25,8 @@ import { appAtomRegistry } from "../../state/atom-registry";
 import { rootNavigationRef } from "../../lib/rootNavigation";
 import { threadSelectionDeferral } from "../layout/deferred-navigation";
 import { useWorkspaceState } from "../../state/workspace";
+import { useEnvironmentQuery } from "../../state/query";
+import { environmentShell } from "../../state/shell";
 import { vcsEnvironment } from "../../state/vcs";
 import { checkoutNewTaskBranch } from "./checkout-new-task-branch";
 import { resolveNewTaskBranchWorktreePath } from "./new-task-context-presentation";
@@ -38,6 +41,7 @@ import { useWorkspaceBackNavigation } from "../layout/workspace/useAndroidWorksp
 
 import { ThreadScreenFallback } from "./ThreadScreenHost";
 import { NewTaskDraftScreen } from "./NewTaskDraftScreen";
+import { projectSnapshotPending } from "./projectSnapshotPending";
 
 import type { NewTaskDraftRouteParams } from "./thread-route-state";
 export type { NewTaskDraftRouteParams } from "./thread-route-state";
@@ -98,7 +102,7 @@ export function NewTaskDraftRouteScreen({ route }: StaticScreenProps<NewTaskDraf
   const params = route.params ?? {};
   const draftId = Array.isArray(params.draftId) ? params.draftId[0] : params.draftId;
   const projects = useProjects();
-  const { state: catalogState } = useWorkspaceState();
+  const { state: catalogState, environments } = useWorkspaceState();
 
   const initialProjectRef = {
     environmentId: Array.isArray(params.environmentId)
@@ -132,14 +136,21 @@ export function NewTaskDraftRouteScreen({ route }: StaticScreenProps<NewTaskDraf
     });
   }
   const checkoutProject = project ?? resolvedProject;
+  const requestedEnvironment = environments.find(
+    (environment) => environment.environmentId === initialProjectRef.environmentId,
+  );
+  const requestedShell = useEnvironmentQuery(
+    initialProjectRef.environmentId
+      ? environmentShell.stateAtom(EnvironmentId.make(initialProjectRef.environmentId))
+      : null,
+  );
   const workspaceRoot = project?.workspaceRoot;
   const needsPreparation = Boolean(initialProjectRef.branch && !draftId);
   const waitingForProject =
+    Boolean(initialProjectRef.environmentId && initialProjectRef.projectId) &&
     !project &&
     (catalogState.isLoadingConnections ||
-      (!catalogState.hasLoadedShellSnapshot &&
-        catalogState.hasConnectingEnvironment &&
-        catalogState.connectionError === null));
+      projectSnapshotPending(requestedEnvironment, requestedShell));
 
   // The checkout is keyed by its request, so a reconnect that drops and
   // restores the project reads the same checkout instead of running another.
@@ -202,11 +213,11 @@ export function NewTaskDraftRouteScreen({ route }: StaticScreenProps<NewTaskDraf
 
   return (
     <>
-      {preparingBranch ? (
+      {waitingForProject || preparingBranch ? (
         <ThreadScreenFallback header={<AppBar title={gt("New thread")} onBack={goBack} />}>
           <View className="flex-1 items-center justify-center bg-screen">
             <Text className="text-foreground">
-              <T>Switching branch...</T>
+              {waitingForProject ? <T>Loading project...</T> : <T>Switching branch...</T>}
             </Text>
           </View>
         </ThreadScreenFallback>
