@@ -8,6 +8,10 @@ Use a separate thread for each task. Choose **New worktree** when a task needs i
 - **Mobile**: **New thread** uses the current, filtered, or last-opened project. Disable **Settings → General → Use last project** to pick every time.
 - **Defaults**: New threads inherit your last model and mode unless the project sets its own model default.
 
+On iOS, add T3 Code’s **New Chat** widget to your Home Screen or Lock Screen, then
+use **Edit Widget → Project** to choose a project and environment. Open T3 once to
+load your projects. Each tap opens an empty composer; any existing draft stays saved.
+
 ### Start without a project
 
 Threads don't require a project. Pick **No project** (or press `mod+alt+n` on web/desktop) to start a scratch thread in `~/.t3/scratch/<date>-<slug>-<id>`.
