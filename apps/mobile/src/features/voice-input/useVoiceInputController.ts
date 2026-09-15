@@ -11,9 +11,10 @@ import { useAtomValue } from "@effect/atom-react";
 import { useFocusEffect } from "@react-navigation/native";
 import { AsyncResult } from "effect/unstable/reactivity";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { AppState, Platform } from "react-native";
+import { Alert, AppState, Platform } from "react-native";
 import { useSharedValue } from "react-native-reanimated";
-import { responseSpeech } from "../../lib/responseSpeech";
+import { autoReadResponse } from "../../lib/autoReadResponse";
+import { responseSpeech, type SpokenResponse } from "../../lib/responseSpeech";
 
 import type { ComposerEditorSelection } from "../../components/ComposerEditor";
 import { getLocalVoiceTranscriber } from "../../native/voiceTranscription";
@@ -62,6 +63,7 @@ async function releaseVoiceRecordingAudio(): Promise<void> {
 }
 
 async function configureVoiceRecordingAudio(): Promise<void> {
+  autoReadResponse.cancelAll();
   if (Platform.OS === "ios") await responseSpeech.stop();
   try {
     await setAudioModeAsync({
@@ -88,7 +90,7 @@ export function useVoiceInputController(input: {
   readonly disabled?: boolean;
   readonly onChangeDraftMessage: (value: string) => void;
   readonly onChangeSelection: (selection: ComposerEditorSelection) => void;
-  readonly onSubmit: () => void;
+  readonly onSubmit: () => Promise<SpokenResponse | null>;
 }) {
   const [state, setState] = useState<VoiceInputState>(INITIAL_STATE);
   const sendRequestedRef = useRef(false);
@@ -112,6 +114,10 @@ export function useVoiceInputController(input: {
   const openAiApiKeyResult = useAtomValue(openAiApiKeyAtom);
   const openAiApiKey = AsyncResult.isSuccess(openAiApiKeyResult) ? openAiApiKeyResult.value : null;
   const preferencesResult = useAtomValue(mobilePreferencesAtom);
+  const readRepliesAloud =
+    Platform.OS === "ios" &&
+    (!AsyncResult.isSuccess(preferencesResult) ||
+      (preferencesResult.value.readVoiceRepliesAloud ?? true));
   const transcriptionSource = AsyncResult.isSuccess(preferencesResult)
     ? (preferencesResult.value.voiceTranscriptionSource ?? DEFAULT_VOICE_TRANSCRIPTION_SOURCE)
     : DEFAULT_VOICE_TRANSCRIPTION_SOURCE;
@@ -254,8 +260,18 @@ export function useVoiceInputController(input: {
     if (pendingSendTextRef.current === null) return;
     if (state.phase !== "idle" || input.draftMessage !== pendingSendTextRef.current) return;
     pendingSendTextRef.current = null;
-    latestInputRef.current.onSubmit();
-  }, [input.draftMessage, latestInputRef, pendingSendTextRef, state.phase]);
+    void latestInputRef.current
+      .onSubmit()
+      .then((prompt) => {
+        if (prompt && readRepliesAloud) autoReadResponse.request(prompt);
+      })
+      .catch((error: unknown) => {
+        Alert.alert(
+          "Could not send voice message",
+          error instanceof Error ? error.message : "Please try again.",
+        );
+      });
+  }, [input.draftMessage, latestInputRef, pendingSendTextRef, readRepliesAloud, state.phase]);
 
   const start = useCallback(() => {
     if (!latestInputRef.current.disabled) void controller.start();

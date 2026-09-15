@@ -50,6 +50,9 @@ export interface Preferences {
   readonly threadListSnoozedShelfExpanded?: boolean;
   /** Unset means on-device; any OpenAI source needs the key kept in the keychain. */
   readonly voiceTranscriptionSource?: VoiceTranscriptionSource;
+  readonly responseSpeechRate?: number;
+  readonly readVoiceRepliesAloud?: boolean;
+  readonly readThinkingUpdatesAloud?: boolean;
 }
 
 export class MobilePreferencesLoadError extends Schema.TaggedErrorClass<MobilePreferencesLoadError>()(
@@ -110,6 +113,9 @@ function sanitizePreferences(parsed: Preferences): Preferences {
     threadListSettledShelfExpanded?: boolean;
     threadListSnoozedShelfExpanded?: boolean;
     voiceTranscriptionSource?: VoiceTranscriptionSource;
+    responseSpeechRate?: number;
+    readVoiceRepliesAloud?: boolean;
+    readThinkingUpdatesAloud?: boolean;
   } = {};
 
   if (typeof parsed.liveActivitiesEnabled === "boolean") {
@@ -188,6 +194,20 @@ function sanitizePreferences(parsed: Preferences): Preferences {
     parsed.voiceTranscriptionSource in VOICE_TRANSCRIPTION_SOURCE_LABELS
   ) {
     preferences.voiceTranscriptionSource = parsed.voiceTranscriptionSource;
+  }
+  if (
+    typeof parsed.responseSpeechRate === "number" &&
+    Number.isFinite(parsed.responseSpeechRate) &&
+    parsed.responseSpeechRate >= 0.75 &&
+    parsed.responseSpeechRate <= 2
+  ) {
+    preferences.responseSpeechRate = parsed.responseSpeechRate;
+  }
+  if (typeof parsed.readVoiceRepliesAloud === "boolean") {
+    preferences.readVoiceRepliesAloud = parsed.readVoiceRepliesAloud;
+  }
+  if (typeof parsed.readThinkingUpdatesAloud === "boolean") {
+    preferences.readThinkingUpdatesAloud = parsed.readThinkingUpdatesAloud;
   }
   return preferences;
 }

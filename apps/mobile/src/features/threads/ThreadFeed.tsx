@@ -103,6 +103,7 @@ import {
   type MediaVideoPreviewSource,
 } from "../../lib/videoPreviewSource";
 import { CopyTextButton } from "../../components/CopyTextButton";
+import { autoReadResponse } from "../../lib/autoReadResponse";
 import { ReadResponseButton } from "../../components/ReadResponseButton";
 import { reportResponseSpeechError, responseSpeech } from "../../lib/responseSpeech";
 import {
@@ -1632,8 +1633,12 @@ function renderFeedEntry(
             <MessageAttachmentUnknown key={attachment.id} name={attachment.name} />
           );
         })}
-        {showAssistantMeta ? (
-          <View className="mt-1 flex-row items-center gap-1">
+        <View
+          className={
+            showAssistantMeta ? "mt-1 flex-row items-center gap-1" : "flex-row items-center gap-1"
+          }
+        >
+          {showAssistantMeta ? (
             <CopyTextButton
               accessibilityLabel="Copy message"
               text={renderedText}
@@ -1641,19 +1646,22 @@ function renderFeedEntry(
               buttonSize={28}
               iconSize={13}
             />
-            {Platform.OS === "ios" && renderedText.trim().length > 0 ? (
-              <ReadResponseButton
-                scope={scopedThreadKey(props.environmentId, props.threadId)}
-                messageId={message.id}
-                text={renderedText}
-                tintColor={iconSubtleColor}
-              />
-            ) : null}
+          ) : null}
+          {Platform.OS === "ios" && renderedText.trim().length > 0 ? (
+            <ReadResponseButton
+              scope={scopedThreadKey(props.environmentId, props.threadId)}
+              messageId={message.id}
+              text={renderedText}
+              canStart={showAssistantMeta}
+              tintColor={iconSubtleColor}
+            />
+          ) : null}
+          {showAssistantMeta ? (
             <Text className="font-t3-medium text-xs tabular-nums text-adaptive-neutral-600-400">
               {timestampLabel}
             </Text>
-          </View>
-        ) : null}
+          ) : null}
+        </View>
       </Animated.View>
     );
   }
@@ -1956,6 +1964,7 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
     useCallback(() => {
       const scope = scopedThreadKey(props.environmentId, props.threadId);
       return () => {
+        autoReadResponse.cancel(scope);
         if (responseSpeech.getSnapshot()?.scope === scope) {
           void responseSpeech.stop().catch(reportResponseSpeechError);
         }

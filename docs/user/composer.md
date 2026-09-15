@@ -4,8 +4,9 @@ Give the agent a task in the composer. Add files, quote a previous response, or
 include a skill when the task needs more context.
 
 On iOS, tap the speaker beside Copy beneath a response to read it aloud. Tap again
-to stop. Reading another response, leaving the thread, or starting dictation stops
-the current reading. Keep the app open for the first 236 MB voice download.
+to stop, or rewind 10 seconds during playback. Set playback speed in
+**Settings → Voice Input → Read aloud**. Reading another response, leaving the
+thread, or starting dictation stops playback. Keep the app open for the first 236 MB voice download.
 Afterward, English responses can be read offline, including with the screen locked.
 
 Messages can contain up to 120,000 characters. Longer drafts stay in the composer
@@ -91,7 +92,10 @@ On supported iPhones with iOS 26 or later, use the composer's microphone to reco
 then confirm to transcribe. Text is inserted where your selection was when
 recording started, ready for you to review and edit before sending. The send
 button beside the check mark transcribes and sends the message right away,
-skipping the review.
+skipping the review. The completed reply is read aloud automatically while you stay
+in the thread. Turn off **Read voice replies aloud** in **Settings → Voice Input**
+to disable this. Enable **Read thinking updates** there to hear written progress
+messages as the agent works.
 
 The first use may download Apple's speech model and needs a network connection.
 Later transcription works offline for that language. Recordings can be up to five
