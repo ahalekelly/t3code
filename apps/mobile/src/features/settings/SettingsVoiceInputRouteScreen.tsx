@@ -17,6 +17,7 @@ import {
   VOICE_TRANSCRIPTION_SOURCE_LABELS,
   type VoiceTranscriptionSource,
 } from "../voice-input/voiceTranscriptionSources";
+import { SettingsSwitchRow } from "./components/SettingsSwitchRow";
 import { SettingsSection } from "./components/SettingsSection";
 
 export function SettingsVoiceInputRouteScreen() {
@@ -32,6 +33,9 @@ export function SettingsVoiceInputRouteScreen() {
   const selectedSource = AsyncResult.isSuccess(preferencesResult)
     ? (preferencesResult.value.voiceTranscriptionSource ?? DEFAULT_VOICE_TRANSCRIPTION_SOURCE)
     : DEFAULT_VOICE_TRANSCRIPTION_SOURCE;
+
+  const preferences = AsyncResult.isSuccess(preferencesResult) ? preferencesResult.value : {};
+  const speechRate = preferences.responseSpeechRate ?? 1;
 
   const commitDraft = () => {
     if (draft === null) return;
@@ -108,6 +112,54 @@ export function SettingsVoiceInputRouteScreen() {
           On-device transcription needs iOS 26 on a supported iPhone. The OpenAI sources upload each
           recording with the API key above, which stays in this device's keychain.
         </Text>
+        {Platform.OS === "ios" ? (
+          <SettingsSection title="Read aloud">
+            <View className="flex-row items-center gap-4 p-4">
+              <Text className="flex-1 text-lg text-foreground">Playback speed</Text>
+              <ControlPillMenu
+                accessibilityLabel="Playback speed"
+                accessibilityRole="button"
+                actions={[0.75, 1, 1.25, 1.5, 1.75, 2].map((rate) => ({
+                  id: String(rate),
+                  title: `${rate}×`,
+                  state: rate === speechRate ? ("on" as const) : undefined,
+                }))}
+                isAnchoredToRight
+                onPressAction={({ nativeEvent }) =>
+                  savePreferences({ responseSpeechRate: Number(nativeEvent.event) })
+                }
+              >
+                <Pressable className="flex-row items-center gap-1.5 rounded-full bg-subtle px-3.5 py-2">
+                  <Text className="text-base text-foreground">{speechRate}×</Text>
+                  <SymbolView
+                    name="chevron.up.chevron.down"
+                    size={12}
+                    tintColorClassName="accent-icon"
+                    type="monochrome"
+                    weight="semibold"
+                  />
+                </Pressable>
+              </ControlPillMenu>
+            </View>
+            <SettingsSwitchRow
+              icon="speaker.wave.2"
+              label="Read voice replies aloud"
+              subtitle="Read the completed response after using voice auto-send."
+              value={preferences.readVoiceRepliesAloud ?? true}
+              onValueChange={(readVoiceRepliesAloud) => savePreferences({ readVoiceRepliesAloud })}
+            />
+            <SettingsSwitchRow
+              icon="text.bubble"
+              label="Read thinking updates"
+              subtitle="Include written progress messages during voice replies."
+              disabled={!(preferences.readVoiceRepliesAloud ?? true)}
+              value={preferences.readThinkingUpdatesAloud ?? false}
+              onValueChange={(readThinkingUpdatesAloud) =>
+                savePreferences({ readThinkingUpdatesAloud })
+              }
+            />
+          </SettingsSection>
+        ) : null}
       </ScrollView>
     </View>
   );

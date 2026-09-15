@@ -1,11 +1,12 @@
 import { Alert } from "react-native";
 import { parseMarkdownWithOptions } from "react-native-nitro-markdown/headless";
 
+import { autoReadResponse } from "./autoReadResponse";
 import { markdownSpeechText } from "./markdownSpeechText";
 import { pocketSpeech } from "./pocketSpeech";
 import { SerializedAsyncQueue } from "./serialized-async-queue";
 
-type SpokenResponse = { readonly scope: string; readonly messageId: string };
+export type SpokenResponse = { readonly scope: string; readonly messageId: string };
 
 let activeResponse: SpokenResponse | null = null;
 const listeners = new Set<() => void>();
@@ -36,7 +37,10 @@ export const responseSpeech = {
     setActiveResponse(null);
     return queue.run(() => pocketSpeech.stop());
   },
-  async toggle({ scope, messageId }: SpokenResponse, markdown: string) {
+  rewind() {
+    return queue.run(() => pocketSpeech.rewind()).catch(reportResponseSpeechError);
+  },
+  async toggle({ scope, messageId }: SpokenResponse, markdown: string, rate: number) {
     const response = { scope, messageId };
     const previous = activeResponse;
     const stopping = responseSpeech.stop();
@@ -67,6 +71,7 @@ export const responseSpeech = {
         });
         if (activeResponse !== response) return;
         if (!download) {
+          autoReadResponse.cancel(scope);
           setActiveResponse(null);
           return;
         }
@@ -76,13 +81,22 @@ export const responseSpeech = {
       const finish = () => {
         if (activeResponse === response) setActiveResponse(null);
       };
-      void pocketSpeech.speak(text).then(finish, (error: unknown) => {
-        if (activeResponse !== response) return;
-        finish();
-        reportResponseSpeechError(error);
-      });
+      void pocketSpeech.speak(text, rate).then(
+        (completed) => {
+          if (activeResponse !== response) return;
+          if (!completed) autoReadResponse.cancel(scope);
+          finish();
+        },
+        (error: unknown) => {
+          if (activeResponse !== response) return;
+          autoReadResponse.cancel(scope);
+          finish();
+          reportResponseSpeechError(error);
+        },
+      );
     } catch (error) {
       if (activeResponse !== response) return;
+      autoReadResponse.cancel(scope);
       setActiveResponse(null);
       reportResponseSpeechError(error);
     }

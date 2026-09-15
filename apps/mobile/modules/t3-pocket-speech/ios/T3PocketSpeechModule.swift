@@ -6,10 +6,21 @@ public class T3PocketSpeechModule: Module {
 
     Function("isVoiceDownloaded") { PocketVoice.isDownloaded }
 
-    AsyncFunction("speak") { (text: String, promise: Promise) in
+    AsyncFunction("speak") { (text: String, rate: Float, promise: Promise) in
       Task { @MainActor in
         do {
-          try await PocketSpeechPlayer.shared.speak(text)
+          let completed = try await PocketSpeechPlayer.shared.speak(text, rate: rate)
+          promise.resolve(completed)
+        } catch {
+          promise.reject(error)
+        }
+      }
+    }
+
+    AsyncFunction("rewind") { (promise: Promise) in
+      Task { @MainActor in
+        do {
+          try PocketSpeechPlayer.shared.rewind()
           promise.resolve()
         } catch {
           promise.reject(error)
