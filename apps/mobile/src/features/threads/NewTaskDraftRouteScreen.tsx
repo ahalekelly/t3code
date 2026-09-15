@@ -16,6 +16,7 @@ import { NativeStackScreenOptions } from "../../native/StackHeader";
 import { NewTaskDraftScreen } from "./NewTaskDraftScreen";
 
 type NewTaskDraftRouteParams = {
+  readonly launchId?: string;
   readonly environmentId?: string | string[];
   readonly projectId?: string | string[];
   readonly branch?: string | null;
