@@ -22,6 +22,7 @@ import {
 import { useResolveClassNames } from "uniwind";
 
 import { AppText as Text } from "./components/AppText";
+import { NewChatWidgetSync } from "./widgets/NewChatWidgetSync";
 import { getCompactBrandHeaderOptions } from "./components/CompactBrandTitle";
 import {
   RenderErrorBoundary,
@@ -614,6 +615,7 @@ function RootStackLayout(props: {
   return (
     <HardwareKeyboardCommandProvider pathname={pathname}>
       <ThreadOutboxDrainWorker />
+      <NewChatWidgetSync />
       <ShowcaseCaptureCoordinator pathname={pathname} />
       <ExistingThreadSettingsRouteProvider>
         <AdaptiveWorkspaceLayout
@@ -875,6 +877,8 @@ const RootStackConfig = createNativeStackNavigator({
     NewTaskSheet: createNativeStackScreen({
       screen: NewTaskSheetStack,
       linking: "new",
+      getId: ({ params }) =>
+        params?.screen === "NewTaskDraft" ? params.params?.launchId : undefined,
       // The whole new-task flow (choose project → draft → add project) shares
       // draft state via NewTaskFlowProvider. The expo-router era mounted it in
       // app/new/_layout.tsx; this layout wrapper is the native-stack equivalent.

@@ -55,6 +55,11 @@ public final class T3NativeControlsModule: Module {
     }.runOnQueue(.main)
   }
 
+  @JS
+  func syncNewChatWidgetProjects(json: String) throws {
+    try NewChatWidgetStore.sync(json)
+  }
+
   // UIKit presenters are main-actor isolated rather than run on the JS thread
   // the macro would otherwise pick.
   @JS
