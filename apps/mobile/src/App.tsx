@@ -78,6 +78,7 @@ import {
 } from "./lib/foundation-fast-refresh";
 import { useMobileNavigationTheme } from "./lib/useMobileNavigationTheme";
 import { installUiRuntimeMemoryWarningGc } from "./lib/useUiRuntimeMemoryWarningGc";
+import { freshDraftLinkState } from "./lib/freshDraftLinkState";
 import { SubscriptionUsageCoordinator } from "./widgets/SubscriptionUsageCoordinator";
 import { ConnectDeviceApprovalCoordinator } from "./features/connection/ConnectDeviceApprovalCoordinator";
 import { installSubscriptionUsageRefresh } from "./widgets/useSubscriptionUsage";
@@ -149,9 +150,10 @@ const appLinking = {
   filter: (url: string) => shouldHandleAppLink(url, hasCloudPublicConfig()),
   getInitialURL: async () => (await Linking.getInitialURL()) ?? (await launchWorkspaceURL()),
   getActionFromState: (
-    state: Parameters<typeof getActionFromState>[0],
+    linkState: Parameters<typeof getActionFromState>[0],
     options: Parameters<typeof getActionFromState>[1],
   ): ReturnType<typeof getActionFromState> => {
+    const state = freshDraftLinkState(linkState);
     const current = rootNavigationRef.isReady() ? rootNavigationRef.getRootState() : undefined;
     return (
       // Our router handles the selection; React Navigation's type only lists its own actions.
