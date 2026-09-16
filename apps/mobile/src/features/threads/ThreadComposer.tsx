@@ -1002,6 +1002,7 @@ export const ThreadComposer = function ThreadComposer(props: ThreadComposerProps
                 chipsInert={!isExpanded}
                 onInertChipPress={() => inputRef.current?.focus()}
                 ref={inputRef}
+                autoFocus={props.isDraft}
                 multiline
                 value={draftMessage}
                 // The save uses a draft snapshot; further typing would be discarded on success.
