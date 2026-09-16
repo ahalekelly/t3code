@@ -3,7 +3,8 @@ import { parseMarkdownWithOptions } from "react-native-nitro-markdown/headless";
 
 import { autoReadResponse } from "./autoReadResponse";
 import { markdownSpeechText } from "./markdownSpeechText";
-import { pocketSpeech } from "./pocketSpeech";
+import { nativeSpeech } from "./nativeSpeech";
+import { SPEECH_MODELS, type SpeechModel } from "./speechModels";
 import { SerializedAsyncQueue } from "./serialized-async-queue";
 
 export type SpokenResponse = { readonly scope: string; readonly messageId: string };
@@ -35,12 +36,17 @@ export const responseSpeech = {
   getSnapshot: () => activeResponse,
   stop() {
     setActiveResponse(null);
-    return queue.run(() => pocketSpeech.stop());
+    return queue.run(() => nativeSpeech.stop());
   },
   rewind() {
-    return queue.run(() => pocketSpeech.rewind()).catch(reportResponseSpeechError);
+    return queue.run(() => nativeSpeech.rewind()).catch(reportResponseSpeechError);
   },
-  async toggle({ scope, messageId }: SpokenResponse, markdown: string, rate: number) {
+  async toggle(
+    { scope, messageId }: SpokenResponse,
+    markdown: string,
+    rate: number,
+    model: SpeechModel,
+  ) {
     const response = { scope, messageId };
     const previous = activeResponse;
     const stopping = responseSpeech.stop();
@@ -57,11 +63,12 @@ export const responseSpeech = {
       ).trim();
       if (!text) throw new Error("This response has no readable text.");
 
-      if (!pocketSpeech.isVoiceDownloaded()) {
+      if (!nativeSpeech.isVoiceDownloaded(model)) {
+        const voice = SPEECH_MODELS[model];
         const download = await new Promise<boolean>((resolve) => {
           Alert.alert(
             "Download offline voice?",
-            "The English voice needs a one-time 236 MB download. Keep the app open while it downloads. Your responses stay on this device.\n\nPocket TTS by Kyutai. Voice license: creativecommons.org/licenses/by/4.0",
+            `${voice.label} needs a one-time ${voice.download} download. Keep the app open while it downloads. Your responses stay on this device.\n\n${voice.attribution}`,
             [
               { text: "Cancel", style: "cancel", onPress: () => resolve(false) },
               { text: "Download", onPress: () => resolve(true) },
@@ -81,7 +88,7 @@ export const responseSpeech = {
       const finish = () => {
         if (activeResponse === response) setActiveResponse(null);
       };
-      void pocketSpeech.speak(text, rate).then(
+      void nativeSpeech.speak(text, rate, model).then(
         (completed) => {
           if (activeResponse !== response) return;
           if (!completed) autoReadResponse.cancel(scope);

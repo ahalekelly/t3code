@@ -4,7 +4,7 @@ export type SettingsSheetTarget =
   | "SettingsAppearance"
   | "SettingsKeyboard"
   | "SettingsProjectGrouping"
-  | "SettingsVoiceInput"
+  | "SettingsVoice"
   | "SettingsClientStorage"
   | "SettingsDiagnostics"
   | "SettingsOpenSourceLicenses"
