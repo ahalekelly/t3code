@@ -3,7 +3,7 @@
 Give the agent a task in the composer. Add files, quote a previous response, or
 include a skill when the task needs more context.
 
-On iOS, tap the speaker beneath a response to read it aloud. Tap again to stop, or rewind 10 seconds during playback. Choose Pocket TTS (236 MB) or Supertonic 3 (170 MB), and set playback speed, in **Settings → Voice → Read aloud**. Keep the app open for the first model download; reading then works offline and with the screen locked. Reading another response, leaving the thread, or starting dictation stops playback.
+On iOS, tap the speaker beneath a response to read it aloud. Tap again to stop, or rewind 10 seconds during playback. Choose Pocket TTS (240 MB) or Supertonic 3 (170 MB), and choose a voice, pace, and quality for each model, in **Settings → Voice → Read aloud**. Keep the app open for the first model download; reading then works offline and with the screen locked. Reading another response, leaving the thread, or starting dictation stops playback.
 
 Messages can contain up to 120,000 characters. Longer drafts stay in the composer
 so you can shorten them or split them into several messages.

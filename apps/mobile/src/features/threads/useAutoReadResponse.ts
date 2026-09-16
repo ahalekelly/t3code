@@ -7,7 +7,7 @@ import { useEffect, useSyncExternalStore } from "react";
 import { Platform } from "react-native";
 
 import { autoReadResponse } from "../../lib/autoReadResponse";
-import { DEFAULT_SPEECH_MODEL } from "../../lib/speechModels";
+import { getSpeechOptions } from "../../lib/speechModels";
 import { responseSpeech } from "../../lib/responseSpeech";
 import type { ThreadFeedEntry } from "../../lib/threadActivity";
 import { mobilePreferencesAtom } from "../../state/preferences";
@@ -42,8 +42,7 @@ export function useAutoReadResponse(
       void responseSpeech.toggle(
         { scope, messageId: reply.id },
         renderAssistantCitationsAsText(reply.text),
-        preferences.value.responseSpeechRate ?? 1,
-        preferences.value.responseSpeechModel ?? DEFAULT_SPEECH_MODEL,
+        getSpeechOptions(preferences.value),
       );
   }, [active, feed, focused, pending, preferences, scope, turn]);
 }

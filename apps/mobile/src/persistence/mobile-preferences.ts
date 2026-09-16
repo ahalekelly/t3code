@@ -11,7 +11,12 @@ import {
   VOICE_TRANSCRIPTION_SOURCE_LABELS,
   type VoiceTranscriptionSource,
 } from "../features/voice-input/voiceTranscriptionSources";
-import { SPEECH_MODELS, type SpeechModel } from "../lib/speechModels";
+import {
+  SPEECH_MODELS,
+  validateSpeechSettings,
+  type SpeechSettings,
+  type SpeechModel,
+} from "../lib/speechModels";
 import { MOBILE_THEME_IDS, type MobileThemeId, type MobileThemeMode } from "../lib/mobileTheme";
 import * as MobileDatabase from "./mobile-database";
 import * as MobileSecureStorage from "./mobile-secure-storage";
@@ -50,7 +55,7 @@ export interface Preferences {
   readonly threadListSnoozedShelfExpanded?: boolean;
   /** Unset means on-device; any OpenAI source needs the key kept in the keychain. */
   readonly voiceTranscriptionSource?: VoiceTranscriptionSource;
-  readonly responseSpeechRate?: number;
+  readonly responseSpeechSettings?: Partial<Record<SpeechModel, SpeechSettings>>;
   readonly responseSpeechModel?: SpeechModel;
   readonly readVoiceRepliesAloud?: boolean;
   readonly readThinkingUpdatesAloud?: boolean;
@@ -115,7 +120,7 @@ function sanitizePreferences(parsed: Preferences): Preferences {
     threadListSettledShelfExpanded?: boolean;
     threadListSnoozedShelfExpanded?: boolean;
     voiceTranscriptionSource?: VoiceTranscriptionSource;
-    responseSpeechRate?: number;
+    responseSpeechSettings?: Partial<Record<SpeechModel, SpeechSettings>>;
     responseSpeechModel?: SpeechModel;
     readVoiceRepliesAloud?: boolean;
     readThinkingUpdatesAloud?: boolean;
@@ -215,13 +220,19 @@ function sanitizePreferences(parsed: Preferences): Preferences {
   ) {
     preferences.responseSpeechModel = parsed.responseSpeechModel;
   }
-  if (
-    typeof parsed.responseSpeechRate === "number" &&
-    Number.isFinite(parsed.responseSpeechRate) &&
-    parsed.responseSpeechRate >= 0.75 &&
-    parsed.responseSpeechRate <= 2
-  ) {
-    preferences.responseSpeechRate = parsed.responseSpeechRate;
+  if (parsed.responseSpeechSettings !== undefined) {
+    if (
+      typeof parsed.responseSpeechSettings !== "object" ||
+      parsed.responseSpeechSettings === null
+    ) {
+      throw new Error("Invalid saved speech settings.");
+    }
+    const settings: Partial<Record<SpeechModel, SpeechSettings>> = {};
+    for (const model of Object.keys(SPEECH_MODELS) as SpeechModel[]) {
+      const value = parsed.responseSpeechSettings[model];
+      if (value !== undefined) settings[model] = validateSpeechSettings(model, value);
+    }
+    preferences.responseSpeechSettings = settings;
   }
   if (typeof parsed.readVoiceRepliesAloud === "boolean") {
     preferences.readVoiceRepliesAloud = parsed.readVoiceRepliesAloud;

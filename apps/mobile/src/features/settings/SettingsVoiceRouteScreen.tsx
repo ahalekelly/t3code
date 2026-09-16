@@ -17,7 +17,15 @@ import {
   VOICE_TRANSCRIPTION_SOURCE_LABELS,
   type VoiceTranscriptionSource,
 } from "../voice-input/voiceTranscriptionSources";
-import { DEFAULT_SPEECH_MODEL, SPEECH_MODELS, type SpeechModel } from "../../lib/speechModels";
+import {
+  getSpeechOptions,
+  SPEECH_MODELS,
+  SPEECH_PACES,
+  SPEECH_QUALITIES,
+  type SpeechModel,
+  type SpeechQuality,
+  type SpeechSettings,
+} from "../../lib/speechModels";
 import { SettingsSwitchRow } from "./components/SettingsSwitchRow";
 import { SettingsSection } from "./components/SettingsSection";
 
@@ -36,8 +44,16 @@ export function SettingsVoiceRouteScreen() {
     : DEFAULT_VOICE_TRANSCRIPTION_SOURCE;
 
   const preferences = AsyncResult.isSuccess(preferencesResult) ? preferencesResult.value : {};
-  const speechModel = preferences.responseSpeechModel ?? DEFAULT_SPEECH_MODEL;
-  const speechRate = preferences.responseSpeechRate ?? 1;
+  const speech = getSpeechOptions(preferences);
+  const saveSpeech = (patch: Partial<SpeechSettings>) => {
+    const { model, ...settings } = speech;
+    savePreferences({
+      responseSpeechSettings: {
+        ...preferences.responseSpeechSettings,
+        [model]: { ...settings, ...patch },
+      },
+    });
+  };
 
   const commitDraft = () => {
     if (draft === null) return;
@@ -116,62 +132,40 @@ export function SettingsVoiceRouteScreen() {
         </Text>
         {Platform.OS === "ios" ? (
           <SettingsSection title="Read aloud">
-            <View className="flex-row items-center gap-4 p-4">
-              <Text className="flex-1 text-lg text-foreground">Voice model</Text>
-              <ControlPillMenu
-                accessibilityLabel="Voice model"
-                accessibilityRole="button"
-                actions={Object.entries(SPEECH_MODELS).map(([id, model]) => ({
-                  id,
-                  title: model.label,
-                  state: id === speechModel ? ("on" as const) : undefined,
-                }))}
-                isAnchoredToRight
-                onPressAction={({ nativeEvent }) =>
-                  savePreferences({ responseSpeechModel: nativeEvent.event as SpeechModel })
-                }
-              >
-                <Pressable className="flex-row items-center gap-1.5 rounded-full bg-subtle px-3.5 py-2">
-                  <Text className="text-base text-foreground">
-                    {SPEECH_MODELS[speechModel].label}
-                  </Text>
-                  <SymbolView
-                    name="chevron.up.chevron.down"
-                    size={12}
-                    tintColorClassName="accent-icon"
-                    type="monochrome"
-                    weight="semibold"
-                  />
-                </Pressable>
-              </ControlPillMenu>
-            </View>
-            <View className="flex-row items-center gap-4 p-4">
-              <Text className="flex-1 text-lg text-foreground">Playback speed</Text>
-              <ControlPillMenu
-                accessibilityLabel="Playback speed"
-                accessibilityRole="button"
-                actions={[0.75, 1, 1.25, 1.5, 1.75, 2].map((rate) => ({
-                  id: String(rate),
-                  title: `${rate}×`,
-                  state: rate === speechRate ? ("on" as const) : undefined,
-                }))}
-                isAnchoredToRight
-                onPressAction={({ nativeEvent }) =>
-                  savePreferences({ responseSpeechRate: Number(nativeEvent.event) })
-                }
-              >
-                <Pressable className="flex-row items-center gap-1.5 rounded-full bg-subtle px-3.5 py-2">
-                  <Text className="text-base text-foreground">{speechRate}×</Text>
-                  <SymbolView
-                    name="chevron.up.chevron.down"
-                    size={12}
-                    tintColorClassName="accent-icon"
-                    type="monochrome"
-                    weight="semibold"
-                  />
-                </Pressable>
-              </ControlPillMenu>
-            </View>
+            <VoiceChoice
+              label="Voice model"
+              value={speech.model}
+              options={Object.entries(SPEECH_MODELS).map(([id, model]) => ({
+                id,
+                title: model.label,
+              }))}
+              onSelect={(model) => savePreferences({ responseSpeechModel: model as SpeechModel })}
+            />
+            <VoiceChoice
+              label="Voice"
+              value={speech.voice}
+              options={SPEECH_MODELS[speech.model].voices.map((voice) => ({
+                id: voice,
+                title: voice,
+              }))}
+              onSelect={(voice) => saveSpeech({ voice })}
+            />
+            <VoiceChoice
+              label="Pace"
+              value={String(speech.pace)}
+              options={SPEECH_PACES.map((pace) => ({ id: String(pace), title: `${pace}×` }))}
+              onSelect={(pace) => saveSpeech({ pace: Number(pace) })}
+            />
+            <VoiceChoice
+              label="Quality"
+              value={speech.quality}
+              options={Object.entries(SPEECH_QUALITIES).map(([id, title]) => ({ id, title }))}
+              onSelect={(quality) => saveSpeech({ quality: quality as SpeechQuality })}
+            />
+            <Text className="px-4 pb-4 text-sm text-foreground-muted">
+              Higher quality takes longer to generate. Voice, pace, and quality are saved for each
+              model.
+            </Text>
             <SettingsSwitchRow
               icon="speaker.wave.2"
               label="Read voice replies aloud"
@@ -192,6 +186,47 @@ export function SettingsVoiceRouteScreen() {
           </SettingsSection>
         ) : null}
       </ScrollView>
+    </View>
+  );
+}
+
+function VoiceChoice({
+  label,
+  value,
+  options,
+  onSelect,
+}: {
+  label: string;
+  value: string;
+  options: { id: string; title: string }[];
+  onSelect: (value: string) => void;
+}) {
+  return (
+    <View className="flex-row items-center gap-4 p-4">
+      <Text className="flex-1 text-lg text-foreground">{label}</Text>
+      <ControlPillMenu
+        accessibilityLabel={label}
+        accessibilityRole="button"
+        isAnchoredToRight
+        actions={options.map((option) => ({
+          ...option,
+          state: option.id === value ? ("on" as const) : undefined,
+        }))}
+        onPressAction={({ nativeEvent }) => onSelect(nativeEvent.event)}
+      >
+        <Pressable className="flex-row items-center gap-1.5 rounded-full bg-subtle px-3.5 py-2">
+          <Text className="text-base text-foreground">
+            {options.find((option) => option.id === value)?.title}
+          </Text>
+          <SymbolView
+            name="chevron.up.chevron.down"
+            size={12}
+            tintColorClassName="accent-icon"
+            type="monochrome"
+            weight="semibold"
+          />
+        </Pressable>
+      </ControlPillMenu>
     </View>
   );
 }

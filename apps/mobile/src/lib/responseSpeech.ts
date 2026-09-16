@@ -4,7 +4,7 @@ import { parseMarkdownWithOptions } from "react-native-nitro-markdown/headless";
 import { autoReadResponse } from "./autoReadResponse";
 import { markdownSpeechText } from "./markdownSpeechText";
 import { nativeSpeech } from "./nativeSpeech";
-import { SPEECH_MODELS, type SpeechModel } from "./speechModels";
+import { SPEECH_MODELS, type SpeechOptions } from "./speechModels";
 import { SerializedAsyncQueue } from "./serialized-async-queue";
 
 export type SpokenResponse = { readonly scope: string; readonly messageId: string };
@@ -41,12 +41,7 @@ export const responseSpeech = {
   rewind() {
     return queue.run(() => nativeSpeech.rewind()).catch(reportResponseSpeechError);
   },
-  async toggle(
-    { scope, messageId }: SpokenResponse,
-    markdown: string,
-    rate: number,
-    model: SpeechModel,
-  ) {
+  async toggle({ scope, messageId }: SpokenResponse, markdown: string, options: SpeechOptions) {
     const response = { scope, messageId };
     const previous = activeResponse;
     const stopping = responseSpeech.stop();
@@ -63,12 +58,12 @@ export const responseSpeech = {
       ).trim();
       if (!text) throw new Error("This response has no readable text.");
 
-      if (!nativeSpeech.isVoiceDownloaded(model)) {
-        const voice = SPEECH_MODELS[model];
+      if (!nativeSpeech.isVoiceDownloaded(options)) {
+        const voice = SPEECH_MODELS[options.model];
         const download = await new Promise<boolean>((resolve) => {
           Alert.alert(
             "Download offline voice?",
-            `${voice.label} needs a one-time ${voice.download} download. Keep the app open while it downloads. Your responses stay on this device.\n\n${voice.attribution}`,
+            `${voice.label} needs model and voice files (up to ${voice.download}). Only missing files will download. Keep the app open while it downloads. Your responses stay on this device.\n\n${voice.attribution}`,
             [
               { text: "Cancel", style: "cancel", onPress: () => resolve(false) },
               { text: "Download", onPress: () => resolve(true) },
@@ -88,7 +83,7 @@ export const responseSpeech = {
       const finish = () => {
         if (activeResponse === response) setActiveResponse(null);
       };
-      void nativeSpeech.speak(text, rate, model).then(
+      void nativeSpeech.speak(text, options).then(
         (completed) => {
           if (activeResponse !== response) return;
           if (!completed) autoReadResponse.cancel(scope);
