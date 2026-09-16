@@ -1396,9 +1396,7 @@ export function NewTaskDraftScreen(props: {
           );
         }}
         ref={promptInputRef}
-        // The context-first screen intentionally opens with the keyboard closed.
-        // Focusing is a user action, so presenting the form sheet has one motion.
-        autoFocus={false}
+        autoFocus
         // Clipboard imports use the editor's read-only mode to retain keyboard focus.
         editable={!isIncomingShareTransferPending && !flow.submitting}
         readOnly={voiceInput.freezesEditor}
