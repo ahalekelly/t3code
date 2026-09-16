@@ -39,7 +39,7 @@ const widgetProjectsAtom = Atom.make((get) => {
 export function NewChatWidgetSync() {
   const projects = useAtomValue(widgetProjectsAtom);
   useEffect(() => {
-    if (projects !== null && !Constants.expoConfig?.extra?.iosPersonalTeamBuild) {
+    if (projects !== null && Constants.expoConfig?.extra?.iosWidgetsEnabled !== false) {
       NativeControls.syncNewChatWidgetProjects(projects);
     }
   }, [projects]);
