@@ -40,10 +40,7 @@ const INITIAL_STATE: VoiceInputState = { phase: "idle", error: null, errorAction
 /** Selecting an OpenAI source without a key is a setup mistake, not a reason to fall back. */
 const MISSING_OPENAI_KEY_TRANSCRIBER: VoiceTranscriber = {
   prepare: async () => {
-    throw new VoiceTranscriptionError(
-      "unavailable",
-      "Add an OpenAI API key in Settings → Voice Input.",
-    );
+    throw new VoiceTranscriptionError("unavailable", "Add an OpenAI API key in Settings → Voice.");
   },
 };
 const VOICE_METERING_INTERVAL_MS = 80;

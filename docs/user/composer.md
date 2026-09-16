@@ -3,11 +3,7 @@
 Give the agent a task in the composer. Add files, quote a previous response, or
 include a skill when the task needs more context.
 
-On iOS, tap the speaker beside Copy beneath a response to read it aloud. Tap again
-to stop, or rewind 10 seconds during playback. Set playback speed in
-**Settings → Voice Input → Read aloud**. Reading another response, leaving the
-thread, or starting dictation stops playback. Keep the app open for the first 236 MB voice download.
-Afterward, English responses can be read offline, including with the screen locked.
+On iOS, tap the speaker beneath a response to read it aloud. Tap again to stop, or rewind 10 seconds during playback. Choose Pocket TTS (236 MB) or Supertonic 3 (170 MB), and set playback speed, in **Settings → Voice → Read aloud**. Keep the app open for the first model download; reading then works offline and with the screen locked. Reading another response, leaving the thread, or starting dictation stops playback.
 
 Messages can contain up to 120,000 characters. Longer drafts stay in the composer
 so you can shorten them or split them into several messages.
@@ -93,7 +89,7 @@ then confirm to transcribe. Text is inserted where your selection was when
 recording started, ready for you to review and edit before sending. The send
 button beside the check mark transcribes and sends the message right away,
 skipping the review. The completed reply is read aloud automatically while you stay
-in the thread. Turn off **Read voice replies aloud** in **Settings → Voice Input**
+in the thread. Turn off **Read voice replies aloud** in **Settings → Voice**
 to disable this. Enable **Read thinking updates** there to hear written progress
 messages as the agent works.
 
@@ -107,7 +103,7 @@ message text is sent when you submit. Messages containing dictated text end with
 short note marking them as a voice transcription, so the agent expects misheard
 words.
 
-**Settings → Voice Input** chooses where transcription runs: on this device, or
+**Settings → Voice** chooses where transcription runs: on this device, or
 with one of the OpenAI models. The OpenAI sources upload each recording straight
 from your phone using the API key you store on the same screen, which stays in
 your device keychain.

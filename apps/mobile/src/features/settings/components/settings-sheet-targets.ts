@@ -3,7 +3,7 @@ export type SettingsSheetTarget =
   | "SettingsArchive"
   | "SettingsAppearance"
   | "SettingsProjectGrouping"
-  | "SettingsVoiceInput"
+  | "SettingsVoice"
   | "SettingsClientStorage"
   | "SettingsUsage";
 

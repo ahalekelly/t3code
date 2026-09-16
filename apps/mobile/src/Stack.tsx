@@ -52,7 +52,7 @@ import {
 import { NewTaskFlowProvider } from "./features/threads/new-task-flow-provider";
 import { NewTaskRouteScreen } from "./features/threads/NewTaskRouteScreen";
 import { SettingsAppearanceRouteScreen } from "./features/settings/SettingsAppearanceRouteScreen";
-import { SettingsVoiceInputRouteScreen } from "./features/settings/SettingsVoiceInputRouteScreen";
+import { SettingsVoiceRouteScreen } from "./features/settings/SettingsVoiceRouteScreen";
 import { SettingsClientStorageRouteScreen } from "./features/settings/SettingsClientStorageRouteScreen";
 import { SettingsAuthRouteScreen } from "./features/settings/SettingsAuthRouteScreen";
 import { SettingsEnvironmentsRouteScreen } from "./features/settings/SettingsEnvironmentsRouteScreen";
@@ -181,11 +181,11 @@ const SettingsContentStack = createNativeStackNavigator({
         title: "Appearance",
       },
     }),
-    SettingsVoiceInput: createNativeStackScreen({
-      screen: SettingsVoiceInputRouteScreen,
-      linking: "voice-input",
+    SettingsVoice: createNativeStackScreen({
+      screen: SettingsVoiceRouteScreen,
+      linking: "voice",
       options: {
-        title: "Voice Input",
+        title: "Voice",
       },
     }),
     SettingsProjectGrouping: createNativeStackScreen({
