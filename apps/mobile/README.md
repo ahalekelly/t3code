@@ -71,8 +71,8 @@ reduced-capability local build. Personal Team builds omit widget and share exten
 notifications, associated domains, and native Sign in with Apple.
 
 ```bash
-T3CODE_IOS_PERSONAL_TEAM=1 \
-T3CODE_IOS_PERSONAL_TEAM_BUNDLE_ID=com.example.t3code.dev \
+T3CODE_IOS_SIGNING=personal-team \
+T3CODE_IOS_BUNDLE_ID=com.example.t3code.dev \
 vp run ios:dev
 ```
 
@@ -85,10 +85,18 @@ vp run ios:release
 The Personal Team equivalent also needs a unique bundle identifier:
 
 ```bash
-T3CODE_IOS_PERSONAL_TEAM=1 \
-T3CODE_IOS_PERSONAL_TEAM_BUNDLE_ID=com.example.t3code \
+T3CODE_IOS_SIGNING=personal-team \
+T3CODE_IOS_BUNDLE_ID=com.example.t3code \
 vp run ios:release
 ```
+
+For a SideStore IPA, set `T3CODE_IOS_SIGNING=sidestore`, `T3CODE_IOS_BUNDLE_ID`, and
+`T3CODE_IOS_SIDESTORE_TEAM_ID` to the Apple team used in SideStore. This build includes widgets
+and omits the share extension, push notifications, associated domains, and native Apple sign-in.
+Build Release with `CODE_SIGNING_ALLOWED=NO`, then ad-hoc sign the app and widget with their
+generated entitlements before packaging `Payload/*.app` as an IPA. SideStore replaces those
+signatures. Keep the widget extension when importing. The IPA’s shared-storage identifiers are
+specific to the configured team; rebuild before signing with another Apple account.
 
 Build and run the local iOS preview app:
 

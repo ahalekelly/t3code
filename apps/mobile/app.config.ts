@@ -9,12 +9,21 @@ const repoEnv = loadRepoEnv();
 Object.assign(process.env, repoEnv);
 
 const APP_VARIANT = resolveAppVariant(repoEnv.APP_VARIANT);
-const isIosPersonalTeamBuild = repoEnv.T3CODE_IOS_PERSONAL_TEAM === "1";
+const iosSigning = repoEnv.T3CODE_IOS_SIGNING ?? "distribution";
+if (!["distribution", "personal-team", "sidestore"].includes(iosSigning)) {
+  throw new Error("T3CODE_IOS_SIGNING must be distribution, personal-team, or sidestore.");
+}
+const isIosPersonalTeamBuild = iosSigning === "personal-team";
+const isIosSideloadBuild = iosSigning !== "distribution";
+const sideStoreTeam = iosSigning === "sidestore" ? repoEnv.T3CODE_IOS_SIDESTORE_TEAM_ID : undefined;
+if (iosSigning === "sidestore" && !/^[A-Z0-9]{10}$/.test(sideStoreTeam ?? "")) {
+  throw new Error("T3CODE_IOS_SIDESTORE_TEAM_ID must be your 10-character Apple team ID.");
+}
 const runtimeVersionPolicy =
   process.env.MOBILE_VERSION_POLICY ??
   (APP_VARIANT === "development" ? "appVersion" : "fingerprint");
 
-const personalTeamBundleIdentifier = repoEnv.T3CODE_IOS_PERSONAL_TEAM_BUNDLE_ID?.trim();
+const sideloadBundleIdentifier = repoEnv.T3CODE_IOS_BUNDLE_ID?.trim();
 const IOS_BUNDLE_IDENTIFIER_PATTERN = /^[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+$/;
 
 const fromRepoRoot = (relativePath: string) => `../../${relativePath}`;
@@ -23,12 +32,11 @@ const fromRepoRoot = (relativePath: string) => `../../${relativePath}`;
 const androidAdaptiveForeground = "./assets/android-icon-foreground.png";
 
 if (
-  isIosPersonalTeamBuild &&
-  (!personalTeamBundleIdentifier ||
-    !IOS_BUNDLE_IDENTIFIER_PATTERN.test(personalTeamBundleIdentifier))
+  isIosSideloadBuild &&
+  (!sideloadBundleIdentifier || !IOS_BUNDLE_IDENTIFIER_PATTERN.test(sideloadBundleIdentifier))
 ) {
   throw new Error(
-    "T3CODE_IOS_PERSONAL_TEAM_BUNDLE_ID must be a reverse-DNS identifier such as com.example.t3code when T3CODE_IOS_PERSONAL_TEAM=1.",
+    "T3CODE_IOS_BUNDLE_ID must be a reverse-DNS identifier such as com.example.t3code when using personal-team or sidestore signing.",
   );
 }
 
@@ -110,8 +118,8 @@ function resolveAppVariant(value: string | undefined): AppVariant {
 }
 
 const variant = VARIANT_CONFIG[APP_VARIANT];
-const iosBundleIdentifier = isIosPersonalTeamBuild
-  ? personalTeamBundleIdentifier!
+const iosBundleIdentifier = isIosSideloadBuild
+  ? sideloadBundleIdentifier!
   : variant.iosBundleIdentifier;
 
 const dmSansFonts = {
@@ -125,7 +133,7 @@ const widgetsPlugin: NonNullable<ExpoConfig["plugins"]>[number] = [
   {
     bundleIdentifier: `${iosBundleIdentifier}.widgets`,
     groupIdentifier: `group.${iosBundleIdentifier}`,
-    enablePushNotifications: true,
+    enablePushNotifications: !isIosSideloadBuild,
     // Agent activity can update many times an hour; without the
     // frequent-updates entitlement iOS throttles the update budget sooner.
     frequentUpdates: true,
@@ -183,10 +191,8 @@ const sharingPlugin: NonNullable<ExpoConfig["plugins"]>[number] = [
   "expo-sharing",
   {
     ios: {
-      // Personal Teams cannot sign App Groups or extension targets. Keep the
-      // reduced-capability local build usable while release builds expose the
-      // real system share target.
-      enabled: !isIosPersonalTeamBuild,
+      // Reserve the free account’s extension capacity for the widget.
+      enabled: !isIosSideloadBuild,
       extensionBundleIdentifier: `${iosBundleIdentifier}.sharing`,
       appGroupId: `group.${iosBundleIdentifier}`,
       activationRule: {
@@ -241,7 +247,7 @@ const config: ExpoConfig = {
     // Pin code signing to the T3 Tools team so non-interactive `expo run:ios`
     // does not fall back to a personal team (which cannot sign app groups,
     // Sign in with Apple, or push notification entitlements).
-    ...(!isIosPersonalTeamBuild
+    ...(!isIosSideloadBuild
       ? {
           appleTeamId: "ARK85ZXQ4Z",
           associatedDomains: [
@@ -250,11 +256,11 @@ const config: ExpoConfig = {
           ],
         }
       : {}),
-    entitlements: {
-      "keychain-access-groups": [`$(AppIdentifierPrefix)${variant.iosBundleIdentifier}`],
-    },
+    entitlements: !isIosSideloadBuild
+      ? { "keychain-access-groups": [`$(AppIdentifierPrefix)${variant.iosBundleIdentifier}`] }
+      : {},
     infoPlist: {
-      ...(isIosPersonalTeamBuild
+      ...(isIosSideloadBuild
         ? {
             // Personal Team builds install alongside the App Store app, so give
             // them a distinct home screen name.
@@ -312,7 +318,13 @@ const config: ExpoConfig = {
   },
   plugins: [
     // Same-type mods run last-registered-first; remove restricted entitlements after SDK mods.
-    ...(isIosPersonalTeamBuild ? ["./plugins/withoutIosPersonalTeamCapabilities.cjs"] : []),
+    ...(isIosSideloadBuild
+      ? [
+          ["./plugins/withIosSideloadSigning.cjs", { sideStoreTeam }] satisfies NonNullable<
+            ExpoConfig["plugins"]
+          >[number],
+        ]
+      : []),
     "expo-asset",
     [
       "expo-font",
@@ -340,7 +352,7 @@ const config: ExpoConfig = {
     ],
     "expo-secure-store",
     "expo-sqlite",
-    ...(isIosPersonalTeamBuild
+    ...(isIosSideloadBuild
       ? [sharingPlugin]
       : ["./plugins/withShareExtensionDisplayName.cjs", sharingPlugin]),
     [
@@ -351,7 +363,7 @@ const config: ExpoConfig = {
         mode: APP_VARIANT === "development" ? "development" : "production",
       },
     ],
-    ["@clerk/expo", { theme: "./clerk-theme.json", appleSignIn: !isIosPersonalTeamBuild }],
+    ["@clerk/expo", { theme: "./clerk-theme.json", appleSignIn: !isIosSideloadBuild }],
     "expo-web-browser",
     [
       "expo-quick-actions",
@@ -450,7 +462,9 @@ const config: ExpoConfig = {
   ],
   extra: {
     appVariant: APP_VARIANT,
-    iosPersonalTeamBuild: isIosPersonalTeamBuild,
+    iosWidgetsEnabled: !isIosPersonalTeamBuild,
+    iosSharingEnabled: !isIosSideloadBuild,
+    iosPushEnabled: !isIosSideloadBuild,
     relay: {
       url: repoEnv.T3CODE_RELAY_URL ?? null,
     },
