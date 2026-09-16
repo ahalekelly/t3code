@@ -1,6 +1,6 @@
 const { withInfoPlist } = require("expo/config-plugins");
 
-module.exports = function withPocketSpeech(config) {
+module.exports = function withResponseSpeech(config) {
   return withInfoPlist(config, (config) => {
     config.modResults.UIBackgroundModes = [
       ...new Set([...(config.modResults.UIBackgroundModes ?? []), "audio"]),

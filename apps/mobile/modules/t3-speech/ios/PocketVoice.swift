@@ -32,7 +32,7 @@ enum PocketVoice {
       let (temporary, response) = try await URLSession.shared.download(from: url)
       defer { try? FileManager.default.removeItem(at: temporary) }
       guard let response = response as? HTTPURLResponse, response.statusCode == 200 else {
-        throw PocketSpeechError("The offline voice could not be downloaded. Check your connection and try again.")
+        throw SpeechError("The offline voice could not be downloaded. Check your connection and try again.")
       }
       let file = try FileHandle(forReadingFrom: temporary)
       defer { try? file.close() }
@@ -42,15 +42,10 @@ enum PocketVoice {
         hash.update(data: data)
       }
       guard hash.finalize().map({ String(format: "%02x", $0) }).joined() == expectedHash else {
-        throw PocketSpeechError("The downloaded voice failed verification. Please try again.")
+        throw SpeechError("The downloaded voice failed verification. Please try again.")
       }
       try FileManager.default.moveItem(at: temporary, to: destination)
     }
     return directory
   }
-}
-
-struct PocketSpeechError: LocalizedError {
-  let errorDescription: String?
-  init(_ message: String) { errorDescription = message }
 }

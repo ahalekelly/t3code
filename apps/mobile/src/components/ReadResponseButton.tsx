@@ -5,6 +5,7 @@ import { memo, useSyncExternalStore } from "react";
 import { Pressable, type ColorValue } from "react-native";
 
 import { autoReadResponse } from "../lib/autoReadResponse";
+import { DEFAULT_SPEECH_MODEL } from "../lib/speechModels";
 import { responseSpeech } from "../lib/responseSpeech";
 import { SymbolView } from "./AppSymbol";
 
@@ -54,6 +55,9 @@ export const ReadResponseButton = memo(function ReadResponseButton(props: {
             { scope: props.scope, messageId: props.messageId },
             props.text,
             rate,
+            AsyncResult.isSuccess(preferences)
+              ? (preferences.value.responseSpeechModel ?? DEFAULT_SPEECH_MODEL)
+              : DEFAULT_SPEECH_MODEL,
           );
         }}
       >

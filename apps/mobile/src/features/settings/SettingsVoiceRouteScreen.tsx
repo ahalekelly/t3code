@@ -17,10 +17,11 @@ import {
   VOICE_TRANSCRIPTION_SOURCE_LABELS,
   type VoiceTranscriptionSource,
 } from "../voice-input/voiceTranscriptionSources";
+import { DEFAULT_SPEECH_MODEL, SPEECH_MODELS, type SpeechModel } from "../../lib/speechModels";
 import { SettingsSwitchRow } from "./components/SettingsSwitchRow";
 import { SettingsSection } from "./components/SettingsSection";
 
-export function SettingsVoiceInputRouteScreen() {
+export function SettingsVoiceRouteScreen() {
   const navigation = useNavigation();
   const insets = useSafeAreaInsets();
   const storedResult = useAtomValue(openAiApiKeyAtom);
@@ -35,6 +36,7 @@ export function SettingsVoiceInputRouteScreen() {
     : DEFAULT_VOICE_TRANSCRIPTION_SOURCE;
 
   const preferences = AsyncResult.isSuccess(preferencesResult) ? preferencesResult.value : {};
+  const speechModel = preferences.responseSpeechModel ?? DEFAULT_SPEECH_MODEL;
   const speechRate = preferences.responseSpeechRate ?? 1;
 
   const commitDraft = () => {
@@ -48,7 +50,7 @@ export function SettingsVoiceInputRouteScreen() {
       {Platform.OS === "android" ? (
         <>
           <NativeStackScreenOptions options={{ headerShown: false }} />
-          <AndroidScreenHeader title="Voice Input" onBack={() => navigation.goBack()} />
+          <AndroidScreenHeader title="Voice" onBack={() => navigation.goBack()} />
         </>
       ) : null}
       <ScrollView
@@ -114,6 +116,35 @@ export function SettingsVoiceInputRouteScreen() {
         </Text>
         {Platform.OS === "ios" ? (
           <SettingsSection title="Read aloud">
+            <View className="flex-row items-center gap-4 p-4">
+              <Text className="flex-1 text-lg text-foreground">Voice model</Text>
+              <ControlPillMenu
+                accessibilityLabel="Voice model"
+                accessibilityRole="button"
+                actions={Object.entries(SPEECH_MODELS).map(([id, model]) => ({
+                  id,
+                  title: model.label,
+                  state: id === speechModel ? ("on" as const) : undefined,
+                }))}
+                isAnchoredToRight
+                onPressAction={({ nativeEvent }) =>
+                  savePreferences({ responseSpeechModel: nativeEvent.event as SpeechModel })
+                }
+              >
+                <Pressable className="flex-row items-center gap-1.5 rounded-full bg-subtle px-3.5 py-2">
+                  <Text className="text-base text-foreground">
+                    {SPEECH_MODELS[speechModel].label}
+                  </Text>
+                  <SymbolView
+                    name="chevron.up.chevron.down"
+                    size={12}
+                    tintColorClassName="accent-icon"
+                    type="monochrome"
+                    weight="semibold"
+                  />
+                </Pressable>
+              </ControlPillMenu>
+            </View>
             <View className="flex-row items-center gap-4 p-4">
               <Text className="flex-1 text-lg text-foreground">Playback speed</Text>
               <ControlPillMenu

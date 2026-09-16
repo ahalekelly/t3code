@@ -11,6 +11,7 @@ import {
   VOICE_TRANSCRIPTION_SOURCE_LABELS,
   type VoiceTranscriptionSource,
 } from "../features/voice-input/voiceTranscriptionSources";
+import { SPEECH_MODELS, type SpeechModel } from "../lib/speechModels";
 import { MOBILE_THEME_IDS, type MobileThemeId, type MobileThemeMode } from "../lib/mobileTheme";
 import * as MobileDatabase from "./mobile-database";
 import * as MobileSecureStorage from "./mobile-secure-storage";
@@ -50,6 +51,7 @@ export interface Preferences {
   /** Unset means on-device; any OpenAI source needs the key kept in the keychain. */
   readonly voiceTranscriptionSource?: VoiceTranscriptionSource;
   readonly responseSpeechRate?: number;
+  readonly responseSpeechModel?: SpeechModel;
   readonly readVoiceRepliesAloud?: boolean;
   readonly readThinkingUpdatesAloud?: boolean;
 }
@@ -114,6 +116,7 @@ function sanitizePreferences(parsed: Preferences): Preferences {
     threadListSnoozedShelfExpanded?: boolean;
     voiceTranscriptionSource?: VoiceTranscriptionSource;
     responseSpeechRate?: number;
+    responseSpeechModel?: SpeechModel;
     readVoiceRepliesAloud?: boolean;
     readThinkingUpdatesAloud?: boolean;
   } = {};
@@ -205,6 +208,12 @@ function sanitizePreferences(parsed: Preferences): Preferences {
     parsed.voiceTranscriptionSource in VOICE_TRANSCRIPTION_SOURCE_LABELS
   ) {
     preferences.voiceTranscriptionSource = parsed.voiceTranscriptionSource;
+  }
+  if (
+    typeof parsed.responseSpeechModel === "string" &&
+    Object.hasOwn(SPEECH_MODELS, parsed.responseSpeechModel)
+  ) {
+    preferences.responseSpeechModel = parsed.responseSpeechModel;
   }
   if (
     typeof parsed.responseSpeechRate === "number" &&

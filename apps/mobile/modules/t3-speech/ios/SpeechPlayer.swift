@@ -1,37 +1,34 @@
 import AVFoundation
 import Foundation
 import PocketTTSRuntime
+import T3Supertonic
 
 @MainActor
-final class PocketSpeechPlayer {
-  static let shared = PocketSpeechPlayer()
+final class SpeechPlayer {
+  static let shared = SpeechPlayer()
   private var operation: (id: UUID, task: Task<Bool, Error>)?
   private var playback: SpeechPlayback?
 
-  func speak(_ text: String, rate: Float) async throws -> Bool {
+  func speak(_ text: String, rate: Float, model: SpeechModel) async throws -> Bool {
     guard rate.isFinite, (0.75...2).contains(rate) else {
-      throw NSError(domain: "T3PocketSpeech", code: 1, userInfo: [NSLocalizedDescriptionKey: "Playback speed must be between 0.75× and 2×."])
+      throw NSError(domain: "T3Speech", code: 1, userInfo: [NSLocalizedDescriptionKey: "Playback speed must be between 0.75× and 2×."])
     }
     await stop()
     let id = UUID()
     let task = Task.detached(priority: .userInitiated) {
-      let directory = try await PocketVoice.prepare()
+      let synthesizer = try await SpeechSynthesizer.prepare(model)
       try Task.checkCancellation()
-      let engine = try PocketTtsEngine(modelPath: directory.path)
-      try Task.checkCancellation()
-      try engine.configure(config: TtsConfig(
-        voiceIndex: 0, temperature: 0.7, topP: 0.9, speed: 1,
-        consistencySteps: 2, useFixedSeed: false, seed: 42
-      ))
-      let playback = try SpeechPlayback(engine: engine, rate: rate)
+      let playback = try SpeechPlayback(sampleRate: synthesizer.sampleRate, rate: rate) {
+        synthesizer.cancel()
+      }
       defer { playback.close() }
       await MainActor.run { self.playback = playback }
       return try await withTaskCancellationHandler {
         do {
-          for segment in pocketSpeechSegments(text) {
+          for segment in speechSegments(text, maxLength: synthesizer.segmentLength) {
             try Task.checkCancellation()
             if playback.isCancelled { break }
-            try engine.startTrueStreaming(text: segment, handler: playback)
+            try await synthesizer.generate(segment, into: playback)
           }
           playback.finishGeneration()
           try playback.waitForPlayback()
@@ -67,12 +64,12 @@ final class PocketSpeechPlayer {
 }
 
 /// Streams through a bounded playback queue; a temporary PCM file keeps past audio seekable.
-private final class SpeechPlayback: TtsEventHandler, @unchecked Sendable {
-  private let synthesizer: PocketTtsEngine
+private final class SpeechPlayback: @unchecked Sendable {
+  private let cancelGeneration: @Sendable () -> Void
   private let audioEngine = AVAudioEngine()
   private let player = AVAudioPlayerNode()
   private let timePitch = AVAudioUnitTimePitch()
-  private let format = AVAudioFormat(standardFormatWithSampleRate: 24_000, channels: 1)!
+  private let format: AVAudioFormat
   private let condition = NSCondition()
   private let finished = DispatchSemaphore(value: 0)
   private let cacheURL = FileManager.default.temporaryDirectory.appendingPathComponent("t3-speech-\(UUID()).pcm")
@@ -92,8 +89,9 @@ private final class SpeechPlayback: TtsEventHandler, @unchecked Sendable {
   var isCancelled: Bool { condition.withLock { cancelled } }
   var playbackError: Error? { condition.withLock { failure } }
 
-  init(engine: PocketTtsEngine, rate: Float) throws {
-    synthesizer = engine
+  init(sampleRate: Double, rate: Float, cancelGeneration: @escaping @Sendable () -> Void) throws {
+    self.cancelGeneration = cancelGeneration
+    format = AVAudioFormat(standardFormatWithSampleRate: sampleRate, channels: 1)!
     try Data().write(to: cacheURL)
     cache = try FileHandle(forUpdating: cacheURL)
     let session = AVAudioSession.sharedInstance()
@@ -122,17 +120,17 @@ private final class SpeechPlayback: TtsEventHandler, @unchecked Sendable {
     ]
   }
 
-  func onAudioChunk(chunk: AudioChunk) {
-    guard !chunk.audioData.isEmpty else { return }
+  func append(_ data: Data) {
+    guard !data.isEmpty else { return }
     condition.lock()
     defer { condition.unlock() }
     // Let synthesis wait while playback catches up, including after a rewind.
-    while !cancelled && writtenFrames - completedFrames >= 96_000 { condition.wait() }
+    while !cancelled && writtenFrames - completedFrames >= Int64(format.sampleRate * 4) { condition.wait() }
     guard !cancelled else { return }
     do {
       try cache.seek(toOffset: UInt64(writtenFrames) * 4)
-      try cache.write(contentsOf: chunk.audioData)
-      writtenFrames += Int64(chunk.audioData.count / 4)
+      try cache.write(contentsOf: data)
+      writtenFrames += Int64(data.count / 4)
       try scheduleBuffers()
     } catch {
       fail(error)
@@ -143,10 +141,10 @@ private final class SpeechPlayback: TtsEventHandler, @unchecked Sendable {
   // before taking the lock, so stopping the node cannot deadlock with a callback.
   private func scheduleBuffers() throws {
     while pendingBuffers < 8 && scheduledFrames < writtenFrames {
-      let count = Int(min(12_000, writtenFrames - scheduledFrames))
+      let count = Int(min(Int64(format.sampleRate / 2), writtenFrames - scheduledFrames))
       try cache.seek(toOffset: UInt64(scheduledFrames) * 4)
       guard let data = try cache.read(upToCount: count * 4), data.count == count * 4 else {
-        throw NSError(domain: "T3PocketSpeech", code: 2, userInfo: [NSLocalizedDescriptionKey: "Could not read cached speech audio."])
+        throw NSError(domain: "T3Speech", code: 2, userInfo: [NSLocalizedDescriptionKey: "Could not read cached speech audio."])
       }
       let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(count))!
       buffer.frameLength = buffer.frameCapacity
@@ -189,7 +187,7 @@ private final class SpeechPlayback: TtsEventHandler, @unchecked Sendable {
     guard !cancelled, !ended else { return }
     let elapsed = player.lastRenderTime.flatMap { player.playerTime(forNodeTime: $0) }?.sampleTime ?? 0
     let position = min(scheduledFrames, max(completedFrames, timelineStart + elapsed))
-    let target = max(0, position - 240_000)
+    let target = max(0, position - Int64(format.sampleRate * 10))
     epoch += 1
     player.stop()
     pendingBuffers = 0
@@ -199,11 +197,6 @@ private final class SpeechPlayback: TtsEventHandler, @unchecked Sendable {
     do { try scheduleBuffers() }
     catch { fail(error); throw error }
   }
-
-  func onProgress(progress: Float) {}
-  func onComplete() {}
-  // startTrueStreaming also throws the synthesis error to its caller.
-  func onError(message: String) {}
 
   func finishGeneration() {
     condition.lock()
@@ -227,7 +220,7 @@ private final class SpeechPlayback: TtsEventHandler, @unchecked Sendable {
 
   private func cancelLocked() {
     cancelled = true
-    synthesizer.cancel()
+    cancelGeneration()
     player.stop()
     condition.broadcast()
     finished.signal()
@@ -250,4 +243,89 @@ private final class SpeechPlayback: TtsEventHandler, @unchecked Sendable {
     condition.unlock()
     try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
   }
+}
+
+
+enum SpeechModel: String {
+  case pocket, supertonic
+
+  static func parse(_ value: String) throws -> SpeechModel {
+    guard let model = SpeechModel(rawValue: value) else {
+      throw SpeechError("Unknown speech model: \(value)")
+    }
+    return model
+  }
+
+  var isDownloaded: Bool {
+    switch self {
+    case .pocket: return PocketVoice.isDownloaded
+    case .supertonic: return SupertonicVoice.isDownloaded
+    }
+  }
+}
+
+// The Pocket runtime supports concurrent cancellation; generation stays serial.
+private enum SpeechSynthesizer: @unchecked Sendable {
+  case pocket(PocketTtsEngine)
+  case supertonic(SupertonicVoice)
+
+  // Supertonic returns a whole segment; keep its first audio and cancellation prompt.
+  var segmentLength: Int {
+    switch self {
+    case .pocket: return 400
+    case .supertonic: return 110
+    }
+  }
+
+  var sampleRate: Double {
+    switch self {
+    case .pocket: return 24_000
+    case .supertonic: return 44_100
+    }
+  }
+
+  static func prepare(_ model: SpeechModel) async throws -> SpeechSynthesizer {
+    switch model {
+    case .pocket:
+      let directory = try await PocketVoice.prepare()
+      try Task.checkCancellation()
+      let engine = try PocketTtsEngine(modelPath: directory.path)
+      try engine.configure(config: TtsConfig(
+        voiceIndex: 0, temperature: 0.7, topP: 0.9, speed: 1,
+        consistencySteps: 2, useFixedSeed: false, seed: 42
+      ))
+      return .pocket(engine)
+    case .supertonic:
+      return .supertonic(try await SupertonicVoice.prepare())
+    }
+  }
+
+  func generate(_ text: String, into playback: SpeechPlayback) async throws {
+    switch self {
+    case .pocket(let engine):
+      try engine.startTrueStreaming(text: text, handler: PocketChunks(playback))
+    case .supertonic(let voice):
+      let samples = try await voice.synthesize(text)
+      samples.withUnsafeBytes { playback.append(Data($0)) }
+    }
+  }
+
+  func cancel() {
+    if case .pocket(let engine) = self { engine.cancel() }
+  }
+}
+
+private final class PocketChunks: TtsEventHandler, @unchecked Sendable {
+  private let playback: SpeechPlayback
+  init(_ playback: SpeechPlayback) { self.playback = playback }
+  func onAudioChunk(chunk: AudioChunk) { playback.append(chunk.audioData) }
+  func onProgress(progress: Float) {}
+  func onComplete() {}
+  // startTrueStreaming throws the synthesis error to its caller.
+  func onError(message: String) {}
+}
+
+struct SpeechError: LocalizedError {
+  let errorDescription: String?
+  init(_ message: String) { errorDescription = message }
 }

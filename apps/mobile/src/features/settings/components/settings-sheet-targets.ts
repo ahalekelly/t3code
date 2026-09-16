@@ -13,7 +13,7 @@ export type SettingsSheetTarget =
   | "SettingsEnvironmentMaintenance"
   | "SettingsKeyboard"
   | "SettingsProjectGrouping"
-  | "SettingsVoiceInput"
+  | "SettingsVoice"
   | "SettingsClientStorage"
   | "SettingsDiagnostics"
   | "SettingsOpenSourceLicenses"

@@ -1,15 +1,17 @@
 import ExpoModulesCore
 
-public class T3PocketSpeechModule: Module {
+public class T3SpeechModule: Module {
   public func definition() -> ModuleDefinition {
-    Name("T3PocketSpeech")
+    Name("T3Speech")
 
-    Function("isVoiceDownloaded") { PocketVoice.isDownloaded }
+    Function("isVoiceDownloaded") { (model: String) in
+      try SpeechModel.parse(model).isDownloaded
+    }
 
-    AsyncFunction("speak") { (text: String, rate: Float, promise: Promise) in
+    AsyncFunction("speak") { (text: String, rate: Float, model: String, promise: Promise) in
       Task { @MainActor in
         do {
-          let completed = try await PocketSpeechPlayer.shared.speak(text, rate: rate)
+          let completed = try await SpeechPlayer.shared.speak(text, rate: rate, model: SpeechModel.parse(model))
           promise.resolve(completed)
         } catch {
           promise.reject(error)
@@ -20,7 +22,7 @@ public class T3PocketSpeechModule: Module {
     AsyncFunction("rewind") { (promise: Promise) in
       Task { @MainActor in
         do {
-          try PocketSpeechPlayer.shared.rewind()
+          try SpeechPlayer.shared.rewind()
           promise.resolve()
         } catch {
           promise.reject(error)
@@ -30,7 +32,7 @@ public class T3PocketSpeechModule: Module {
 
     AsyncFunction("stop") { (promise: Promise) in
       Task { @MainActor in
-        await PocketSpeechPlayer.shared.stop()
+        await SpeechPlayer.shared.stop()
         promise.resolve()
       }
     }
