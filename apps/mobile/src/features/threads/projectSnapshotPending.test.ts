@@ -10,6 +10,7 @@ const environment: WorkspaceEnvironment = {
   environmentLabel: "Desktop",
   displayUrl: "https://desktop.example",
   isRelayManaged: false,
+  isEnabled: true,
   connectionState: "connecting",
   connectionError: null,
   connectionErrorTraceId: null,
