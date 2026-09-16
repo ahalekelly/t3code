@@ -9,16 +9,13 @@ final class SpeechPlayer {
   private var operation: (id: UUID, task: Task<Bool, Error>)?
   private var playback: SpeechPlayback?
 
-  func speak(_ text: String, rate: Float, model: SpeechModel) async throws -> Bool {
-    guard rate.isFinite, (0.75...2).contains(rate) else {
-      throw NSError(domain: "T3Speech", code: 1, userInfo: [NSLocalizedDescriptionKey: "Playback speed must be between 0.75× and 2×."])
-    }
+  func speak(_ text: String, settings: SpeechSettings) async throws -> Bool {
     await stop()
     let id = UUID()
     let task = Task.detached(priority: .userInitiated) {
-      let synthesizer = try await SpeechSynthesizer.prepare(model)
+      let synthesizer = try await SpeechSynthesizer.prepare(settings)
       try Task.checkCancellation()
-      let playback = try SpeechPlayback(sampleRate: synthesizer.sampleRate, rate: rate) {
+      let playback = try SpeechPlayback(sampleRate: synthesizer.sampleRate, rate: settings.model == .pocket ? settings.pace : 1) {
         synthesizer.cancel()
       }
       defer { playback.close() }
@@ -246,7 +243,7 @@ private final class SpeechPlayback: @unchecked Sendable {
 }
 
 
-enum SpeechModel: String {
+enum SpeechModel: String, Sendable {
   case pocket, supertonic
 
   static func parse(_ value: String) throws -> SpeechModel {
@@ -256,10 +253,18 @@ enum SpeechModel: String {
     return model
   }
 
+}
+
+struct SpeechSettings: Sendable {
+  let model: SpeechModel
+  let voice: String
+  let pace: Float
+  let steps: Int
+
   var isDownloaded: Bool {
-    switch self {
+    switch model {
     case .pocket: return PocketVoice.isDownloaded
-    case .supertonic: return SupertonicVoice.isDownloaded
+    case .supertonic: return SupertonicVoice.isDownloaded(voice: voice)
     }
   }
 }
@@ -284,19 +289,19 @@ private enum SpeechSynthesizer: @unchecked Sendable {
     }
   }
 
-  static func prepare(_ model: SpeechModel) async throws -> SpeechSynthesizer {
-    switch model {
+  static func prepare(_ settings: SpeechSettings) async throws -> SpeechSynthesizer {
+    switch settings.model {
     case .pocket:
       let directory = try await PocketVoice.prepare()
       try Task.checkCancellation()
       let engine = try PocketTtsEngine(modelPath: directory.path)
       try engine.configure(config: TtsConfig(
-        voiceIndex: 0, temperature: 0.7, topP: 0.9, speed: 1,
-        consistencySteps: 2, useFixedSeed: false, seed: 42
+        voiceIndex: UInt32(PocketVoice.names.firstIndex(of: settings.voice)!), temperature: 0.7, topP: 0.9, speed: 1,
+        consistencySteps: UInt32(settings.steps), useFixedSeed: false, seed: 42
       ))
       return .pocket(engine)
     case .supertonic:
-      return .supertonic(try await SupertonicVoice.prepare())
+      return .supertonic(try await SupertonicVoice.prepare(voice: settings.voice, pace: settings.pace, steps: settings.steps))
     }
   }
 

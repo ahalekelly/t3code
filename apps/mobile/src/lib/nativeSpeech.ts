@@ -1,9 +1,9 @@
 import { requireNativeModule } from "expo";
-import type { SpeechModel } from "./speechModels";
+import type { SpeechOptions } from "./speechModels";
 
 interface SpeechModule {
-  isVoiceDownloaded(model: SpeechModel): boolean;
-  speak(text: string, rate: number, model: SpeechModel): Promise<boolean>;
+  isVoiceDownloaded(options: SpeechOptions): boolean;
+  speak(text: string, options: SpeechOptions): Promise<boolean>;
   rewind(): Promise<void>;
   stop(): Promise<void>;
 }
@@ -12,8 +12,8 @@ interface SpeechModule {
 const native = () => requireNativeModule<SpeechModule>("T3Speech");
 
 export const nativeSpeech = {
-  isVoiceDownloaded: (model: SpeechModel) => native().isVoiceDownloaded(model),
-  speak: (text: string, rate: number, model: SpeechModel) => native().speak(text, rate, model),
+  isVoiceDownloaded: (options: SpeechOptions) => native().isVoiceDownloaded(options),
+  speak: (text: string, options: SpeechOptions) => native().speak(text, options),
   rewind: () => native().rewind(),
   stop: () => native().stop(),
 };

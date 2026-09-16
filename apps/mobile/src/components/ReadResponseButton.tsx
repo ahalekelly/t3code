@@ -5,7 +5,7 @@ import { memo, useSyncExternalStore } from "react";
 import { Pressable, type ColorValue } from "react-native";
 
 import { autoReadResponse } from "../lib/autoReadResponse";
-import { DEFAULT_SPEECH_MODEL } from "../lib/speechModels";
+import { getSpeechOptions } from "../lib/speechModels";
 import { responseSpeech } from "../lib/responseSpeech";
 import { SymbolView } from "./AppSymbol";
 
@@ -17,7 +17,6 @@ export const ReadResponseButton = memo(function ReadResponseButton(props: {
   readonly tintColor: ColorValue;
 }) {
   const preferences = useAtomValue(mobilePreferencesAtom);
-  const rate = AsyncResult.isSuccess(preferences) ? (preferences.value.responseSpeechRate ?? 1) : 1;
   const active = useSyncExternalStore(responseSpeech.subscribe, responseSpeech.getSnapshot);
   const speaking = active?.scope === props.scope && active.messageId === props.messageId;
 
@@ -54,10 +53,7 @@ export const ReadResponseButton = memo(function ReadResponseButton(props: {
           void responseSpeech.toggle(
             { scope: props.scope, messageId: props.messageId },
             props.text,
-            rate,
-            AsyncResult.isSuccess(preferences)
-              ? (preferences.value.responseSpeechModel ?? DEFAULT_SPEECH_MODEL)
-              : DEFAULT_SPEECH_MODEL,
+            getSpeechOptions(AsyncResult.isSuccess(preferences) ? preferences.value : {}),
           );
         }}
       >
