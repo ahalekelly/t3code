@@ -426,7 +426,7 @@ const config: ExpoConfig = {
     // Mods run in reverse order; expo-widgets must create and wipe the target before assets and
     // native sources are added.
     ...(!isIosPersonalTeamBuild
-      ? ["./plugins/withWidgetLogoAsset.cjs", "./plugins/withNativeWidgets.cjs", widgetsPlugin]
+      ? ["./plugins/withWidgetLogoAsset.cjs", "./plugins/withNewChatControl.cjs", widgetsPlugin]
       : []),
     "./plugins/withAndroidNetworkSecurityConfig.cjs",
     "./plugins/withAndroidGradleHeap.cjs",
