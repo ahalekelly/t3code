@@ -1,4 +1,4 @@
 // Android has no WidgetKit extension.
-export function NewChatWidgetSync() {
+export function NewChatControlSync() {
   return null;
 }

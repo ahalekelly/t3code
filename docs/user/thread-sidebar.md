@@ -13,9 +13,10 @@ an existing worktree, use **New thread in this worktree** from the branch toolba
 When you change a new thread's project, T3 Code stays in the current environment
 if that project exists there. Otherwise it selects an environment that has it.
 
-On iOS, add T3 Code’s **New Chat** widget to your Home Screen or Lock Screen, then
-use **Edit Widget → Project** to choose a project and environment. Open T3 once to
-load your projects. Each tap opens an empty composer; any existing draft stays saved.
+On iOS, customize your Lock Screen, replace a bottom-corner control with T3 Code’s
+**New Chat**, then tap it while editing to choose a project and environment. Open
+T3 once to load your projects. Hold the control to open an empty composer; existing
+drafts stay saved. The same control is available in Control Center.
 
 ### Start in the background
 
