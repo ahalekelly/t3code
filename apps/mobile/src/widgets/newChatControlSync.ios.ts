@@ -1,27 +1,26 @@
-import { useAtomValue } from "@effect/atom-react";
 import type { EnvironmentId } from "@t3tools/contracts";
 import { requireNativeModule } from "expo";
 import Constants from "expo-constants";
 import { Atom } from "effect/reactivity";
-import { useEffect } from "react";
 
 import { environmentCatalog } from "../connection/catalog";
+import { appAtomRegistry } from "../state/atom-registry";
 import { environmentSnapshotAtom } from "../state/shell";
 
 const NativeControls = requireNativeModule<{
-  syncNewChatWidgetProjects(json: string): void;
+  syncNewChatControlProjects(json: string): void;
 }>("T3NativeControls");
 
-const widgetEnvironmentProjectsAtom = Atom.family((environmentId: EnvironmentId) =>
+const controlEnvironmentProjectsAtom = Atom.family((environmentId: EnvironmentId) =>
   Atom.make((get) => get(environmentSnapshotAtom(environmentId))?.projects ?? null),
 );
 
-const widgetProjectsAtom = Atom.make((get) => {
+const controlProjectsAtom = Atom.make((get) => {
   const catalog = get(environmentCatalog.catalogValueAtom);
   if (!catalog.isReady) return null;
   return JSON.stringify(
     [...catalog.entries].map(([environmentId, entry]) => {
-      const projects = get(widgetEnvironmentProjectsAtom(environmentId));
+      const projects = get(controlEnvironmentProjectsAtom(environmentId));
       return {
         environmentId,
         label: entry.target.label,
@@ -36,12 +35,13 @@ const widgetProjectsAtom = Atom.make((get) => {
   );
 });
 
-export function NewChatWidgetSync() {
-  const projects = useAtomValue(widgetProjectsAtom);
-  useEffect(() => {
-    if (projects !== null && !Constants.expoConfig?.extra?.iosPersonalTeamBuild) {
-      NativeControls.syncNewChatWidgetProjects(projects);
-    }
-  }, [projects]);
-  return null;
+export function installNewChatControlSync(): () => void {
+  if (Constants.expoConfig?.extra?.iosPersonalTeamBuild) return () => {};
+  return appAtomRegistry.subscribe(
+    controlProjectsAtom,
+    (projects) => {
+      if (projects !== null) NativeControls.syncNewChatControlProjects(projects);
+    },
+    { immediate: true },
+  );
 }
