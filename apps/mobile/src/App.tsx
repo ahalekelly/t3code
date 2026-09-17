@@ -75,6 +75,7 @@ import { installUiRuntimeMemoryWarningGc } from "./lib/useUiRuntimeMemoryWarning
 import { freshDraftLinkState } from "./lib/freshDraftLinkState";
 import { SubscriptionUsageCoordinator } from "./widgets/SubscriptionUsageCoordinator";
 import { installSubscriptionUsageRefresh } from "./widgets/useSubscriptionUsage";
+import { installNewChatControlSync } from "./widgets/newChatControlSync";
 import { GlobalVoiceInputControl } from "./features/voice-input/GlobalVoiceInputControl";
 import { restoreSettingsLinkState } from "./features/settings/settings-navigation";
 import {
@@ -126,7 +127,8 @@ const appLinking = {
   prefixes: [Linking.createURL("/"), "t3code://", "t3code-dev://", "t3code-preview://"],
   config: { initialRouteName: "Home" },
   filter: (url: string) => shouldHandleAppLink(url, hasCloudPublicConfig()),
-  getInitialURL: async () => (await Linking.getInitialURL()) ?? (await launchWorkspaceURL()),
+  // Scene and App Intent launches can arrive before JavaScript subscribes.
+  getInitialURL: async () => Linking.getLinkingURL() ?? (await launchWorkspaceURL()),
   getActionFromState: (
     linkState: Parameters<typeof getActionFromState>[0],
     options: Parameters<typeof getActionFromState>[1],
@@ -187,6 +189,7 @@ const appServiceDisposers = [
   }),
   installAppearanceRuntime(),
   installSubscriptionUsageRefresh(),
+  installNewChatControlSync(),
   installPermissionUpdateNotice(),
   installThreadOutboxDelivery(),
   installComposerAttachmentUploads(),
