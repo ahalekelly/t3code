@@ -42,6 +42,8 @@ if (process.env.EXPO_PUBLIC_SHOWCASE === "1") {
 void SplashScreen.preventAutoHideAsync().catch(() => {});
 
 const appLinking = {
+  // Scene and App Intent launches can arrive before JavaScript subscribes.
+  getInitialURL: async () => Linking.getLinkingURL(),
   getActionFromState: navigationLinkAction,
   prefixes: [Linking.createURL("/"), "t3code://", "t3code-dev://", "t3code-preview://"],
   config: { initialRouteName: "Home" },
