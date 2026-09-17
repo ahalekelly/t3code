@@ -451,7 +451,7 @@ const config: ExpoConfig = {
     // would delete the asset catalog) and its xcodeproj mod creates the widget
     // target (which must exist before the compile phase can be attached).
     ...(!isIosPersonalTeamBuild
-      ? ["./plugins/withWidgetLogoAsset.cjs", "./plugins/withNativeWidgets.cjs", widgetsPlugin]
+      ? ["./plugins/withWidgetLogoAsset.cjs", "./plugins/withNewChatControl.cjs", widgetsPlugin]
       : []),
     "./plugins/withAndroidCleartextTraffic.cjs",
     "./plugins/withAndroidGradleHeap.cjs",

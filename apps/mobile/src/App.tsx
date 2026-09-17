@@ -38,6 +38,8 @@ void SplashScreen.preventAutoHideAsync().catch(() => {
 });
 
 const appLinking = {
+  // Scene and App Intent launches can arrive before JavaScript subscribes.
+  getInitialURL: async () => Linking.getLinkingURL(),
   getActionFromState: navigationLinkAction,
   prefixes: [Linking.createURL("/"), "t3code://", "t3code-dev://", "t3code-preview://"],
   // Keep the compact thread list available beneath a directly opened thread.

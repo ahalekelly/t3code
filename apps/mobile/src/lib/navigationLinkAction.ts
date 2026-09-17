@@ -1,7 +1,7 @@
 import { CommonActions, getActionFromState } from "@react-navigation/native";
 import { uuidv4 } from "./uuid";
 
-/** A link to a fresh composer owns a new flow, even when another draft is open. */
+/** Fresh chat links reset the draft inside a single new-task sheet. */
 export function navigationLinkAction(...args: Parameters<typeof getActionFromState>) {
   const [state] = args;
   const route = state.routes[state.index ?? state.routes.length - 1];
@@ -17,13 +17,14 @@ export function navigationLinkAction(...args: Parameters<typeof getActionFromSta
     !("pendingTaskId" in draft.params) &&
     !("incomingShareId" in draft.params)
   ) {
-    return CommonActions.navigate({
-      name: "NewTaskSheet",
-      params: {
+    return CommonActions.navigate(
+      "NewTaskSheet",
+      {
         screen: "NewTaskDraft",
         params: { ...draft.params, launchId: uuidv4() },
       },
-    });
+      { pop: true },
+    );
   }
   return getActionFromState(...args);
 }
