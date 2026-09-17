@@ -45,35 +45,32 @@ describe("project chat links", () => {
     });
   });
 
-  it("opens independent flows on repeated taps without replacing an existing draft", () => {
+  it("opens fresh drafts on repeated taps without stacking sheets", () => {
     const router = StackRouter({ initialRouteName: "Home" });
     const options = {
       routeNames: ["Home", "NewTaskSheet", "Thread"],
       routeParamList: {},
-      routeGetIdList: {
-        NewTaskSheet: ({
-          params,
-        }: {
-          params?: { screen?: string; params?: { launchId?: string } };
-        }) => (params?.screen === "NewTaskDraft" ? params.params?.launchId : undefined),
-      },
+      routeGetIdList: {},
     };
     let state = router.getInitialState(options);
     const link = parse("new/draft?environmentId=env-1&projectId=project-1");
+    const launches = new Set<string>();
     for (let tap = 0; tap < 3; tap++) {
-      const before = state.routes;
       const action = navigationLinkAction(link, config);
       if (!action) throw new Error("Missing navigation action");
       const next = router.getStateForAction(state, action, options);
       if (!next) throw new Error("Navigation action was not handled");
       state = router.getRehydratedState(next, options);
-      expect(state.routes.slice(0, -1)).toEqual(before);
+      expect(state.routes.map((route) => route.name)).toEqual(["Home", "NewTaskSheet"]);
       expect(state.routes.at(-1)?.params).toEqual({
         screen: "NewTaskDraft",
         params: { environmentId: "env-1", projectId: "project-1", launchId: expect.any(String) },
       });
+      const params = state.routes.at(-1)?.params as { params: { launchId: string } };
+      launches.add(params.params.launchId);
     }
-    expect(new Set(state.routes.map((route) => route.key)).size).toBe(4);
+    expect(state.routes).toHaveLength(2);
+    expect(launches.size).toBe(3);
   });
 
   it.each([

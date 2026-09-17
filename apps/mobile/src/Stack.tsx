@@ -29,7 +29,7 @@ import {
 import { useResolveClassNames } from "uniwind";
 
 import { AppText as Text } from "./components/AppText";
-import { NewChatWidgetSync } from "./widgets/NewChatWidgetSync";
+import { NewChatControlSync } from "./widgets/NewChatControlSync";
 import { getCompactBrandHeaderOptions } from "./components/CompactBrandTitle";
 import { WorkspaceRootScreen } from "./features/workspace/WorkspaceRootScreen";
 import { AndroidWorkspaceTabsProvider } from "./features/workspace/AndroidWorkspaceTabsProvider";
@@ -654,7 +654,7 @@ function RootStackLayout(props: {
   return (
     <HardwareKeyboardCommandProvider pathname={pathname}>
       <ThreadOutboxDrainWorker />
-      <NewChatWidgetSync />
+      <NewChatControlSync />
       <ShowcaseCaptureCoordinator pathname={pathname} />
       <ExistingThreadSettingsRouteProvider>
         <AndroidWorkspaceTabsProvider>
@@ -1001,15 +1001,17 @@ const RootStackConfig = createWorkspaceStackNavigator({
     NewTaskSheet: createNativeStackScreen({
       screen: NewTaskSheetStack,
       linking: "new",
-      getId: ({ params }) =>
-        params?.screen === "NewTaskDraft" ? params.params?.launchId : undefined,
       // The whole new-task flow (choose project → draft → add project) shares
       // draft state via NewTaskFlowProvider. The expo-router era mounted it in
       // app/new/_layout.tsx; this layout wrapper is the native-stack equivalent.
       // A screen's layout replaces the navigator's screenLayout.
       layout: ({ children, route }) => (
         <GuardedScreenLayout route={route}>
-          <NewTaskFlowProvider>
+          <NewTaskFlowProvider
+            key={
+              route.params?.screen === "NewTaskDraft" ? route.params.params?.launchId : undefined
+            }
+          >
             <View className="flex-1 bg-sheet-solid">{children}</View>
           </NewTaskFlowProvider>
         </GuardedScreenLayout>
