@@ -1,4 +1,6 @@
-import { EnvironmentId } from "@t3tools/contracts";
+import { DEFAULT_CLIENT_SETTINGS, EnvironmentId, ThreadId } from "@t3tools/contracts";
+import { AsyncResult } from "effect/unstable/reactivity";
+import { __setClientSettingsForTests } from "../hooks/useSettings";
 import { act, type ComponentProps, type ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { create, type ReactTestRenderer } from "react-test-renderer";
@@ -34,11 +36,19 @@ vi.mock("./ui/tooltip", async () => {
     TooltipPopup: () => null,
   };
 });
-vi.mock("../state/use-atom-query-runner", () => ({ useAtomQueryRunner: () => vi.fn() }));
-vi.mock("../state/use-atom-command", () => ({ useAtomCommand: () => vi.fn() }));
+const browser = vi.hoisted(() => ({ asset: vi.fn(), preview: vi.fn(), external: vi.fn() }));
+vi.mock("../localApi", () => ({
+  readLocalApi: () => ({ shell: { openExternal: browser.external } }),
+}));
+vi.mock("../previewStateStore", async (original) => ({
+  ...(await original<typeof import("../previewStateStore")>()),
+  isPreviewSupportedInRuntime: () => true,
+}));
+vi.mock("../state/use-atom-query-runner", () => ({ useAtomQueryRunner: () => browser.asset }));
+vi.mock("../state/use-atom-command", () => ({ useAtomCommand: () => browser.preview }));
 vi.mock("../state/session", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../state/session")>()),
-  usePreparedConnection: () => ({ _tag: "Loading" }),
+  usePreparedConnection: () => ({ _tag: "Some", value: { httpBaseUrl: "https://remote.example" } }),
 }));
 vi.mock("../state/entities", () => ({
   readThreadShell: () => null,
@@ -720,8 +730,6 @@ describe("shouldUseMarkdownFileBrowserPrimaryAction", () => {
   it("uses the browser when it is the only available primary action", () => {
     expect(
       shouldUseMarkdownFileBrowserPrimaryAction({
-        linkTarget: "app",
-        line: undefined,
         iconPath: "/tmp/report.html",
         canOpenInEditor: false,
         canOpenInBrowser: true,
@@ -733,8 +741,6 @@ describe("shouldUseMarkdownFileBrowserPrimaryAction", () => {
   it("preserves the normal editor and panel defaults for HTML files", () => {
     expect(
       shouldUseMarkdownFileBrowserPrimaryAction({
-        linkTarget: "app",
-        line: undefined,
         iconPath: "/tmp/report.html",
         canOpenInEditor: true,
         canOpenInBrowser: true,
@@ -743,8 +749,6 @@ describe("shouldUseMarkdownFileBrowserPrimaryAction", () => {
     ).toBe(false);
     expect(
       shouldUseMarkdownFileBrowserPrimaryAction({
-        linkTarget: "app",
-        line: undefined,
         iconPath: "/tmp/report.html",
         canOpenInEditor: false,
         canOpenInBrowser: true,
@@ -756,30 +760,12 @@ describe("shouldUseMarkdownFileBrowserPrimaryAction", () => {
   it("continues to open PDF files in the browser by default", () => {
     expect(
       shouldUseMarkdownFileBrowserPrimaryAction({
-        linkTarget: "app",
-        line: undefined,
         iconPath: "/tmp/report.pdf",
         canOpenInEditor: true,
         canOpenInBrowser: true,
         canOpenInPanel: true,
       }),
     ).toBe(true);
-  });
-  it.each([
-    ["system", undefined, true],
-    ["app", undefined, false],
-    ["system", 12, false],
-  ] as const)("routes HTML with target %s and line %s", (linkTarget, line, expected) => {
-    expect(
-      shouldUseMarkdownFileBrowserPrimaryAction({
-        iconPath: "/workspace/report.html",
-        linkTarget,
-        line,
-        canOpenInEditor: true,
-        canOpenInBrowser: true,
-        canOpenInPanel: true,
-      }),
-    ).toBe(expected);
   });
 });
 
@@ -882,5 +868,55 @@ describe("ChatMarkdown Windows file links", () => {
     expect(html).not.toContain("javascript:");
     expect(html).not.toContain("d:alert");
     expect(html).not.toContain("chat-markdown-file-link");
+  });
+});
+
+describe("HTML file link destinations", () => {
+  it.each([
+    ["system", "/workspace/reports/report.html", "workspace-file"],
+    ["system", "/tmp/report.html", "media-file"],
+    ["system", "/workspace/reports/report.html:12", null],
+  ] as const)("opens %s %s through the selected browser", async (target, path, kind) => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    vi.clearAllMocks();
+    __setClientSettingsForTests({ ...DEFAULT_CLIENT_SETTINGS, browserLinkTarget: target });
+    const threadRef = {
+      environmentId: EnvironmentId.make("remote"),
+      threadId: ThreadId.make("thread"),
+    };
+    const url = "https://remote.example/assets/signed/report.html";
+    browser.asset.mockResolvedValue(
+      AsyncResult.success({ relativeUrl: "/assets/signed/report.html" }),
+    );
+    let renderer: ReactTestRenderer;
+    await act(async () => {
+      renderer = create(
+        <ChatMarkdown text={`[Report](${path})`} cwd="/workspace" threadRef={threadRef} />,
+      );
+    });
+    try {
+      await act(async () => {
+        await renderer!.root.findByType("a").props.onClick({
+          preventDefault() {},
+          stopPropagation() {},
+          metaKey: false,
+          ctrlKey: false,
+        });
+      });
+      if (kind === null) {
+        expect(browser.asset).not.toHaveBeenCalled();
+        expect(browser.external).not.toHaveBeenCalled();
+        return;
+      }
+      expect(browser.asset).toHaveBeenCalledWith({
+        environmentId: threadRef.environmentId,
+        input: { resource: { _tag: kind, threadId: threadRef.threadId, path } },
+      });
+      expect(browser.external).toHaveBeenCalledWith(url);
+      expect(browser.preview).not.toHaveBeenCalled();
+    } finally {
+      await act(async () => renderer!.unmount());
+      __setClientSettingsForTests(DEFAULT_CLIENT_SETTINGS);
+    }
   });
 });

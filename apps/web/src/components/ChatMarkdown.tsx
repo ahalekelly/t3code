@@ -28,7 +28,6 @@ import {
 } from "lucide-react";
 import type {
   AssetResource,
-  BrowserLinkTarget,
   EnvironmentId,
   ScopedThreadRef,
   ServerProviderSkill,
@@ -188,7 +187,7 @@ import { isPreviewSupportedInRuntime } from "../previewStateStore";
 import { isAbsolutePath, resolvePathLinkTarget } from "../terminal-links";
 import {
   isBrowserPreviewFile,
-  openFileInBrowser,
+  openFileInPreview,
   openUrlInPreview,
   BrowserPreviewUnavailableError,
   BrowserSettingsReadError,
@@ -257,18 +256,13 @@ export function hasMarkdownFilePrimaryAction(input: {
 
 export function shouldUseMarkdownFileBrowserPrimaryAction(input: {
   iconPath: string;
-  linkTarget: BrowserLinkTarget;
-  line: number | undefined;
   canOpenInEditor: boolean;
   canOpenInBrowser: boolean;
   canOpenInPanel: boolean;
 }): boolean {
   return (
     input.canOpenInBrowser &&
-    ((input.linkTarget === "system" &&
-      input.line === undefined &&
-      isBrowserPreviewFile(input.iconPath)) ||
-      shouldOpenMarkdownFileLinkInBrowserByDefault(input.iconPath) ||
+    (shouldOpenMarkdownFileLinkInBrowserByDefault(input.iconPath) ||
       (!input.canOpenInEditor && !input.canOpenInPanel))
   );
 }
@@ -1133,6 +1127,7 @@ function UncachedShikiCodeBlock({
 }
 
 interface MarkdownFileLinkProps {
+  workspaceRoot: string | undefined;
   href: string;
   targetPath: string;
   iconPath: string;
@@ -1148,9 +1143,7 @@ interface MarkdownFileLinkProps {
   onOpen?: ((targetPath: string) => Promise<AtomCommandResult<unknown, unknown>>) | undefined;
   onOpenInPanel: (panelPath: string, line: number | undefined) => void;
   openInEditorMenuLabel: string;
-  onOpenInBrowser?:
-    | ((target: BrowserLinkTarget) => Promise<AtomCommandResult<unknown, unknown>>)
-    | undefined;
+  onOpenInBrowser?: (() => Promise<AtomCommandResult<unknown, unknown>>) | undefined;
   onOpenMedia?: (() => void) | undefined;
   onReveal?: (() => Promise<AtomCommandResult<unknown, unknown>>) | undefined;
   /** Platform-specific menu label ("Reveal in Finder", ...); required for the
@@ -1848,6 +1841,7 @@ function MarkdownExternalLinkContent({
 }
 
 const MarkdownFileLink = memo(function MarkdownFileLink({
+  workspaceRoot,
   href,
   targetPath,
   iconPath,
@@ -1867,7 +1861,20 @@ const MarkdownFileLink = memo(function MarkdownFileLink({
   revealLabel,
   className,
 }: MarkdownFileLinkProps) {
-  const linkTargetPreference = useClientSettings((settings) => settings.browserLinkTarget);
+  const openLink = useOpenLink(threadRef);
+  const refreshUrl = useAssetUrlRefresh(
+    threadRef?.environmentId ?? null,
+    threadRef
+      ? {
+          _tag:
+            mediaFileReference(iconPath, workspaceRoot).relativePath !== undefined
+              ? "workspace-file"
+              : "media-file",
+          threadId: threadRef.threadId,
+          path: iconPath,
+        }
+      : null,
+  );
   const handleOpenInEditor = useCallback(() => {
     if (!onOpen) {
       return;
@@ -1918,46 +1925,43 @@ const MarkdownFileLink = memo(function MarkdownFileLink({
     handleOpenInEditor();
   }, [handleOpenInEditor, line, onOpenInPanel, onOpenMedia, panelPath, threadRef]);
 
-  const handleOpenInBrowser = useCallback(
-    (target: BrowserLinkTarget) => {
-      if (!onOpenInBrowser) {
-        return;
-      }
-      void (async () => {
-        try {
-          const result = await onOpenInBrowser(target);
-          if (result._tag === "Success" || isAtomCommandInterrupted(result)) {
-            return;
-          }
-          reportMarkdownActionFailure(
-            { operation: "open-file-in-browser", target: targetPath },
-            result.cause,
-          );
-          const error = squashAtomCommandFailure(result);
-          toastManager.add(
-            stackedThreadToast({
-              type: "error",
-              title: "Unable to open file in browser",
-              description: error instanceof Error ? error.message : "An error occurred.",
-            }),
-          );
-        } catch (cause) {
-          reportMarkdownActionFailure(
-            { operation: "open-file-in-browser", target: targetPath },
-            cause,
-          );
-          toastManager.add(
-            stackedThreadToast({
-              type: "error",
-              title: "Unable to open file in browser",
-              description: cause instanceof Error ? cause.message : "An error occurred.",
-            }),
-          );
+  const handleOpenInBrowser = useCallback(() => {
+    if (!onOpenInBrowser) {
+      return;
+    }
+    void (async () => {
+      try {
+        const result = await onOpenInBrowser();
+        if (result._tag === "Success" || isAtomCommandInterrupted(result)) {
+          return;
         }
-      })();
-    },
-    [onOpenInBrowser, targetPath],
-  );
+        reportMarkdownActionFailure(
+          { operation: "open-file-in-browser", target: targetPath },
+          result.cause,
+        );
+        const error = squashAtomCommandFailure(result);
+        toastManager.add(
+          stackedThreadToast({
+            type: "error",
+            title: "Unable to open file in browser",
+            description: error instanceof Error ? error.message : "An error occurred.",
+          }),
+        );
+      } catch (cause) {
+        reportMarkdownActionFailure(
+          { operation: "open-file-in-browser", target: targetPath },
+          cause,
+        );
+        toastManager.add(
+          stackedThreadToast({
+            type: "error",
+            title: "Unable to open file in browser",
+            description: cause instanceof Error ? cause.message : "An error occurred.",
+          }),
+        );
+      }
+    })();
+  }, [onOpenInBrowser, targetPath]);
 
   const handleRevealInFileManager = useCallback(() => {
     if (!onReveal) {
@@ -2065,7 +2069,7 @@ const MarkdownFileLink = memo(function MarkdownFileLink({
           return;
         }
         if (clicked === "open-in-browser") {
-          handleOpenInBrowser("app");
+          handleOpenInBrowser();
           return;
         }
         if (clicked === "reveal") {
@@ -2129,8 +2133,6 @@ const MarkdownFileLink = memo(function MarkdownFileLink({
   });
   const useBrowserPrimaryAction = shouldUseMarkdownFileBrowserPrimaryAction({
     iconPath,
-    linkTarget: linkTargetPreference,
-    line,
     canOpenInEditor,
     canOpenInBrowser,
     canOpenInPanel,
@@ -2149,15 +2151,31 @@ const MarkdownFileLink = memo(function MarkdownFileLink({
                 className,
               )}
               data-markdown-copy={copyMarkdown}
-              onClick={(event) => {
+              onClick={async (event) => {
                 event.preventDefault();
                 event.stopPropagation();
                 if (onOpen && shouldOpenMarkdownFileLinkInEditor(event)) {
                   handleOpenInEditor();
                   return;
                 }
+                if (threadRef && line === undefined && isBrowserPreviewFile(iconPath)) {
+                  try {
+                    const url = await refreshUrl();
+                    if (!url) throw new Error("The file URL is unavailable.");
+                    await openLink(url);
+                  } catch (error) {
+                    toastManager.add(
+                      stackedThreadToast({
+                        type: "error",
+                        title: "Unable to open file in browser",
+                        description: error instanceof Error ? error.message : String(error),
+                      }),
+                    );
+                  }
+                  return;
+                }
                 if (useBrowserPrimaryAction) {
-                  handleOpenInBrowser(linkTargetPreference);
+                  handleOpenInBrowser();
                   return;
                 }
                 handleOpenInFilePreview();
@@ -2205,6 +2223,7 @@ function areMarkdownFileLinkPropsEqual(
   next: Readonly<MarkdownFileLinkProps>,
 ): boolean {
   return (
+    previous.workspaceRoot === next.workspaceRoot &&
     previous.href === next.href &&
     previous.targetPath === next.targetPath &&
     previous.iconPath === next.iconPath &&
@@ -2471,8 +2490,8 @@ function useChatMarkdownState({
     },
     [openPreview, threadRef],
   );
-  const openMarkdownFileInBrowser = useCallback(
-    (path: string, target: BrowserLinkTarget) => {
+  const openMarkdownFileInPreview = useCallback(
+    (path: string) => {
       if (!threadRef || preparedConnection._tag === "None") {
         return Promise.resolve(
           AsyncResult.failure<void, BrowserPreviewUnavailableError>(
@@ -2484,8 +2503,7 @@ function useChatMarkdownState({
           ),
         );
       }
-      return openFileInBrowser({
-        target,
+      return openFileInPreview({
         threadRef,
         filePath: path,
         workspaceRoot: cwd,
@@ -2581,6 +2599,7 @@ function useChatMarkdownState({
 
       return (
         <MarkdownFileLink
+          workspaceRoot={cwd}
           href={fileLinkMeta.targetPath}
           targetPath={fileLinkMeta.targetPath}
           iconPath={fileLinkMeta.filePath}
@@ -2609,7 +2628,7 @@ function useChatMarkdownState({
             threadRef &&
             isPreviewSupportedInRuntime() &&
             isBrowserPreviewFile(fileLinkMeta.filePath)
-              ? (target) => openMarkdownFileInBrowser(fileLinkMeta.filePath, target)
+              ? () => openMarkdownFileInPreview(fileLinkMeta.filePath)
               : undefined
           }
           className={className}
@@ -2618,10 +2637,11 @@ function useChatMarkdownState({
     },
     [
       canUseShellActions,
+      cwd,
       fileLinkParentSuffixByPath,
       openFileInPanel,
       openInPreferredEditor,
-      openMarkdownFileInBrowser,
+      openMarkdownFileInPreview,
       openMarkdownMedia,
       preferredEditorMenuLabel,
       resolvedTheme,

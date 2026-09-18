@@ -1,7 +1,6 @@
 import type {
   AssetCreateUrlResult,
   AssetResource,
-  BrowserLinkTarget,
   EnvironmentId,
   PreviewOpenInput,
   PreviewSessionSnapshot,
@@ -16,7 +15,6 @@ import * as Cause from "effect/Cause";
 import * as Data from "effect/Data";
 import { AsyncResult } from "effect/unstable/reactivity";
 
-import { readLocalApi } from "~/localApi";
 import { resolveAssetUrl } from "~/assets/assetUrls";
 import {
   applyPreviewServerSnapshot,
@@ -84,12 +82,11 @@ export async function openUrlInPreview<E>(input: {
 }
 
 /**
- * Opens a browser document in the requested browser. Inside the workspace the
+ * Opens a browser document in the integrated browser. Inside the workspace the
  * page may load sibling assets; a file outside it is served on its own.
  */
-export async function openFileInBrowser<AssetError, PreviewError>(input: {
+export async function openFileInPreview<AssetError, PreviewError>(input: {
   readonly threadRef: ScopedThreadRef;
-  readonly target: BrowserLinkTarget;
   readonly filePath: string;
   readonly workspaceRoot: string | undefined;
   readonly httpBaseUrl: string;
@@ -104,7 +101,7 @@ export async function openFileInBrowser<AssetError, PreviewError>(input: {
     AssetError | PreviewError | BrowserPreviewUnavailableError | BrowserSettingsReadError
   >
 > {
-  if (input.target === "app" && !isPreviewSupportedInRuntime()) {
+  if (!isPreviewSupportedInRuntime()) {
     return AsyncResult.failure(
       Cause.fail(
         new BrowserPreviewUnavailableError({
@@ -133,12 +130,6 @@ export async function openFileInBrowser<AssetError, PreviewError>(input: {
     return AsyncResult.failure(
       Cause.die(new Error("The environment returned an invalid asset URL.")),
     );
-  }
-  if (input.target === "system") {
-    const api = readLocalApi();
-    if (!api) throw new Error("Link opening is unavailable.");
-    await api.shell.openExternal(assetUrl);
-    return AsyncResult.success(undefined);
   }
   return openUrlInPreview({
     threadRef: input.threadRef,
