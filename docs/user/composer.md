@@ -221,6 +221,9 @@ styles, or images from neighboring files.
 
 ## HTML and PDF files in the file viewer
 
+On desktop, HTML file links follow **Settings → Integrations → Browser → Open links in**.
+Right-click a file link and choose **Open in integrated browser** to open it in T3.
+
 On web and desktop, HTML and PDF files open as rendered pages. Switch an HTML
 file to source view to read its markup; a link to a specific line opens source
 automatically. HTML previews cannot access your T3 Code session.

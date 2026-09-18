@@ -25,7 +25,7 @@ import { Code2, Eye, FolderTree, Globe2, Table2, WrapTextIcon } from "lucide-rea
 import * as Schema from "effect/Schema";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { isBrowserPreviewFile, openFileInPreview } from "~/browser/openFileInPreview";
+import { isBrowserPreviewFile, openFileInBrowser } from "~/browser/openFileInPreview";
 import { useAssetUrlRefresh, useAssetUrlState } from "~/assets/assetUrls";
 import { OpenInPicker } from "~/components/chat/OpenInPicker";
 import { MediaVideoPlayer } from "~/components/media/MediaVideoPlayer";
@@ -1053,7 +1053,8 @@ export default function FilePreviewPanel({
   const handleOpenInBrowser = useCallback(() => {
     if (!absolutePath || !environmentHttpBaseUrl) return;
     void (async () => {
-      const result = await openFileInPreview({
+      const result = await openFileInBrowser({
+        target: "app",
         threadRef,
         filePath: absolutePath,
         workspaceRoot: cwd,

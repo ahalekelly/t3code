@@ -720,6 +720,8 @@ describe("shouldUseMarkdownFileBrowserPrimaryAction", () => {
   it("uses the browser when it is the only available primary action", () => {
     expect(
       shouldUseMarkdownFileBrowserPrimaryAction({
+        linkTarget: "app",
+        line: undefined,
         iconPath: "/tmp/report.html",
         canOpenInEditor: false,
         canOpenInBrowser: true,
@@ -731,6 +733,8 @@ describe("shouldUseMarkdownFileBrowserPrimaryAction", () => {
   it("preserves the normal editor and panel defaults for HTML files", () => {
     expect(
       shouldUseMarkdownFileBrowserPrimaryAction({
+        linkTarget: "app",
+        line: undefined,
         iconPath: "/tmp/report.html",
         canOpenInEditor: true,
         canOpenInBrowser: true,
@@ -739,6 +743,8 @@ describe("shouldUseMarkdownFileBrowserPrimaryAction", () => {
     ).toBe(false);
     expect(
       shouldUseMarkdownFileBrowserPrimaryAction({
+        linkTarget: "app",
+        line: undefined,
         iconPath: "/tmp/report.html",
         canOpenInEditor: false,
         canOpenInBrowser: true,
@@ -750,12 +756,30 @@ describe("shouldUseMarkdownFileBrowserPrimaryAction", () => {
   it("continues to open PDF files in the browser by default", () => {
     expect(
       shouldUseMarkdownFileBrowserPrimaryAction({
+        linkTarget: "app",
+        line: undefined,
         iconPath: "/tmp/report.pdf",
         canOpenInEditor: true,
         canOpenInBrowser: true,
         canOpenInPanel: true,
       }),
     ).toBe(true);
+  });
+  it.each([
+    ["system", undefined, true],
+    ["app", undefined, false],
+    ["system", 12, false],
+  ] as const)("routes HTML with target %s and line %s", (linkTarget, line, expected) => {
+    expect(
+      shouldUseMarkdownFileBrowserPrimaryAction({
+        iconPath: "/workspace/report.html",
+        linkTarget,
+        line,
+        canOpenInEditor: true,
+        canOpenInBrowser: true,
+        canOpenInPanel: true,
+      }),
+    ).toBe(expected);
   });
 });
 
