@@ -1,6 +1,11 @@
 import * as NodeModule from "node:module";
 import { describe, expect, it, vi } from "vite-plus/test";
-import { getActionFromState, getStateFromPath, StackRouter } from "@react-navigation/native";
+import {
+  getActionFromState,
+  getStateFromPath,
+  getFocusedRouteNameFromRoute,
+  StackRouter,
+} from "@react-navigation/native";
 
 vi.mock("@react-navigation/native", () => {
   const require = NodeModule.createRequire(import.meta.url);
@@ -12,7 +17,7 @@ vi.mock("@react-navigation/native", () => {
 
 vi.mock("./uuid", () => ({ uuidv4: () => crypto.randomUUID() }));
 
-import { navigationLinkAction } from "./navigationLinkAction";
+import { navigationLinkAction, navigationLinkState } from "./navigationLinkAction";
 
 const config = {
   initialRouteName: "Home",
@@ -28,7 +33,7 @@ const config = {
 };
 
 function parse(path: string) {
-  const state = getStateFromPath(path, config);
+  const state = navigationLinkState(path, config);
   if (!state) throw new Error(`Could not parse ${path}`);
   return state;
 }
@@ -39,10 +44,20 @@ describe("project chat links", () => {
     expect(state.routes[0]?.name).toBe("Home");
     const sheet = state.routes.at(-1);
     expect(sheet?.name).toBe("NewTaskSheet");
+    expect(sheet?.params).toEqual({
+      screen: "NewTaskDraft",
+      params: { environmentId: "remote & one", projectId: "project/two" },
+    });
+    if (!sheet) throw new Error("Missing new-task sheet");
+    expect(getFocusedRouteNameFromRoute(sheet)).toBe("NewTaskDraft");
     expect(sheet?.state?.routes.at(-1)).toMatchObject({
       name: "NewTaskDraft",
       params: { environmentId: "remote & one", projectId: "project/two" },
     });
+  });
+
+  it.each(["new", "threads/env-1/thread-1"])("preserves initial state for %s", (path) => {
+    expect(navigationLinkState(path, config)).toEqual(getStateFromPath(path, config));
   });
 
   it("opens fresh drafts on repeated taps without stacking sheets", () => {
