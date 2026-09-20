@@ -707,7 +707,7 @@ export const RootStack = createNativeStackNavigator({
           <View className="flex-1 bg-sheet-solid">{children}</View>
         </NewTaskFlowProvider>
       ),
-      options: {
+      options: ({ route }) => ({
         gestureEnabled: true,
         headerShown: false,
         // Android pushes the flow as a regular full page — the draft should
@@ -716,10 +716,14 @@ export const RootStack = createNativeStackNavigator({
           ? { presentation: "card" as const }
           : {
               ...FORM_SHEET_PRESENTATION_OPTIONS,
+              animation:
+                route.params?.screen === "NewTaskDraft" && route.params.params?.launchId
+                  ? "none"
+                  : "default",
               sheetAllowedDetents: [0.92],
               sheetGrabberVisible: true,
             }),
-      },
+      }),
     }),
     NotFound: createNativeStackScreen({
       screen: NotFoundScreen,
