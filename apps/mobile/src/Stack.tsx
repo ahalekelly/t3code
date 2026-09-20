@@ -1,6 +1,7 @@
 import {
   createPathConfigForStaticNavigation,
   getPathFromState,
+  getFocusedRouteNameFromRoute,
   NavigationState,
   StackActions,
   useNavigation,
@@ -806,7 +807,7 @@ const RootStackConfig = createNativeStackNavigator({
         gestureEnabled: true,
         headerShown: false,
         // Lock Screen controls open the draft directly, without a transition.
-        ...(route.params?.screen === "NewTaskDraft" && route.params.params?.launchId
+        ...(getFocusedRouteNameFromRoute(route) === "NewTaskDraft"
           ? { animation: "none" as const }
           : {}),
       }),
