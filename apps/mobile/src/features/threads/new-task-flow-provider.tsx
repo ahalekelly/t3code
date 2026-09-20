@@ -198,7 +198,7 @@ type NewTaskFlowContextValue = {
   readonly selectedProviderStatus: ServerProvider | null;
   readonly providerGroups: ReadonlyArray<ProviderGroup>;
   readonly filteredBranches: ReadonlyArray<VcsRef>;
-  readonly reset: () => void;
+  readonly startNewDraft: (project: EnvironmentProject) => void;
   readonly setProject: (project: EnvironmentProject) => void;
   /**
    * Binds the composer to an existing new-task draft (a row in the thread
@@ -320,25 +320,6 @@ export function NewTaskFlowProvider(
   // Outbox revision this editor session may write after its predecessor save.
   // Unrelated accepted writes still beat the dismissed session's CAS.
   const editingRevisionRef = useRef(Promise.resolve(0));
-
-  const reset = useCallback(() => {
-    setSelectedEnvironmentId(null);
-    setSelectedProjectKey(null);
-    setActiveDraftKey(null);
-    setSubmitting(false);
-    setBranchQuery("");
-    setExpandedProvider(null);
-    pendingLocalBranchSyncDraftKeysRef.current.clear();
-    const editing = editingPendingTaskRef.current;
-    editingPendingTaskRef.current = null;
-    setEditingPendingTask(null);
-    if (editing) {
-      if (activeEditingMessageId === editing.messageId) {
-        activeEditingMessageId = null;
-      }
-      releaseEditingQueuedMessage(editing.messageId);
-    }
-  }, []);
 
   const projectsForEnvironment = useMemo(
     () =>
@@ -1277,6 +1258,21 @@ export function NewTaskFlowProvider(
   const cancelEditingPendingTask = useCallback(() => {
     editingFlushRef.current?.();
   }, []);
+  const startNewDraft = useCallback(
+    (project: EnvironmentProject) => {
+      cancelEditingPendingTask();
+      setSelectedEnvironmentId(project.environmentId);
+      setSelectedProjectKey(scopedProjectKey(project.environmentId, project.id));
+      setActiveDraftKey(
+        createNewTaskDraft({ environmentId: project.environmentId, projectId: project.id }),
+      );
+      setSubmitting(false);
+      setBranchQuery("");
+      setExpandedProvider(null);
+      pendingLocalBranchSyncDraftKeysRef.current.clear();
+    },
+    [cancelEditingPendingTask],
+  );
   useEffect(
     () => () => {
       editingFlushRef.current?.();
@@ -1320,7 +1316,7 @@ export function NewTaskFlowProvider(
       selectedProviderStatus,
       providerGroups,
       filteredBranches,
-      reset,
+      startNewDraft,
       setProject,
       openDraft,
       selectEnvironment,
@@ -1374,7 +1370,7 @@ export function NewTaskFlowProvider(
       prompt,
       providerGroups,
       replaceAttachments,
-      reset,
+      startNewDraft,
       runtimeMode,
       selectedBranchName,
       hasMoreBranches,

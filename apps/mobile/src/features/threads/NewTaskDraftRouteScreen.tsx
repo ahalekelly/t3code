@@ -1,5 +1,5 @@
 import { useNavigation, usePreventRemove, type StaticScreenProps } from "@react-navigation/native";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Alert, View } from "react-native";
 import { EnvironmentId } from "@t3tools/contracts";
 import {
@@ -16,6 +16,7 @@ import { vcsEnvironment } from "../../state/vcs";
 import { checkoutNewTaskBranch } from "./checkout-new-task-branch";
 import { NativeStackScreenOptions } from "../../native/StackHeader";
 
+import { useNewTaskFlow } from "./new-task-flow-provider";
 import { NewTaskDraftScreen } from "./NewTaskDraftScreen";
 import { projectSnapshotPending } from "./projectSnapshotPending";
 
@@ -70,6 +71,14 @@ export function NewTaskDraftRouteScreen({ route }: StaticScreenProps<NewTaskDraf
       candidate.environmentId === initialProjectRef.environmentId &&
       candidate.id === initialProjectRef.projectId,
   );
+  const { startNewDraft } = useNewTaskFlow();
+  const previousLaunchId = useRef(params.launchId);
+  useLayoutEffect(() => {
+    if (!params.launchId || previousLaunchId.current === params.launchId || !project) return;
+    previousLaunchId.current = params.launchId;
+    // Reset the draft without remounting the navigator that owns its destination.
+    startNewDraft(project);
+  }, [params.launchId, project, startNewDraft]);
   const environmentId = project?.environmentId;
   const requestedEnvironment = environments.find(
     (environment) => environment.environmentId === initialProjectRef.environmentId,
@@ -174,6 +183,7 @@ export function NewTaskDraftRouteScreen({ route }: StaticScreenProps<NewTaskDraf
         </View>
       ) : (
         <NewTaskDraftScreen
+          key={params.launchId}
           initialProjectRef={preparedProjectRef}
           incomingShareId={
             Array.isArray(params.incomingShareId)
