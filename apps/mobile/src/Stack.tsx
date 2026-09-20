@@ -892,10 +892,14 @@ const RootStackConfig = createNativeStackNavigator({
           </NewTaskFlowProvider>
         </GuardedScreenLayout>
       ),
-      options: {
+      options: ({ route }) => ({
         gestureEnabled: true,
         headerShown: false,
-      },
+        // Lock Screen controls open the draft directly, without a transition.
+        ...(route.params?.screen === "NewTaskDraft" && route.params.params?.launchId
+          ? { animation: "none" as const }
+          : {}),
+      }),
     }),
     NotFound: createNativeStackScreen({
       screen: NotFoundScreen,
