@@ -1803,13 +1803,12 @@ export function NewTaskDraftScreen(props: {
         style={{ position: "absolute", top: 0, bottom: 0, left: 0, right: 0 }}
         offset={{ closed: 0, opened: keyboardOpenedOffset }}
       >
-        <Animated.View
-          layout={COMPOSER_LAYOUT_TRANSITION}
+        <View
           pointerEvents="box-none"
           style={{ position: "absolute", bottom: 0, left: 0, right: 0 }}
         >
           {composerDock}
-        </Animated.View>
+        </View>
       </KeyboardStickyView>
     </View>
   );

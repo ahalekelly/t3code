@@ -224,8 +224,26 @@ type NewTaskFlowContextValue = {
 
 const NewTaskFlowContext = React.createContext<NewTaskFlowContextValue | null>(null);
 
-export function NewTaskFlowProvider(props: React.PropsWithChildren) {
+export function NewTaskFlowProvider(
+  props: React.PropsWithChildren<{
+    initialProjectRef:
+      | {
+          readonly environmentId?: string | string[];
+          readonly projectId?: string | string[];
+        }
+      | undefined;
+  }>,
+) {
   const projects = useProjects();
+  const initialEnvironmentId = Array.isArray(props.initialProjectRef?.environmentId)
+    ? props.initialProjectRef.environmentId[0]
+    : props.initialProjectRef?.environmentId;
+  const initialProjectId = Array.isArray(props.initialProjectRef?.projectId)
+    ? props.initialProjectRef.projectId[0]
+    : props.initialProjectRef?.projectId;
+  const initialProject = projects.find(
+    (project) => project.environmentId === initialEnvironmentId && project.id === initialProjectId,
+  );
   const threads = useThreadShells();
   const { savedConnectionsById } = useSavedRemoteConnections();
   const groupingSettings = useMobileProjectGroupingSettings();
@@ -247,14 +265,16 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
   );
 
   const [selectedEnvironmentIdOverride, setSelectedEnvironmentId] = useState<EnvironmentId | null>(
-    null,
+    () => initialProject?.environmentId ?? null,
   );
   const selectedEnvironmentId =
     selectedEnvironmentIdOverride !== null &&
     projects.some((project) => project.environmentId === selectedEnvironmentIdOverride)
       ? selectedEnvironmentIdOverride
       : (projects[0]?.environmentId ?? null);
-  const [selectedProjectKey, setSelectedProjectKey] = useState<string | null>(null);
+  const [selectedProjectKey, setSelectedProjectKey] = useState<string | null>(() =>
+    initialProject ? scopedProjectKey(initialProject.environmentId, initialProject.id) : null,
+  );
   // The new-task draft the composer is bound to. Null until a project is
   // chosen; each New Task entry mints its own, so a project can hold several.
   const [activeDraftKey, setActiveDraftKey] = useState<string | null>(null);
