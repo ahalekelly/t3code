@@ -702,7 +702,6 @@ export const RootStack = createNativeStackNavigator({
       // app/new/_layout.tsx; this layout wrapper is the native-stack equivalent.
       layout: ({ children, route }) => (
         <NewTaskFlowProvider
-          key={route.params?.screen === "NewTaskDraft" ? route.params.params?.launchId : undefined}
           initialProjectRef={
             route.params?.screen === "NewTaskDraft" ? route.params.params : undefined
           }
