@@ -703,6 +703,9 @@ export const RootStack = createNativeStackNavigator({
       layout: ({ children, route }) => (
         <NewTaskFlowProvider
           key={route.params?.screen === "NewTaskDraft" ? route.params.params?.launchId : undefined}
+          initialProjectRef={
+            route.params?.screen === "NewTaskDraft" ? route.params.params : undefined
+          }
         >
           <View className="flex-1 bg-sheet-solid">{children}</View>
         </NewTaskFlowProvider>
@@ -720,7 +723,7 @@ export const RootStack = createNativeStackNavigator({
                 route.params?.screen === "NewTaskDraft" && route.params.params?.launchId
                   ? "none"
                   : "default",
-              sheetAllowedDetents: [0.92],
+              sheetAllowedDetents: [1],
               sheetGrabberVisible: true,
             }),
       }),
