@@ -166,14 +166,13 @@ export function NewTaskDraftRouteScreen({ route }: StaticScreenProps<NewTaskDraf
           title: Array.isArray(params.title) ? params.title[0] : (params.title ?? "New task"),
         }}
       />
-      {waitingForProject || preparingBranch ? (
+      {preparingBranch ? (
         <View className="flex-1 items-center justify-center bg-screen">
-          <Text className="text-foreground">
-            {waitingForProject ? "Loading project..." : "Switching branch..."}
-          </Text>
+          <Text className="text-foreground">Switching branch...</Text>
         </View>
       ) : (
         <NewTaskDraftScreen
+          waitingForProject={waitingForProject}
           initialProjectRef={preparedProjectRef}
           incomingShareId={
             Array.isArray(params.incomingShareId)

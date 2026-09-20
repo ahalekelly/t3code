@@ -170,6 +170,7 @@ function NewTaskWorkspaceIcon(props: {
 }
 
 export function NewTaskDraftScreen(props: {
+  readonly waitingForProject: boolean;
   readonly initialProjectRef?: {
     readonly environmentId?: string;
     readonly projectId?: string;
@@ -428,7 +429,7 @@ export function NewTaskDraftScreen(props: {
   const contextImports = useAtomValue(composerContextImportsAtom);
   const isImportingContext = flow.draftKey ? contextImports[flow.draftKey] === true : false;
   const isComposerInteractionLocked =
-    isIncomingShareTransferPending || flow.submitting || isImportingContext;
+    !selectedProject || isIncomingShareTransferPending || flow.submitting || isImportingContext;
   // Also guard while a submit is in flight: an Android back press or iOS
   // Cancel would otherwise abandon the screen while the task still starts.
   // T3 owns /usage-limits only where Limits has data for the selected provider.
@@ -630,7 +631,7 @@ export function NewTaskDraftScreen(props: {
     // Pending-task editing and draft resumption own project selection (and
     // must not fall through to the replace("NewTask") fallback while their
     // hydration is in flight).
-    if (props.pendingTaskId || props.draftId) {
+    if (props.waitingForProject || props.pendingTaskId || props.draftId) {
       return;
     }
     if (lastInitialProjectRefRef.current !== props.initialProjectRef) {
@@ -708,6 +709,7 @@ export function NewTaskDraftScreen(props: {
     projects,
     flow.draftKey,
     props.initialProjectRef,
+    props.waitingForProject,
     props.incomingShareId,
     props.pendingTaskId,
     props.draftId,
@@ -1326,21 +1328,6 @@ export function NewTaskDraftScreen(props: {
     };
   }
 
-  if (!selectedProject) {
-    return (
-      <View className="flex-1 bg-sheet" collapsable={false}>
-        {Platform.OS === "android" ? (
-          <>
-            <NativeStackScreenOptions options={{ headerShown: false }} />
-            <AndroidScreenHeader title="New Thread" onBack={() => navigation.goBack()} />
-          </>
-        ) : (
-          <NativeStackScreenOptions options={{ title: "Loading task" }} />
-        )}
-      </View>
-    );
-  }
-
   const isAndroid = Platform.OS === "android";
   const canStart =
     !isImportingContext &&
@@ -1360,7 +1347,7 @@ export function NewTaskDraftScreen(props: {
     // A draft attachment lives only in the draft. Without its key the screen would fall through
     // to a remote lookup for bytes the server has never seen.
     const draftKey = flow.draftKey;
-    if (!draftKey) return;
+    if (!draftKey || !selectedProject) return;
     promptInputRef.current?.blur();
     void KeyboardController.dismiss({ animated: true });
     navigation.dispatch(
@@ -1378,10 +1365,10 @@ export function NewTaskDraftScreen(props: {
     <>
       <ComposerEditor
         draftKey={flow.draftKey}
-        environmentId={selectedProject.environmentId}
+        environmentId={selectedProject?.environmentId}
         onOpenAttachment={openDraftDocument}
         onOpenMention={(path) => {
-          if (!composerWorkspaceCwd) return;
+          if (!composerWorkspaceCwd || !selectedProject) return;
           promptInputRef.current?.blur();
           void KeyboardController.dismiss({ animated: true });
           navigation.dispatch(
@@ -1397,7 +1384,7 @@ export function NewTaskDraftScreen(props: {
         autoFocus
         // Clipboard imports use the editor's read-only mode to retain keyboard focus.
         editable={!isIncomingShareTransferPending && !flow.submitting}
-        readOnly={voiceInput.freezesEditor}
+        readOnly={voiceInput.freezesEditor || !flow.draftKey}
         multiline
         scrollEnabled
         value={flow.prompt}
@@ -1457,46 +1444,52 @@ export function NewTaskDraftScreen(props: {
         <Text className="text-center text-2xl font-t3-medium tracking-tight text-foreground">
           What should we build
         </Text>
-        <View className="max-w-full flex-row items-center justify-center">
-          <Text className="text-2xl font-t3-medium tracking-tight text-foreground">in </Text>
-          <Pressable
-            accessibilityHint="Opens the project picker"
-            accessibilityLabel={`Change project from ${selectedProject.title}`}
-            accessibilityRole="button"
-            disabled={isComposerInteractionLocked}
-            onPress={chooseProject}
-            className="min-w-0 max-w-[250px] border-b border-foreground-muted active:opacity-65"
-          >
-            <Text
-              className="text-2xl font-t3-medium tracking-tight text-foreground"
-              numberOfLines={1}
+        {selectedProject ? (
+          <View className="max-w-full flex-row items-center justify-center">
+            <Text className="text-2xl font-t3-medium tracking-tight text-foreground">in </Text>
+            <Pressable
+              accessibilityHint="Opens the project picker"
+              accessibilityLabel={`Change project from ${selectedProject.title}`}
+              accessibilityRole="button"
+              disabled={isComposerInteractionLocked}
+              onPress={chooseProject}
+              className="min-w-0 max-w-[250px] border-b border-foreground-muted active:opacity-65"
             >
-              {selectedProject.title}
-            </Text>
-          </Pressable>
-          <Text className="text-2xl font-t3-medium tracking-tight text-foreground">?</Text>
-        </View>
+              <Text
+                className="text-2xl font-t3-medium tracking-tight text-foreground"
+                numberOfLines={1}
+              >
+                {selectedProject.title}
+              </Text>
+            </Pressable>
+            <Text className="text-2xl font-t3-medium tracking-tight text-foreground">?</Text>
+          </View>
+        ) : (
+          <Text className="text-foreground-muted">Loading project…</Text>
+        )}
       </View>
 
-      <ComposerInlineControl
-        accessibilityLabel={`Environment: ${selectedEnvironmentLabel}`}
-        chevronDirection="right"
-        disabled={isComposerInteractionLocked || voiceInput.isBusy}
-        iconNode={
-          <EnvironmentMachineSymbol
-            kind={resolveEnvironmentMachineKind(selectedEnvironmentServerConfig)}
-            size={16}
-            tintColorClassName="accent-icon-muted"
-          />
-        }
-        label={`on ${selectedEnvironmentLabel}`}
-        maxWidth={260}
-        onPress={
-          flow.environments.length > 1 ? () => openContextPicker("NewTaskEnvironment") : undefined
-        }
-        showChevron={flow.environments.length > 1}
-        static={flow.environments.length <= 1}
-      />
+      {selectedProject ? (
+        <ComposerInlineControl
+          accessibilityLabel={`Environment: ${selectedEnvironmentLabel}`}
+          chevronDirection="right"
+          disabled={isComposerInteractionLocked || voiceInput.isBusy}
+          iconNode={
+            <EnvironmentMachineSymbol
+              kind={resolveEnvironmentMachineKind(selectedEnvironmentServerConfig)}
+              size={16}
+              tintColorClassName="accent-icon-muted"
+            />
+          }
+          label={`on ${selectedEnvironmentLabel}`}
+          maxWidth={260}
+          onPress={
+            flow.environments.length > 1 ? () => openContextPicker("NewTaskEnvironment") : undefined
+          }
+          showChevron={flow.environments.length > 1}
+          static={flow.environments.length <= 1}
+        />
+      ) : null}
     </View>
   );
   const heroViewport = (
@@ -1610,7 +1603,7 @@ export function NewTaskDraftScreen(props: {
           paddingTop: 14,
         }}
       >
-        {stripAttachments.length > 0 ? (
+        {selectedProject && stripAttachments.length > 0 ? (
           <View className="px-[14px] pb-2.5">
             <ComposerAttachmentStrip
               environmentId={selectedProject.environmentId}
@@ -1720,7 +1713,12 @@ export function NewTaskDraftScreen(props: {
                 state={voiceInput.state}
                 presentation={voicePresentation}
                 isAvailable={voiceInput.isAvailable}
-                disabled={isIncomingShareTransferPending || isImportingShare || flow.submitting}
+                disabled={
+                  !flow.draftKey ||
+                  isIncomingShareTransferPending ||
+                  isImportingShare ||
+                  flow.submitting
+                }
                 onStart={voiceInput.start}
                 onConfirm={voiceInput.stop}
                 onCancel={voiceInput.cancel}
