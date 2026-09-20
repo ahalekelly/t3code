@@ -1,3 +1,5 @@
+import * as NodeChildProcess from "node:child_process";
+
 import type { ExpoConfig } from "expo/config";
 
 import { BRAND_ASSET_PATHS } from "../../scripts/lib/brand-assets.ts";
@@ -462,6 +464,12 @@ const config: ExpoConfig = {
   ],
   extra: {
     appVariant: APP_VARIANT,
+    buildCommit: isIosSideloadBuild
+      ? NodeChildProcess.execFileSync("git", ["rev-parse", "--short=9", "HEAD"], {
+          cwd: __dirname,
+          encoding: "utf8",
+        }).trim()
+      : undefined,
     iosWidgetsEnabled: !isIosPersonalTeamBuild,
     iosSharingEnabled: !isIosSideloadBuild,
     iosPushEnabled: !isIosSideloadBuild,
