@@ -5,7 +5,6 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { Alert } from "react-native";
 
 import type {
-  EnvironmentId,
   ModelSelection,
   ProjectReadFileResult,
   ProviderInteractionMode,
@@ -15,6 +14,8 @@ import type {
 } from "@t3tools/contracts";
 import {
   CommandId,
+  EnvironmentId,
+  ProjectId,
   DEFAULT_PROVIDER_INTERACTION_MODE,
   DEFAULT_RUNTIME_MODE,
   DEFAULT_SERVER_SETTINGS,
@@ -276,9 +277,6 @@ export function NewTaskFlowProvider(
   const initialProjectId = Array.isArray(props.initialProjectRef?.projectId)
     ? props.initialProjectRef.projectId[0]
     : props.initialProjectRef?.projectId;
-  const initialProject = projects.find(
-    (project) => project.environmentId === initialEnvironmentId && project.id === initialProjectId,
-  );
   const threads = useThreadShells();
   const { savedConnectionsById } = useSavedRemoteConnections();
   const groupingSettings = useMobileProjectGroupingSettings();
@@ -301,15 +299,13 @@ export function NewTaskFlowProvider(
   );
 
   const [selectedEnvironmentIdOverride, setSelectedEnvironmentId] = useState<EnvironmentId | null>(
-    () => initialProject?.environmentId ?? null,
+    () => (initialEnvironmentId ? EnvironmentId.make(initialEnvironmentId) : null),
   );
-  const selectedEnvironmentId =
-    selectedEnvironmentIdOverride !== null &&
-    projects.some((project) => project.environmentId === selectedEnvironmentIdOverride)
-      ? selectedEnvironmentIdOverride
-      : (projects[0]?.environmentId ?? null);
+  const selectedEnvironmentId = selectedEnvironmentIdOverride ?? projects[0]?.environmentId ?? null;
   const [selectedProjectKey, setSelectedProjectKey] = useState<string | null>(() =>
-    initialProject ? scopedProjectKey(initialProject.environmentId, initialProject.id) : null,
+    initialEnvironmentId && initialProjectId
+      ? scopedProjectKey(EnvironmentId.make(initialEnvironmentId), ProjectId.make(initialProjectId))
+      : null,
   );
   // The new-task draft the composer is bound to. Null until a project is
   // chosen; each New Task entry mints its own, so a project can hold several.
@@ -370,7 +366,9 @@ export function NewTaskFlowProvider(
     selectedProjectKey ===
       scopedProjectKey(editingPendingProject.environmentId, editingPendingProject.id)
       ? editingPendingProject
-      : (projectsForEnvironment[0] ?? null));
+      : selectedProjectKey === null
+        ? (projectsForEnvironment[0] ?? null)
+        : null);
 
   const selectedEnvironmentServerConfig = useEnvironmentServerConfig(
     selectedProject?.environmentId ?? null,

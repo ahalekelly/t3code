@@ -9,6 +9,7 @@ import { createWorkspaceStackNavigator } from "./features/layout/createWorkspace
 import {
   createPathConfigForStaticNavigation,
   getPathFromState,
+  getFocusedRouteNameFromRoute,
   NavigationState,
   StackActions,
   useNavigation,
@@ -1021,7 +1022,7 @@ const RootStackConfig = createWorkspaceStackNavigator({
         gestureEnabled: true,
         headerShown: false,
         // Lock Screen controls open the draft directly, without a transition.
-        ...(route.params?.screen === "NewTaskDraft" && route.params.params?.launchId
+        ...(getFocusedRouteNameFromRoute(route) === "NewTaskDraft"
           ? { animation: "none" as const }
           : {}),
       }),
