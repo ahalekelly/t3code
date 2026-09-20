@@ -794,9 +794,6 @@ const RootStackConfig = createNativeStackNavigator({
       layout: ({ children, route }) => (
         <GuardedScreenLayout route={route}>
           <NewTaskFlowProvider
-            key={
-              route.params?.screen === "NewTaskDraft" ? route.params.params?.launchId : undefined
-            }
             initialProjectRef={
               route.params?.screen === "NewTaskDraft" ? route.params.params : undefined
             }
