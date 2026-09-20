@@ -1,6 +1,7 @@
 import {
   createPathConfigForStaticNavigation,
   getPathFromState,
+  getFocusedRouteNameFromRoute,
   NavigationState,
   StackActions,
   useNavigation,
@@ -715,7 +716,7 @@ export const RootStack = createNativeStackNavigator({
           : {
               ...FORM_SHEET_PRESENTATION_OPTIONS,
               animation:
-                route.params?.screen === "NewTaskDraft" && route.params.params?.launchId
+                getFocusedRouteNameFromRoute(route) === "NewTaskDraft"
                   ? "none"
                   : "default",
               sheetAllowedDetents: [0.92],

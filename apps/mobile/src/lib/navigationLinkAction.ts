@@ -1,4 +1,4 @@
-import { CommonActions, getActionFromState } from "@react-navigation/native";
+import { CommonActions, getActionFromState, getStateFromPath } from "@react-navigation/native";
 import { uuidv4 } from "./uuid";
 
 /** Fresh chat links reset the draft inside a single new-task sheet. */
@@ -27,4 +27,23 @@ export function navigationLinkAction(...args: Parameters<typeof getActionFromSta
     );
   }
   return getActionFromState(...args);
+}
+
+/** Give cold launches the same initial project parameters as warm navigation. */
+export function navigationLinkState(...args: Parameters<typeof getStateFromPath>) {
+  const state = getStateFromPath(...args);
+  if (!state) return state;
+  const sheet = state.routes.at(-1);
+  const draft = sheet?.state?.routes.at(-1);
+  if (sheet?.name === "NewTaskSheet" && draft?.name === "NewTaskDraft") {
+    return {
+      ...state,
+      routes: state.routes.map((route) =>
+        route === sheet
+          ? { ...route, params: { screen: "NewTaskDraft", params: draft.params } }
+          : route,
+      ),
+    };
+  }
+  return state;
 }
