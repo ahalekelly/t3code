@@ -797,6 +797,9 @@ const RootStackConfig = createNativeStackNavigator({
             key={
               route.params?.screen === "NewTaskDraft" ? route.params.params?.launchId : undefined
             }
+            initialProjectRef={
+              route.params?.screen === "NewTaskDraft" ? route.params.params : undefined
+            }
           >
             <View className="flex-1 bg-sheet-solid">{children}</View>
           </NewTaskFlowProvider>
