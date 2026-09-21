@@ -497,6 +497,7 @@ const NewTaskSheetStack = createNativeStackNavigator({
       screen: NewTaskDraftRouteScreen,
       linking: "draft",
       options: {
+        animation: Platform.OS === "ios" ? "none" : undefined,
         headerBackVisible: false,
         title: "",
       },
