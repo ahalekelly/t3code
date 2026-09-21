@@ -464,6 +464,7 @@ const config: ExpoConfig = {
   ],
   extra: {
     appVariant: APP_VARIANT,
+    buildTime: isIosSideloadBuild ? new Date().toISOString() : undefined,
     buildCommit: isIosSideloadBuild
       ? NodeChildProcess.execFileSync("git", ["rev-parse", "--short=9", "HEAD"], {
           cwd: __dirname,

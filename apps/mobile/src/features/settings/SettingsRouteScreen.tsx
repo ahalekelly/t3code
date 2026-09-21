@@ -774,6 +774,17 @@ function AppSettingsSection() {
   const buildNumber = Constants.platform?.ios?.buildNumber;
   const versionName = buildNumber ? `${version} (${buildNumber})` : version;
   const buildCommit = Constants.expoConfig?.extra?.buildCommit as string | undefined;
+  const buildTime = Constants.expoConfig?.extra?.buildTime as string | undefined;
+  const buildDateLabel = buildTime
+    ? new Date(buildTime).toLocaleString(undefined, {
+        year: "numeric",
+        month: "short",
+        day: "numeric",
+        hour: "numeric",
+        minute: "2-digit",
+        timeZoneName: "short",
+      })
+    : undefined;
   // Fall back to "production" to match resolveAppVariant in app.config.ts, so a
   // missing variant never mislabels a production build as development.
   const variant = (Constants.expoConfig?.extra?.appVariant as string | undefined) ?? "production";
@@ -842,9 +853,12 @@ function AppSettingsSection() {
         type="monochrome"
         weight="regular"
       />
-      <Text className="flex-1 text-lg text-foreground">Version</Text>
-      <View className="items-end">
-        <Text className="text-lg text-foreground-muted">{versionLabel}</Text>
+      <Text className="text-lg text-foreground">Version</Text>
+      <View className="min-w-0 flex-1 items-end">
+        <Text className="text-right text-lg text-foreground-muted">{versionLabel}</Text>
+        {buildDateLabel ? (
+          <Text className="text-right text-xs text-foreground-muted">{buildDateLabel}</Text>
+        ) : null}
         {statusLabel ? (
           <Text className="text-xs text-foreground-muted/70">{statusLabel}</Text>
         ) : null}
@@ -864,7 +878,9 @@ function AppSettingsSection() {
       <SettingsRow icon="doc.text" label="Legal" fullScreenTarget="SettingsLegal" />
       {updateCheckAvailable ? (
         <Pressable
-          accessibilityLabel={`Version ${versionLabel}`}
+          accessibilityLabel={[`Version ${versionLabel}`, buildDateLabel]
+            .filter(Boolean)
+            .join(" · ")}
           accessibilityRole="text"
           disabled={busy}
           onPress={handleVersionPress}
