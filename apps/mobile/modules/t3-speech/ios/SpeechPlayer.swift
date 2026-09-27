@@ -1,8 +1,12 @@
 import AVFoundation
 import Foundation
 import MediaPlayer
+import os
 import PocketTTSRuntime
 import T3Supertonic
+
+/// Playback diagnostics. Read them with Console.app on a Mac, filtered to subsystem T3Speech.
+let speechLog = Logger(subsystem: "T3Speech", category: "playback")
 
 struct SpeechState: Sendable {
   let block: Int?
@@ -165,6 +169,12 @@ private final class SpeechSession: @unchecked Sendable {
   private var resumeFrame: Int64 = 0
   private var publishedBlock: Int?
 
+  // Diagnostics: when the current segment first delivered audio, how long it waited
+  // for room in the lookahead, and when playback last ran out of audio.
+  private var segmentFirstAudio: ContinuousClock.Instant?
+  private var segmentWaited: Duration = .zero
+  private var starvedAt: ContinuousClock.Instant?
+
   private var cancelled = false
   private var ended = false
   private var failure: Error?
@@ -187,16 +197,25 @@ private final class SpeechSession: @unchecked Sendable {
       return true
     }
     guard opened else { return false }
+    speechLog.notice("start \(self.settings.model.rawValue, privacy: .public) voice \(self.settings.voice, privacy: .public) pace \(self.settings.pace)")
     return try await withTaskCancellationHandler {
       while let (index, text, generation) = await takeBlock() {
         markStart(of: index, generation: generation)
         for segment in speechSegments(text, maxLength: synthesizer.segmentLength) {
           guard isCurrent(generation) else { break }
+          let started = ContinuousClock.now
+          let framesBefore = condition.withLock {
+            segmentFirstAudio = nil
+            segmentWaited = .zero
+            return writtenFrames
+          }
           do {
             try await synthesizer.generate(segment, into: self, generation: generation)
           } catch {
+            speechLog.error("block \(index) segment failed: \(error.localizedDescription, privacy: .public)")
             if isCurrent(generation) { throw error }
           }
+          logSegment(block: index, characters: segment.count, started: started, framesBefore: framesBefore, generation: generation)
         }
       }
       if let failure = condition.withLock({ failure }) { throw failure }
@@ -281,7 +300,9 @@ private final class SpeechSession: @unchecked Sendable {
     while true {
       let (written, seen) = condition.withLock { (write(data, generation: generation), changes) }
       if let written { return written }
+      let waitStarted = ContinuousClock.now
       await changed(since: seen)
+      condition.withLock { segmentWaited += waitStarted.duration(to: .now) }
     }
   }
 
@@ -290,7 +311,9 @@ private final class SpeechSession: @unchecked Sendable {
     condition.withLock {
       while true {
         if let written = write(data, generation: generation) { return written }
+        let waitStarted = ContinuousClock.now
         condition.wait()
+        segmentWaited += waitStarted.duration(to: .now)
       }
     }
   }
@@ -300,6 +323,7 @@ private final class SpeechSession: @unchecked Sendable {
     guard !cancelled, generation == self.generation, let cache else { return false }
     guard !data.isEmpty else { return true }
     guard writtenFrames - completedFrames < lookaheadFrames else { return nil }
+    if segmentFirstAudio == nil { segmentFirstAudio = .now }
     do {
       try cache.seek(toOffset: UInt64(writtenFrames) * 4)
       try cache.write(contentsOf: data)
@@ -312,11 +336,26 @@ private final class SpeechSession: @unchecked Sendable {
     return true
   }
 
+  /// Generation speed excludes time spent waiting for playback to make room, so a
+  /// rate below the playback pace means playback will run out of audio.
+  private func logSegment(block: Int, characters: Int, started: ContinuousClock.Instant, framesBefore: Int64, generation: Int) {
+    condition.withLock {
+      guard let format, generation == self.generation else { return }
+      let rate = format.sampleRate
+      let audio = Double(writtenFrames - framesBefore) / rate
+      let working = started.duration(to: .now) - segmentWaited
+      let firstAudio = segmentFirstAudio.map { started.duration(to: $0) / .milliseconds(1) } ?? -1
+      let ahead = Double(writtenFrames - position()) / rate
+      speechLog.notice("block \(block) segment \(characters) chars: \(audio, format: .fixed(precision: 1))s audio in \(working / .seconds(1), format: .fixed(precision: 1))s (\(audio / max(working / .seconds(1), 0.001), format: .fixed(precision: 2))x), first audio \(Int(firstAudio))ms, waited \(self.segmentWaited / .seconds(1), format: .fixed(precision: 1))s, \(ahead, format: .fixed(precision: 1))s buffered")
+    }
+  }
+
   // MARK: Controls
 
   func rewind() {
     condition.withLock {
       guard let format, !cancelled, !ended else { return }
+      speechLog.notice("rewind")
       let target = max(runStart, (paused ? resumeFrame : position()) - Int64(format.sampleRate * 10))
       if paused { resumeFrame = target } else { seekLocked(to: target) }
       publishBlock(at: target)
@@ -331,6 +370,7 @@ private final class SpeechSession: @unchecked Sendable {
   func seek(toBlock block: Int) {
     condition.withLock {
       guard format != nil, !cancelled, !ended, block >= 0 else { return }
+      speechLog.notice("seek to block \(block)")
       if block >= contiguousFrom, block < nextIndex, let start = marks.last(where: { $0.block == block })?.frame {
         if paused { resumeFrame = start } else { seekLocked(to: start) }
         publishedBlock = block
@@ -343,6 +383,7 @@ private final class SpeechSession: @unchecked Sendable {
 
   /// Generates again from this block and drops the audio queued after the playhead.
   private func regenerateLocked(from block: Int) {
+    speechLog.notice("regenerate from block \(block)")
     generation += 1
     nextIndex = block
     contiguousFrom = block
@@ -366,6 +407,7 @@ private final class SpeechSession: @unchecked Sendable {
   }
 
   private func interruptionBegan() {
+    speechLog.notice("interruption began")
     condition.withLock {
       guard !paused else { return }
       pauseLocked(resumeFrom: .rewound)
@@ -374,6 +416,7 @@ private final class SpeechSession: @unchecked Sendable {
   }
 
   private func interruptionEnded(shouldResume: Bool) {
+    speechLog.notice("interruption ended, should resume \(shouldResume)")
     condition.withLock {
       if interrupted && shouldResume { resumeLocked() }
       interrupted = false
@@ -395,6 +438,8 @@ private final class SpeechSession: @unchecked Sendable {
 
   private func pauseLocked(resumeFrom point: ResumePoint) {
     guard let format, !cancelled, !ended, !paused else { return }
+    starvedAt = nil
+    speechLog.notice("pause")
     let position = position()
     switch point {
     case .position: resumeFrame = position
@@ -415,6 +460,7 @@ private final class SpeechSession: @unchecked Sendable {
 
   private func resumeLocked() {
     guard !cancelled, !ended, paused else { return }
+    speechLog.notice("resume")
     paused = false
     interrupted = false
     do {
@@ -455,7 +501,9 @@ private final class SpeechSession: @unchecked Sendable {
       },
       center.addObserver(forName: AVAudioSession.routeChangeNotification, object: session, queue: nil) { [weak self] notification in
         // Headphones removed or disconnected: pause, and resume at the paragraph's start.
-        if notification.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt == AVAudioSession.RouteChangeReason.oldDeviceUnavailable.rawValue {
+        let reason = notification.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt
+        speechLog.notice("route change, reason \(reason ?? 0)")
+        if reason == AVAudioSession.RouteChangeReason.oldDeviceUnavailable.rawValue {
           self?.pause(resumeFrom: .blockStart)
         }
       },
@@ -467,6 +515,7 @@ private final class SpeechSession: @unchecked Sendable {
 
   /// A new output route (Bluetooth connecting, a sample-rate change) stops the engine.
   private func restartEngine() {
+    speechLog.notice("engine configuration changed")
     condition.withLock {
       guard format != nil, !cancelled, !ended, !paused else { return }
       let position = position()
@@ -496,7 +545,13 @@ private final class SpeechSession: @unchecked Sendable {
         DispatchQueue.global(qos: .userInitiated).async { self?.didPlay(endFrame: endFrame, epoch: scheduledEpoch) }
       }
     }
-    if pendingBuffers > 0 && !player.isPlaying { player.play() }
+    if pendingBuffers > 0 && !player.isPlaying {
+      if let starvedAt {
+        speechLog.notice("playback resumed after \(Int(starvedAt.duration(to: .now) / .milliseconds(1)))ms without audio")
+        self.starvedAt = nil
+      }
+      player.play()
+    }
   }
 
   private func didPlay(endFrame: Int64, epoch scheduledEpoch: Int) {
@@ -508,6 +563,12 @@ private final class SpeechSession: @unchecked Sendable {
     do { try scheduleBuffers() }
     catch { fail(error); return }
     if pendingBuffers == 0 {
+      if !(generationIdle && scheduledFrames == writtenFrames) {
+        starvedAt = .now
+        let at = Double(completedFrames) / format!.sampleRate
+        let waiting = nextIndex >= blocks.count ? "waiting for text" : "generating block \(nextIndex - 1)"
+        speechLog.notice("ran out of audio at \(at, format: .fixed(precision: 1))s, \(waiting, privacy: .public)")
+      }
       // Reset an empty timeline so a synthesis gap does not count as played audio.
       epoch += 1
       player.stop()
@@ -519,6 +580,7 @@ private final class SpeechSession: @unchecked Sendable {
   }
 
   private func seekLocked(to target: Int64) {
+    starvedAt = nil
     epoch += 1
     player.stop()
     pendingBuffers = 0
@@ -556,6 +618,7 @@ private final class SpeechSession: @unchecked Sendable {
   // MARK: Lifecycle
 
   private func fail(_ error: Error) {
+    speechLog.error("failed: \(error.localizedDescription, privacy: .public)")
     failure = error
     cancelLocked()
   }
