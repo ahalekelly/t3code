@@ -3,8 +3,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test"
 import type { NativeSpeechState } from "./nativeSpeech";
 
 const mocks = vi.hoisted(() => ({
-  start: vi.fn<() => Promise<boolean>>(),
-  append: vi.fn<(blocks: readonly string[]) => Promise<void>>(),
+  start: vi.fn<(options: object, reading: string) => Promise<boolean>>(),
+  append: vi.fn<(blocks: readonly string[], from: number) => Promise<void>>(),
   finish: vi.fn<() => Promise<void>>(),
   stop: vi.fn<() => Promise<void>>(),
   downloaded: vi.fn<() => boolean>(),
@@ -78,8 +78,8 @@ describe("responseSpeech", () => {
     mocks.start.mockReturnValueOnce(played.promise);
     const reading = responseSpeech.toggle(first, "One.\n\nTwo.", request, "Thread");
     await flush();
-    expect(mocks.start).toHaveBeenCalledWith({ ...request, title: "Thread" });
-    expect(mocks.append).toHaveBeenCalledExactlyOnceWith(["One.", "Two."]);
+    expect(mocks.start).toHaveBeenCalledWith({ ...request, title: "Thread" }, expect.any(String));
+    expect(mocks.append).toHaveBeenCalledExactlyOnceWith(["One.", "Two."], 0);
     expect(mocks.finish).toHaveBeenCalledOnce();
     expect(responseSpeech.getSnapshot()).toEqual({ response: first, block: null, paused: false });
     played.resolve(true);
@@ -90,15 +90,22 @@ describe("responseSpeech", () => {
   it("reads a streaming response block by block as it grows", async () => {
     void responseSpeech.read(first, "One.\n\nTw", true, request, "Thread");
     await flush();
-    expect(mocks.append).toHaveBeenLastCalledWith(["One."]);
+    expect(mocks.append).toHaveBeenLastCalledWith(["One."], 0);
     responseSpeech.update(first, "One.\n\nTwo.\n\nThr", true);
-    expect(mocks.append).toHaveBeenLastCalledWith(["Two."]);
+    expect(mocks.append).toHaveBeenLastCalledWith(["Two."], 1);
     responseSpeech.update(second, "Other.\n\nText.", true);
     expect(mocks.append).toHaveBeenCalledTimes(2);
     expect(mocks.finish).not.toHaveBeenCalled();
     responseSpeech.update(first, "One.\n\nTwo.\n\nThree.", false);
-    expect(mocks.append).toHaveBeenLastCalledWith(["Three."]);
+    expect(mocks.append).toHaveBeenLastCalledWith(["Three."], 2);
     expect(mocks.finish).toHaveBeenCalledOnce();
+  });
+
+  it("rereads a sent block that changed by the time the response finished", async () => {
+    void responseSpeech.read(first, "One.\n\nTwo.\n\nThr", true, request, "Thread");
+    await flush();
+    responseSpeech.update(first, "One.\n\nTwo, more.\n\nThree.", false);
+    expect(mocks.append).toHaveBeenLastCalledWith(["Two, more.", "Three."], 1);
   });
 
   it("keeps text that streamed in while the download prompt was open", async () => {
@@ -118,14 +125,17 @@ describe("responseSpeech", () => {
     responseSpeech.update(first, "One.\n\nTwo.", false);
     accept();
     await flush();
-    expect(mocks.append).toHaveBeenCalledExactlyOnceWith(["One.", "Two."]);
+    expect(mocks.append).toHaveBeenCalledExactlyOnceWith(["One.", "Two."], 0);
     expect(mocks.finish).toHaveBeenCalledOnce();
   });
 
-  it("tracks the block and pause state reported by native playback", async () => {
+  it("tracks the block and pause state reported by the current native reading", async () => {
     void responseSpeech.toggle(first, "One.\n\nTwo.", request, "Thread");
     await flush();
-    mocks.listener?.({ block: 1, paused: true });
+    const reading = mocks.start.mock.calls[0]![1];
+    mocks.listener?.({ reading: `${reading}-old`, block: 0, paused: false });
+    mocks.listener?.({ reading, block: 1, paused: true });
+    mocks.listener?.({ reading: `${reading}-old`, block: 0, paused: false });
     expect(responseSpeech.getSnapshot()).toEqual({ response: first, block: 1, paused: true });
   });
 
@@ -174,9 +184,9 @@ describe("responseSpeech", () => {
       "Could not read response aloud",
       "Add your OpenAI API key in Settings → Voice.",
     );
-    expect(mocks.playCue).toHaveBeenCalledWith("error");
     expect(mocks.announce).toHaveBeenCalledWith(
       "Could not read the response aloud. Add your OpenAI API key in Settings → Voice.",
+      "error",
     );
   });
 

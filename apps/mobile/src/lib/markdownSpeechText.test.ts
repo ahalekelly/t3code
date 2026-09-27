@@ -93,15 +93,24 @@ describe("markdownSpeechText", () => {
 
 describe("unsentSpeechBlocks", () => {
   it("holds back the growing last block while streaming", () => {
-    expect(unsentSpeechBlocks([], ["One.", "Tw"], true)).toEqual(["One."]);
-    expect(unsentSpeechBlocks(["One."], ["One.", "Two.", "Thr"], true)).toEqual(["Two."]);
-    expect(unsentSpeechBlocks(["One.", "Two."], ["One.", "Two.", "Three."], false)).toEqual([
-      "Three.",
-    ]);
+    expect(unsentSpeechBlocks([], ["One.", "Tw"], true)).toEqual({ from: 0, blocks: ["One."] });
+    expect(unsentSpeechBlocks(["One."], ["One.", "Two.", "Thr"], true)).toEqual({
+      from: 1,
+      blocks: ["Two."],
+    });
+    expect(unsentSpeechBlocks(["One."], ["One.", "Tw"], true)).toBeNull();
+    expect(unsentSpeechBlocks(["One.", "Two."], ["One.", "Two.", "Three."], false)).toEqual({
+      from: 2,
+      blocks: ["Three."],
+    });
+    expect(unsentSpeechBlocks(["One."], ["One."], false)).toBeNull();
   });
 
-  it("waits while a reparse changes blocks that were already sent", () => {
-    expect(unsentSpeechBlocks(["One."], ["One. More", "Two.", "Three"], true)).toEqual([]);
-    expect(unsentSpeechBlocks(["One."], ["One. More", "Two."], false)).toEqual(["Two."]);
+  it("resends from a block that a reparse changed once the text is final", () => {
+    expect(unsentSpeechBlocks(["One."], ["One. More", "Two.", "Three"], true)).toBeNull();
+    expect(unsentSpeechBlocks(["One.", "Two."], ["One.", "Two, more.", "Three."], false)).toEqual({
+      from: 1,
+      blocks: ["Two, more.", "Three."],
+    });
   });
 });

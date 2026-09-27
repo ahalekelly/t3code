@@ -1,5 +1,5 @@
 import { type ReactNode, useEffect, useMemo, useRef } from "react";
-import { Pressable, StyleSheet, View } from "react-native";
+import { type GestureResponderEvent, StyleSheet, View } from "react-native";
 import { parseMarkdownWithOptions } from "react-native-nitro-markdown/headless";
 
 import {
@@ -130,30 +130,49 @@ export function SelectableMarkdownText({
   );
 }
 
-/** One chunk per top-level block while reading, so the index matches the spoken block. */
+/**
+ * One chunk per top-level block while reading, so the index matches the spoken block.
+ * A tap reads from the block. It watches raw touches instead of claiming them, so
+ * links, text selection, and horizontal scrolling inside the block keep working.
+ */
 function SpeechBlock(props: {
   readonly index: number;
   readonly speech: MarkdownSpeechBlocks;
   readonly children: ReactNode;
 }) {
   const ref = useRef<View>(null);
+  const touch = useRef<{ x: number; y: number; time: number } | null>(null);
   const active = props.speech.activeBlock === props.index;
   const { revealBlock } = props.speech;
   useEffect(() => {
     if (active && ref.current) revealBlock(ref.current);
   }, [active, revealBlock]);
+  const onTouchEnd = (event: GestureResponderEvent) => {
+    const start = touch.current;
+    touch.current = null;
+    const { pageX, pageY, timestamp } = event.nativeEvent;
+    if (
+      start &&
+      timestamp - start.time < 300 &&
+      Math.hypot(pageX - start.x, pageY - start.y) < 10
+    ) {
+      props.speech.onPressBlock(props.index);
+    }
+  };
   return (
     <View
       ref={ref}
       style={[styles.speechBlock, active && { backgroundColor: props.speech.highlightColor }]}
+      onTouchStart={(event) => {
+        const { pageX, pageY, timestamp, touches } = event.nativeEvent;
+        touch.current = touches.length === 1 ? { x: pageX, y: pageY, time: timestamp } : null;
+      }}
+      onTouchEnd={onTouchEnd}
+      onTouchCancel={() => {
+        touch.current = null;
+      }}
     >
       {props.children}
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel="Read from here"
-        style={StyleSheet.absoluteFill}
-        onPress={() => props.speech.onPressBlock(props.index)}
-      />
     </View>
   );
 }

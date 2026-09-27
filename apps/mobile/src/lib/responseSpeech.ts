@@ -4,7 +4,7 @@ import { useSyncExternalStore } from "react";
 
 import { autoReadResponse, type SpokenResponse } from "./autoReadResponse";
 import { speechBlocks, unsentSpeechBlocks } from "./markdownSpeechText";
-import { nativeSpeech } from "./nativeSpeech";
+import { nativeSpeech, type SpeechCue } from "./nativeSpeech";
 import { SPEECH_MODELS, type SpeechRequest } from "./speechModels";
 
 /** `block` indexes the response's top-level Markdown blocks; null until audio starts. */
@@ -15,6 +15,7 @@ export type SpeechSnapshot = {
 };
 
 type Reading = {
+  readonly id: string;
   readonly response: SpokenResponse;
   markdown: string;
   streaming: boolean;
@@ -25,6 +26,7 @@ type Reading = {
 let snapshot: SpeechSnapshot | null = null;
 let reading: Reading | null = null;
 let listening = false;
+let readings = 0;
 const listeners = new Set<() => void>();
 
 function setSnapshot(next: SpeechSnapshot | null) {
@@ -39,8 +41,8 @@ function isResponse(a: SpokenResponse, b: SpokenResponse) {
 function listen() {
   if (listening) return;
   listening = true;
-  nativeSpeech().addListener("onSpeechState", (state) => {
-    if (snapshot) setSnapshot({ ...snapshot, ...state });
+  nativeSpeech().addListener("onSpeechState", ({ reading: id, block, paused }) => {
+    if (snapshot && reading?.id === id) setSnapshot({ ...snapshot, block, paused });
   });
 }
 
@@ -50,10 +52,10 @@ function blocksOf(markdown: string) {
 
 /** Sends the blocks that are ready, and ends the input once the text is final. */
 function flush(current: Reading) {
-  const blocks = unsentSpeechBlocks(current.sent, blocksOf(current.markdown), current.streaming);
-  if (blocks.length > 0) {
-    current.sent = [...current.sent, ...blocks];
-    void nativeSpeech().append(blocks);
+  const unsent = unsentSpeechBlocks(current.sent, blocksOf(current.markdown), current.streaming);
+  if (unsent) {
+    current.sent = [...current.sent.slice(0, unsent.from), ...unsent.blocks];
+    void nativeSpeech().append(unsent.blocks, unsent.from);
   }
   if (!current.streaming) void nativeSpeech().finish();
 }
@@ -74,7 +76,7 @@ function confirmDownload(model: keyof typeof SPEECH_MODELS) {
   });
 }
 
-export function playCue(cue: "sent" | "attention" | "error") {
+export function playCue(cue: SpeechCue) {
   void nativeSpeech()
     .playCue(cue)
     .catch((error: unknown) => console.error("Failed to play a cue", error));
@@ -83,8 +85,7 @@ export function playCue(cue: "sent" | "attention" | "error") {
 /** Plays a tone and speaks the message in the system voice, which needs no network. */
 export function announce(text: string, cue: "attention" | "error") {
   void nativeSpeech()
-    .playCue(cue)
-    .then(() => nativeSpeech().announce(text))
+    .announce(text, cue)
     .catch((error: unknown) => console.error("Failed to announce", error));
 }
 
@@ -116,7 +117,16 @@ export const responseSpeech = {
     title: string,
   ) {
     listen();
-    const current: Reading = { response, markdown, streaming, started: false, sent: [] };
+    const current: Reading = {
+      id: String(++readings),
+      response,
+      markdown,
+      streaming,
+      started: false,
+      sent: [],
+    };
+    // The previous reading stops now, not once the next one's voice is ready.
+    if (reading) void nativeSpeech().stop();
     reading = current;
     setSnapshot({ response, block: null, paused: false });
     const finish = () => {
@@ -139,7 +149,7 @@ export const responseSpeech = {
           return;
         }
       }
-      const done = nativeSpeech().start(options);
+      const done = nativeSpeech().start(options, current.id);
       current.started = true;
       flush(current);
       const completed = await done;
