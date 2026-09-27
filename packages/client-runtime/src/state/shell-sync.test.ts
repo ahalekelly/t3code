@@ -332,6 +332,79 @@ describe("environment shell synchronization", () => {
     }),
   );
 
+  it.effect("loads the HTTP snapshot while the socket opens and ignores superseded loads", () =>
+    Effect.gen(function* () {
+      const loadStarts = yield* Queue.unbounded<PreparedConnection>();
+      const loadResults = yield* Queue.unbounded<OrchestrationV2ShellSnapshot>();
+      const interruptedLoads = yield* Queue.unbounded<PreparedConnection>();
+      const subscribeInputs = yield* Queue.unbounded<{ readonly afterSequence?: number }>();
+      const client = {
+        [ORCHESTRATION_V2_WS_METHODS.subscribeShell]: (input: {
+          readonly afterSequence?: number;
+        }) => Stream.unwrap(Queue.offer(subscribeInputs, input).pipe(Effect.as(Stream.never))),
+      } as unknown as WsRpcProtocolClient;
+      const activeSession = yield* SubscriptionRef.make<Option.Option<RpcSession.RpcSession>>(
+        Option.none(),
+      );
+      const prepared = yield* SubscriptionRef.make<Option.Option<PreparedConnection>>(
+        Option.none(),
+      );
+      const supervisor = EnvironmentSupervisor.EnvironmentSupervisor.of({
+        target: TARGET,
+        state: yield* SubscriptionRef.make(AVAILABLE_CONNECTION_STATE),
+        session: activeSession,
+        prepared,
+        connect: Effect.void,
+        disconnect: Effect.void,
+        retryNow: Effect.void,
+      } satisfies EnvironmentSupervisor.EnvironmentSupervisor["Service"]);
+      const cache = Persistence.EnvironmentCacheStore.of({
+        loadShell: () => Effect.succeedSome(LIVE_SHELL_SNAPSHOT),
+        saveShell: () => Effect.void,
+        loadThread: () => Effect.succeedNone,
+        saveThread: () => Effect.void,
+        removeThread: () => Effect.void,
+        loadServerConfig: () => Effect.succeedNone,
+        saveServerConfig: () => Effect.void,
+        loadVcsRefs: () => Effect.succeedNone,
+        saveVcsRefs: () => Effect.void,
+        removeVcsRefs: () => Effect.void,
+        clearVcsRefs: () => Effect.void,
+        clear: () => Effect.void,
+      });
+      const snapshotLoader = ShellSnapshotLoader.ShellSnapshotLoader.of({
+        load: (connection) =>
+          Queue.offer(loadStarts, connection).pipe(
+            Effect.andThen(Queue.take(loadResults)),
+            Effect.map(Option.some),
+            Effect.onInterrupt(() => Queue.offer(interruptedLoads, connection)),
+          ),
+      });
+      yield* makeEnvironmentShellState().pipe(
+        Effect.provideService(EnvironmentSupervisor.EnvironmentSupervisor, supervisor),
+        Effect.provideService(Persistence.EnvironmentCacheStore, cache),
+        Effect.provideService(ShellSnapshotLoader.ShellSnapshotLoader, snapshotLoader),
+      );
+
+      // Each prepared connection starts a load before any session exists, and
+      // a newer one interrupts the load for the connection it supersedes.
+      const superseded = { ...PREPARED };
+      yield* SubscriptionRef.set(prepared, Option.some(superseded));
+      expect(yield* Queue.take(loadStarts)).toBe(superseded);
+      yield* SubscriptionRef.set(prepared, Option.some(PREPARED));
+      expect(yield* Queue.take(interruptedLoads)).toBe(superseded);
+      expect(yield* Queue.take(loadStarts)).toBe(PREPARED);
+
+      // The supervisor republishes the same connection once it is connected.
+      yield* SubscriptionRef.set(prepared, Option.some(PREPARED));
+      yield* Queue.offer(loadResults, { ...LIVE_SHELL_SNAPSHOT, snapshotSequence: 20 });
+      yield* SubscriptionRef.set(activeSession, Option.some(session(client)));
+      expect((yield* Queue.take(subscribeInputs)).afterSequence).toBe(20);
+      expect(yield* Queue.size(loadStarts)).toBe(0);
+      expect(yield* Queue.size(interruptedLoads)).toBe(0);
+    }),
+  );
+
   it.effect("resubscribes from the in-memory shell cursor when the app becomes active", () =>
     Effect.gen(function* () {
       const events = yield* Queue.unbounded<OrchestrationV2ShellStreamItem>();
