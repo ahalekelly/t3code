@@ -30,7 +30,7 @@ function deferred<T>() {
 }
 
 async function transcribe(signal: AbortSignal) {
-  const transcriber = createOpenAiVoiceTranscriber({ apiKey: "sk-test", model: "whisper-1" });
+  const transcriber = createOpenAiVoiceTranscriber("sk-test");
   const prepared = await transcriber.prepare({ signal });
   return prepared.transcribe("file:///voice.m4a", { signal });
 }
@@ -48,7 +48,7 @@ afterEach(() => {
 });
 
 describe("createOpenAiVoiceTranscriber", () => {
-  it("uploads the recording with the key, chosen model, and device language", async () => {
+  it("uploads the recording with the key, GPT Transcribe, and device language", async () => {
     mocks.upload.mockResolvedValue(response(200, { text: "Hej världen." }));
 
     await expect(transcribe(new AbortController().signal)).resolves.toBe("Hej världen.");
@@ -60,7 +60,7 @@ describe("createOpenAiVoiceTranscriber", () => {
         fieldName: "file",
         mimeType: "audio/mp4",
         headers: { Authorization: "Bearer sk-test" },
-        parameters: { model: "whisper-1", language: "sv", response_format: "json" },
+        parameters: { model: "gpt-transcribe", language: "sv", response_format: "json" },
       }),
     );
   });
