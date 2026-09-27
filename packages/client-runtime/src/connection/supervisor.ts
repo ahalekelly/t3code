@@ -92,7 +92,7 @@ type ConnectedEvent =
   | { readonly _tag: "Closed"; readonly error: ConnectionAttemptError }
   | { readonly _tag: "ProbeDone"; readonly exit: Exit.Exit<void, ConnectionAttemptError> }
   | { readonly _tag: "FreshDone"; readonly exit: Exit.Exit<ActiveLease, TracedAttemptFailure> }
-  | { readonly _tag: "Signal"; readonly signal: SupervisorSignal };
+  | { readonly _tag: "SignalReady" };
 
 export interface EnvironmentSupervisorOptions {
   readonly initiallyDesired?: boolean;
@@ -210,6 +210,7 @@ export const make = Effect.fn("EnvironmentSupervisor.make")(function* (
   const connectivity = yield* Connectivity.Connectivity;
   const driver = yield* ConnectionDriver.ConnectionDriver;
   const wakeups = yield* ConnectionWakeups.ConnectionWakeups;
+  const supervisorScope = yield* Effect.scope;
   const initialIntent: SupervisorIntent = {
     desired: options?.initiallyDesired ?? false,
     network: yield* connectivity.status,
@@ -342,9 +343,10 @@ export const make = Effect.fn("EnvironmentSupervisor.make")(function* (
     }).pipe(withRelayClientTracing);
   };
 
-  // Establishes a lease in its own scope. The scope closes with the attempt on
-  // failure, interruption, or setup timeout, and otherwise belongs to the
-  // returned lease.
+  // Establishes a lease in its own scope, forked from the supervisor's so a
+  // lease that is open but not yet adopted still closes with the supervisor.
+  // The scope closes with the attempt on failure, interruption, or setup
+  // timeout, and otherwise belongs to the returned lease.
   const openLease = Effect.fnUntraced(function* (
     attempt: number,
     generation: number,
@@ -363,7 +365,7 @@ export const make = Effect.fn("EnvironmentSupervisor.make")(function* (
               attemptSpan: Option.none(),
             })),
           );
-    const scope = yield* Scope.make();
+    const scope = yield* Scope.fork(supervisorScope);
     const established = yield* traced.pipe(
       Scope.provide(scope),
       Effect.timeoutOrElse({
@@ -434,7 +436,7 @@ export const make = Effect.fn("EnvironmentSupervisor.make")(function* (
     // Set once the active session is dead; from then on the fresh lease's
     // progress is the visible connection state.
     let deadSessionError = Option.none<ConnectionAttemptError>();
-    const connectedAt = yield* Clock.currentTimeMillis;
+    let connectedAt = yield* Clock.currentTimeMillis;
 
     const startProbe = (timeout: Duration.Input) =>
       active.lease.session.probe.pipe(
@@ -516,8 +518,11 @@ export const make = Effect.fn("EnvironmentSupervisor.make")(function* (
     yield* adoptLease(active, attempt, generation);
     return yield* Effect.gen(function* () {
       for (;;) {
+        // Peek rather than take: a signal that arrives in the same tick another
+        // branch settles stays queued for the next iteration instead of being
+        // consumed by a losing branch.
         const branches: Array<Effect.Effect<ConnectedEvent>> = [
-          Queue.take(signals).pipe(Effect.map((signal) => ({ _tag: "Signal", signal }))),
+          Queue.peek(signals).pipe(Effect.as({ _tag: "SignalReady" })),
         ];
         if (alive) {
           branches.push(
@@ -561,6 +566,7 @@ export const make = Effect.fn("EnvironmentSupervisor.make")(function* (
               fresh = Option.none();
             }
             freshFailure = Option.none();
+            resetRetry = false;
             break;
           }
           case "FreshDone": {
@@ -584,23 +590,25 @@ export const make = Effect.fn("EnvironmentSupervisor.make")(function* (
             generation += 1;
             resetRetry = true;
             freshFailure = Option.none();
+            connectedAt = yield* Clock.currentTimeMillis;
             yield* adoptLease(active, attempt, generation);
             break;
           }
-          case "Signal":
-            switch (event.signal._tag) {
+          case "SignalReady": {
+            const signal = yield* Queue.take(signals);
+            switch (signal._tag) {
               case "DisconnectRequested":
               case "RetryRequested":
                 return yield* finish({ _tag: "Interrupted" });
               case "NetworkChanged":
-                if (event.signal.network === "offline") {
+                if (signal.network === "offline") {
                   return yield* finish({ _tag: "Interrupted" });
                 }
                 break;
               case "ConnectRequested":
                 break;
               case "Wakeup": {
-                const reason = event.signal.reason;
+                const reason = signal.reason;
                 if (reason === "credentials-changed") {
                   if (target._tag === "RelayConnectionTarget") {
                     yield* logManagedRelayAccountChange;
@@ -629,6 +637,7 @@ export const make = Effect.fn("EnvironmentSupervisor.make")(function* (
               }
             }
             break;
+          }
         }
       }
     }).pipe(

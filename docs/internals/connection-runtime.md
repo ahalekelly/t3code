@@ -18,8 +18,10 @@ Foregrounding needs different treatment depending on the connection's state.
 It wakes a retry immediately, leaves an ordinary in-flight attempt alone, and
 probes an established session before replacing it. After a long mobile
 background suspension the OS may have killed the socket without reporting
-closure, so the probe races a fresh lease: whichever settles first is kept and
-the other is dropped, and the phase stays connected until the probe fails.
+closure, so the probe races a fresh lease. A probe answer keeps the session and
+drops the fresh lease; a fresh lease that opens first replaces the session; a
+probe failure or session close hands over to the fresh lease if it is still
+opening. The phase stays connected until the old session is shown dead.
 Treating every resume as a reconnect discards healthy sockets and pays a full
 setup; probing alone leaves a dead socket stuck for the probe timeout.
 
