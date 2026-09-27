@@ -8,7 +8,14 @@ export type NativeSpeechOptions = SpeechOptions & {
   readonly title: string;
 };
 
-export type NativeSpeechState = { readonly block: number | null; readonly paused: boolean };
+/** `reading` is the id passed to `start`. */
+export type NativeSpeechState = {
+  readonly reading: string;
+  readonly block: number | null;
+  readonly paused: boolean;
+};
+
+export type SpeechCue = "sent" | "attention" | "error";
 
 declare class SpeechModule extends NativeModule<{
   onSpeechState(state: NativeSpeechState): void;
@@ -16,8 +23,9 @@ declare class SpeechModule extends NativeModule<{
   isVoiceDownloaded(options: NativeSpeechOptions): boolean;
   downloadedBytes(model: SpeechModel): number;
   /** Resolves `true` when the reading played to the end, `false` when stopped. */
-  start(options: NativeSpeechOptions): Promise<boolean>;
-  append(blocks: readonly string[]): Promise<void>;
+  start(options: NativeSpeechOptions, reading: string): Promise<boolean>;
+  /** Replaces the blocks from index `from`. */
+  append(blocks: readonly string[], from: number): Promise<void>;
   finish(): Promise<void>;
   rewind(): Promise<void>;
   nextBlock(): Promise<void>;
@@ -27,8 +35,9 @@ declare class SpeechModule extends NativeModule<{
   setPace(pace: number): Promise<void>;
   stop(): Promise<void>;
   deleteVoice(model: SpeechModel): Promise<void>;
-  playCue(cue: "sent" | "attention" | "error"): Promise<void>;
-  announce(text: string): Promise<void>;
+  playCue(cue: SpeechCue): Promise<void>;
+  /** Plays the cue, then speaks the text in the system voice. */
+  announce(text: string, cue: SpeechCue): Promise<void>;
 }
 
 // Resolve on use: other platforms can import thread and voice-input controls.

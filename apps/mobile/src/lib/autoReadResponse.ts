@@ -39,6 +39,7 @@ export const autoReadResponse = {
     const request = pending.get(scope);
     if (!request || request.spoken.has(requestId)) return false;
     pending.set(scope, { ...request, spoken: new Set([...request.spoken, requestId]) });
+    for (const listener of listeners) listener();
     return true;
   },
   /** The next reply to read; a streaming reply is read live as it grows. */

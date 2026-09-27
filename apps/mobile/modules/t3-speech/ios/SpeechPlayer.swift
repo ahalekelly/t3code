@@ -14,18 +14,19 @@ struct SpeechState: Sendable {
 @MainActor
 final class SpeechPlayer {
   static let shared = SpeechPlayer()
-  var onState: (SpeechState) -> Void = { _ in }
   private var current: (id: UUID, session: SpeechSession, task: Task<Bool, Error>, model: SpeechModel)?
   var isReading: Bool { current != nil }
 
   /// Resolves `true` when the reading played to the end, `false` when it was stopped.
-  func start(_ settings: SpeechSettings) -> Task<Bool, Error> {
+  func start(_ settings: SpeechSettings, onState: @escaping @MainActor (SpeechState) -> Void) -> Task<Bool, Error> {
     let previous = current
     previous?.session.cancel()
     let id = UUID()
     let session = SpeechSession(settings: settings) { [weak self] state in
       Task { @MainActor in
-        if let self, self.current?.id == id { self.publish(state) }
+        guard let self, self.current?.id == id else { return }
+        RemoteControls.update(paused: state.paused)
+        onState(state)
       }
     }
     previous?.task.cancel()
@@ -45,7 +46,7 @@ final class SpeechPlayer {
     return task
   }
 
-  func append(_ blocks: [String]) { current?.session.append(blocks) }
+  func append(_ blocks: [String], from index: Int) { current?.session.append(blocks, from: index) }
   func finish() { current?.session.finish() }
   func rewind() { current?.session.rewind() }
   func nextBlock() { current?.session.nextBlock() }
@@ -69,11 +70,6 @@ final class SpeechPlayer {
     case .supertonic: try SupertonicVoice.delete()
     case .openai: throw SpeechError("OpenAI voices have no downloaded files.")
     }
-  }
-
-  private func publish(_ state: SpeechState) {
-    RemoteControls.update(paused: state.paused)
-    onState(state)
   }
 }
 
@@ -123,11 +119,14 @@ private enum ResumePoint {
 
 /// Generates queued blocks through a bounded playback queue. Every generated sample
 /// goes to a temporary PCM file, so rewinding and seeking to earlier blocks replay
-/// audio instead of regenerating it. All state is guarded by `condition`.
+/// audio instead of regenerating it. All state is guarded by `condition`; every
+/// state change calls `signal()`, which wakes both async and blocking waiters.
 private final class SpeechSession: @unchecked Sendable {
   private let settings: SpeechSettings
   private let onState: @Sendable (SpeechState) -> Void
   private let condition = NSCondition()
+  private var changes = 0
+  private var waiters: [CheckedContinuation<Void, Never>] = []
   private let audioEngine = AVAudioEngine()
   private let player = AVAudioPlayerNode()
   private let timePitch = AVAudioUnitTimePitch()
@@ -145,8 +144,10 @@ private final class SpeechSession: @unchecked Sendable {
   /// Bumped when generation jumps to another block; audio from an older generation is dropped.
   private var generation = 0
   private var generationIdle = false
-  /// Blocks from `contiguousFrom` up to the one being generated play back to back in the cache.
+  /// Blocks from `contiguousFrom` up to the one being generated play back to back in
+  /// the cache, starting at `runStart`.
   private var contiguousFrom = 0
+  private var runStart: Int64 = 0
   /// Where each generated block starts in the cache, in cache order.
   private var marks: [(frame: Int64, block: Int)] = []
 
@@ -187,12 +188,12 @@ private final class SpeechSession: @unchecked Sendable {
     }
     guard opened else { return false }
     return try await withTaskCancellationHandler {
-      while let (index, text, generation) = takeBlock() {
+      while let (index, text, generation) = await takeBlock() {
         markStart(of: index, generation: generation)
         for segment in speechSegments(text, maxLength: synthesizer.segmentLength) {
           guard isCurrent(generation) else { break }
           do {
-            try await synthesizer.generate(segment) { self.append($0, generation: generation) }
+            try await synthesizer.generate(segment, into: self, generation: generation)
           } catch {
             if isCurrent(generation) { throw error }
           }
@@ -207,38 +208,59 @@ private final class SpeechSession: @unchecked Sendable {
 
   // MARK: Input
 
-  func append(_ texts: [String]) {
+  /// Replaces the blocks from `index`. A changed block that was already generated is
+  /// read again from its start.
+  func append(_ texts: [String], from index: Int) {
     condition.withLock {
-      blocks += texts
+      blocks = Array(blocks.prefix(index)) + texts
       generationIdle = false
-      condition.broadcast()
+      if index < nextIndex { regenerateLocked(from: index) }
+      signal()
     }
   }
 
   func finish() {
     condition.withLock {
       inputFinished = true
-      condition.broadcast()
+      signal()
+    }
+  }
+
+  // Called with the condition locked.
+  private func signal() {
+    changes += 1
+    for waiter in waiters { waiter.resume() }
+    waiters = []
+    condition.broadcast()
+  }
+
+  /// Returns once `signal()` has run since the caller read `changes`.
+  private func changed(since seen: Int) async {
+    await withCheckedContinuation { continuation in
+      condition.withLock {
+        if changes == seen { waiters.append(continuation) } else { continuation.resume() }
+      }
     }
   }
 
   /// Waits for the next block to generate. Returns nil once playback has ended.
-  private func takeBlock() -> (Int, String, Int)? {
-    condition.lock()
-    defer { condition.unlock() }
+  private func takeBlock() async -> (Int, String, Int)? {
     while true {
-      if cancelled || ended { return nil }
-      if nextIndex < blocks.count {
-        let index = nextIndex
-        nextIndex += 1
-        return (index, blocks[index], generation)
+      let (next, seen): ((Int, String, Int)??, Int) = condition.withLock {
+        if cancelled || ended { return (.some(nil), changes) }
+        if nextIndex < blocks.count {
+          nextIndex += 1
+          return (.some((nextIndex - 1, blocks[nextIndex - 1], generation)), changes)
+        }
+        if inputFinished && !generationIdle {
+          generationIdle = true
+          endIfDrained()
+          if ended { return (.some(nil), changes) }
+        }
+        return (nil, changes)
       }
-      if inputFinished && !generationIdle {
-        generationIdle = true
-        endIfDrained()
-        continue
-      }
-      condition.wait()
+      if let next { return next }
+      await changed(since: seen)
     }
   }
 
@@ -253,17 +275,31 @@ private final class SpeechSession: @unchecked Sendable {
     }
   }
 
-  /// Returns false when generation should stop: the session ended or jumped to another block.
-  private func append(_ data: Data, generation: Int) -> Bool {
-    guard !data.isEmpty else { return true }
-    condition.lock()
-    defer { condition.unlock() }
-    // Let synthesis wait while playback catches up, including after a rewind or pause.
-    while !cancelled && generation == self.generation && writtenFrames - completedFrames >= lookaheadFrames {
-      condition.wait()
+  /// Returns false when generation should stop: the session ended or jumped to another
+  /// block. Waits while playback catches up, including after a rewind or pause.
+  func append(_ data: Data, generation: Int) async -> Bool {
+    while true {
+      let (written, seen) = condition.withLock { (write(data, generation: generation), changes) }
+      if let written { return written }
+      await changed(since: seen)
     }
-    guard !cancelled, generation == self.generation else { return false }
-    guard let cache else { return false }
+  }
+
+  /// `append` for synthesizers that deliver audio on their own thread.
+  func appendBlocking(_ data: Data, generation: Int) -> Bool {
+    condition.withLock {
+      while true {
+        if let written = write(data, generation: generation) { return written }
+        condition.wait()
+      }
+    }
+  }
+
+  /// Called with the condition locked; returns nil while the lookahead is full.
+  private func write(_ data: Data, generation: Int) -> Bool? {
+    guard !cancelled, generation == self.generation, let cache else { return false }
+    guard !data.isEmpty else { return true }
+    guard writtenFrames - completedFrames < lookaheadFrames else { return nil }
     do {
       try cache.seek(toOffset: UInt64(writtenFrames) * 4)
       try cache.write(contentsOf: data)
@@ -281,7 +317,7 @@ private final class SpeechSession: @unchecked Sendable {
   func rewind() {
     condition.withLock {
       guard let format, !cancelled, !ended else { return }
-      let target = max(0, (paused ? resumeFrame : position()) - Int64(format.sampleRate * 10))
+      let target = max(runStart, (paused ? resumeFrame : position()) - Int64(format.sampleRate * 10))
       if paused { resumeFrame = target } else { seekLocked(to: target) }
       publishBlock(at: target)
     }
@@ -297,18 +333,25 @@ private final class SpeechSession: @unchecked Sendable {
       guard format != nil, !cancelled, !ended, block >= 0 else { return }
       if block >= contiguousFrom, block < nextIndex, let start = marks.last(where: { $0.block == block })?.frame {
         if paused { resumeFrame = start } else { seekLocked(to: start) }
+        publishedBlock = block
+        onState(SpeechState(block: block, paused: paused))
       } else {
-        // Regenerate from this block and drop the audio queued after the playhead.
-        generation += 1
-        nextIndex = block
-        contiguousFrom = block
-        generationIdle = false
-        if paused { resumeFrame = writtenFrames } else { seekLocked(to: writtenFrames) }
-        condition.broadcast()
+        regenerateLocked(from: block)
       }
-      publishedBlock = block
-      onState(SpeechState(block: block, paused: paused))
     }
+  }
+
+  /// Generates again from this block and drops the audio queued after the playhead.
+  private func regenerateLocked(from block: Int) {
+    generation += 1
+    nextIndex = block
+    contiguousFrom = block
+    runStart = writtenFrames
+    generationIdle = false
+    if paused { resumeFrame = writtenFrames } else { seekLocked(to: writtenFrames) }
+    publishedBlock = block
+    onState(SpeechState(block: block, paused: paused))
+    signal()
   }
 
   func pause(resumeFrom point: ResumePoint) {
@@ -355,7 +398,7 @@ private final class SpeechSession: @unchecked Sendable {
     let position = position()
     switch point {
     case .position: resumeFrame = position
-    case .rewound: resumeFrame = max(0, position - Int64(format.sampleRate * 2))
+    case .rewound: resumeFrame = max(runStart, position - Int64(format.sampleRate * 2))
     case .blockStart: resumeFrame = marks.last(where: { $0.frame <= position })?.frame ?? 0
     }
     paused = true
@@ -367,7 +410,7 @@ private final class SpeechSession: @unchecked Sendable {
     timelineStart = position
     audioEngine.pause()
     onState(SpeechState(block: publishedBlock, paused: true))
-    condition.broadcast()
+    signal()
   }
 
   private func resumeLocked() {
@@ -472,7 +515,7 @@ private final class SpeechSession: @unchecked Sendable {
       endIfDrained()
     }
     publishBlock(at: position())
-    condition.broadcast()
+    signal()
   }
 
   private func seekLocked(to target: Int64) {
@@ -484,13 +527,13 @@ private final class SpeechSession: @unchecked Sendable {
     timelineStart = scheduledFrames
     do { try scheduleBuffers() }
     catch { fail(error) }
-    condition.broadcast()
+    signal()
   }
 
   private func endIfDrained() {
     guard !paused, generationIdle, pendingBuffers == 0, scheduledFrames == writtenFrames else { return }
     ended = true
-    condition.broadcast()
+    signal()
   }
 
   private func position() -> Int64 {
@@ -521,7 +564,7 @@ private final class SpeechSession: @unchecked Sendable {
     cancelled = true
     synthesizer?.cancel()
     player.stop()
-    condition.broadcast()
+    signal()
   }
 
   func cancel() {
@@ -626,16 +669,16 @@ private enum SpeechSynthesizer: @unchecked Sendable {
     }
   }
 
-  /// Delivers Float32 mono samples to `append` until it returns false.
-  func generate(_ text: String, append: @escaping @Sendable (Data) -> Bool) async throws {
+  /// Appends Float32 mono samples to the session until it stops accepting them.
+  func generate(_ text: String, into session: SpeechSession, generation: Int) async throws {
     switch self {
     case .openai(let voice):
-      try await voice.generate(text, append: append)
+      try await voice.generate(text) { await session.append($0, generation: generation) }
     case .pocket(let engine):
-      try engine.startTrueStreaming(text: text, handler: PocketChunks(append))
+      try engine.startTrueStreaming(text: text, handler: PocketChunks { session.appendBlocking($0, generation: generation) })
     case .supertonic(let voice, _):
       let samples = try await voice.synthesize(text)
-      _ = samples.withUnsafeBytes { append(Data($0)) }
+      _ = await session.append(samples.withUnsafeBytes { Data($0) }, generation: generation)
     }
   }
 

@@ -7,12 +7,6 @@ public class T3SpeechModule: Module {
 
     Events("onSpeechState")
 
-    OnCreate {
-      SpeechPlayer.shared.onState = { [weak self] state in
-        self?.sendEvent("onSpeechState", ["block": state.block.map { $0 as Any } ?? NSNull(), "paused": state.paused])
-      }
-    }
-
     Function("isVoiceDownloaded") { (options: SpeechOptionsRecord) in
       try options.validated().isDownloaded
     }
@@ -26,10 +20,17 @@ public class T3SpeechModule: Module {
     }
 
     // Every call runs on the main queue in call order, so blocks appended right
-    // after `start` reach the session it created.
-    AsyncFunction("start") { (options: SpeechOptionsRecord, promise: Promise) in
+    // after `start` reach the session it created. Events carry the caller's
+    // `reading` id, so a late event from a replaced reading can be told apart.
+    AsyncFunction("start") { (options: SpeechOptionsRecord, reading: String, promise: Promise) in
       let settings = try options.validated()
-      let task = MainActor.assumeIsolated { SpeechPlayer.shared.start(settings) }
+      let task = MainActor.assumeIsolated {
+        SpeechPlayer.shared.start(settings) { [weak self] state in
+          self?.sendEvent("onSpeechState", [
+            "reading": reading, "block": state.block.map { $0 as Any } ?? NSNull(), "paused": state.paused,
+          ])
+        }
+      }
       Task {
         do { promise.resolve(try await task.value) }
         catch is CancellationError { promise.resolve(false) }
@@ -37,8 +38,8 @@ public class T3SpeechModule: Module {
       }
     }.runOnQueue(.main)
 
-    AsyncFunction("append") { (blocks: [String]) in
-      MainActor.assumeIsolated { SpeechPlayer.shared.append(blocks) }
+    AsyncFunction("append") { (blocks: [String], from: Int) in
+      MainActor.assumeIsolated { SpeechPlayer.shared.append(blocks, from: from) }
     }.runOnQueue(.main)
 
     AsyncFunction("finish") {
@@ -87,8 +88,9 @@ public class T3SpeechModule: Module {
       try MainActor.assumeIsolated { try SpeechCues.shared.play(cue) }
     }.runOnQueue(.main)
 
-    AsyncFunction("announce") { (text: String) in
-      try MainActor.assumeIsolated { try SpeechCues.shared.announce(text) }
+    AsyncFunction("announce") { (text: String, cue: String) in
+      guard let cue = SpeechCue(rawValue: cue) else { throw SpeechError("Unknown cue: \(cue)") }
+      try MainActor.assumeIsolated { try SpeechCues.shared.announce(text, after: cue) }
     }.runOnQueue(.main)
   }
 }

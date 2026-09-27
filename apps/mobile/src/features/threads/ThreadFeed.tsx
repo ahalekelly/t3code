@@ -788,7 +788,8 @@ interface MarkdownLinkHandlers {
 
 const AssistantMarkdownContent = memo(function AssistantMarkdownContent(props: {
   /** Set for messages that can be read aloud, so reading can highlight and seek blocks. */
-  readonly spoken?: { readonly scope: string; readonly messageId: string };
+  readonly speechScope?: string | undefined;
+  readonly speechMessageId?: string | undefined;
   readonly markdown: string;
   readonly markdownStyles: MarkdownStyleSet;
   readonly linkHandlers: MarkdownLinkHandlers;
@@ -800,7 +801,7 @@ const AssistantMarkdownContent = memo(function AssistantMarkdownContent(props: {
     () => splitCodexArtifactTemplateMarkdown(props.markdown),
     [props.markdown],
   );
-  const spokenBlock = useSpokenBlock(props.spoken?.scope ?? "", props.spoken?.messageId ?? "");
+  const spokenBlock = useSpokenBlock(props.speechScope ?? "", props.speechMessageId ?? "");
   const revealBlock = useContext(RevealSpokenBlockContext);
   const highlightColor = themeColorWithAlpha(useUniwindTheme()["--color-focus"], 0.14);
   // Artifact templates split the message, so their block indices would not match the reading.
@@ -1726,14 +1727,12 @@ function renderFeedEntry(
         {renderedText.trim().length > 0 ? (
           <MarkdownImageAvailableWidthContext value={props.markdownContentWidth}>
             <AssistantMarkdownContent
-              spoken={
+              speechScope={
                 Platform.OS === "ios"
-                  ? {
-                      scope: scopedThreadKey(props.environmentId, props.threadId),
-                      messageId: message.id,
-                    }
+                  ? scopedThreadKey(props.environmentId, props.threadId)
                   : undefined
               }
+              speechMessageId={message.id}
               markdown={renderedText}
               markdownStyles={styles}
               linkHandlers={props.markdownLinkHandlers}

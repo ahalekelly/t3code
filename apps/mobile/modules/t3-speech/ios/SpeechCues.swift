@@ -10,6 +10,9 @@ enum SpeechCue: String {
     case .error: return [440, 294]
     }
   }
+
+  static let noteDuration = 0.11
+  var duration: Double { Double(notes.count) * Self.noteDuration }
 }
 
 /// Tones and system-voice messages for hands-free use. They need no network or
@@ -33,9 +36,11 @@ final class SpeechCues: NSObject, AVAudioPlayerDelegate, AVSpeechSynthesizerDele
     player.play()
   }
 
-  func announce(_ text: String) throws {
-    try activate()
-    synthesizer.speak(AVSpeechUtterance(string: text))
+  func announce(_ text: String, after cue: SpeechCue) throws {
+    try play(cue)
+    let utterance = AVSpeechUtterance(string: text)
+    utterance.preUtteranceDelay = cue.duration
+    synthesizer.speak(utterance)
   }
 
   private func activate() throws {
@@ -60,7 +65,7 @@ final class SpeechCues: NSObject, AVAudioPlayerDelegate, AVSpeechSynthesizerDele
   /// Short sine notes with a fade, as 16-bit mono WAV.
   private static func tones(_ notes: [Double]) -> Data {
     let rate = 44_100.0
-    let noteFrames = Int(rate * 0.11)
+    let noteFrames = Int(rate * SpeechCue.noteDuration)
     var samples: [Int16] = []
     for frequency in notes {
       for frame in 0..<noteFrames {

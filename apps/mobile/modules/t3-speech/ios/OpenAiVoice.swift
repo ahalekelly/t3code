@@ -13,7 +13,7 @@ struct OpenAiVoice: Sendable {
   let instructions: String
 
   /// A dropped connection retries the whole segment, so part of it may repeat.
-  func generate(_ text: String, append: @escaping @Sendable (Data) -> Bool) async throws {
+  func generate(_ text: String, append: @escaping @Sendable (Data) async -> Bool) async throws {
     for (attempt, delay) in ([Duration.zero] + Self.retryDelays).enumerated() {
       try await Task.sleep(for: delay)
       do {
@@ -25,7 +25,7 @@ struct OpenAiVoice: Sendable {
     }
   }
 
-  private func stream(_ text: String, append: @escaping @Sendable (Data) -> Bool) async throws {
+  private func stream(_ text: String, append: @escaping @Sendable (Data) async -> Bool) async throws {
     var request = URLRequest(url: URL(string: "https://api.openai.com/v1/audio/speech")!)
     request.httpMethod = "POST"
     request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
@@ -49,11 +49,11 @@ struct OpenAiVoice: Sendable {
     for try await byte in bytes {
       pcm.append(byte)
       if pcm.count >= piece {
-        guard append(Self.float32(pcm)) else { return }
+        guard await append(Self.float32(pcm)) else { return }
         pcm.removeAll(keepingCapacity: true)
       }
     }
-    _ = append(Self.float32(pcm.prefix(pcm.count & ~1)))
+    _ = await append(Self.float32(pcm.prefix(pcm.count & ~1)))
   }
 
   private static func float32(_ pcm: Data) -> Data {

@@ -2,6 +2,7 @@ import { useIsFocused } from "@react-navigation/native";
 import type { PendingApproval, PendingUserInput } from "@t3tools/client-runtime/pending-requests";
 import type { OrchestrationLatestTurn } from "@t3tools/contracts";
 import { renderAssistantCitationsAsText } from "@t3tools/shared/assistantCitations";
+import { truncate } from "@t3tools/shared/String";
 import { activateKeepAwakeAsync, deactivateKeepAwake } from "expo-keep-awake";
 import { useEffect, useSyncExternalStore } from "react";
 import { Platform } from "react-native";
@@ -12,10 +13,6 @@ import type { ThreadFeedEntry } from "../../lib/threadActivity";
 import { useVoiceSettings } from "../../state/voiceSettings";
 
 const KEEP_AWAKE_TAG = "voice-reply";
-
-function truncate(text: string, length: number) {
-  return text.length > length ? `${text.slice(0, length)}…` : text;
-}
 
 /**
  * Reads the replies to a voice auto-send while this thread is open, and announces

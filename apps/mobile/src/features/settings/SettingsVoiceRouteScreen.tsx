@@ -1,7 +1,7 @@
 import { useAtomSet, useAtomValue } from "@effect/atom-react";
 import { useNavigation } from "@react-navigation/native";
 import { AsyncResult } from "effect/unstable/reactivity";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Alert, Platform, Pressable, ScrollView, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -41,14 +41,19 @@ export function SettingsVoiceRouteScreen() {
   const [draft, setDraft] = useState<string | null>(null);
   const [instructionsDraft, setInstructionsDraft] = useState<string | null>(null);
   // Bumped after deleting a voice so the downloaded size is read again.
-  const [, setDeletions] = useState(0);
+  const [deletions, setDeletions] = useState(0);
 
   const voice = useVoiceSettings();
   const { preferences, speech } = voice;
   const selectedSource = voice.transcriptionSource;
   const model = SPEECH_MODELS[speech.model];
-  const downloadedBytes =
-    Platform.OS === "ios" && model.download ? nativeSpeech().downloadedBytes(speech.model) : 0;
+  const downloadedBytes = useMemo(
+    () =>
+      Platform.OS === "ios" && SPEECH_MODELS[speech.model].download
+        ? nativeSpeech().downloadedBytes(speech.model)
+        : 0,
+    [speech.model, deletions],
+  );
   const saveSpeech = (patch: Partial<SpeechSettings>) => {
     const { model, instructions: _instructions, apiKey: _apiKey, ...settings } = speech;
     savePreferences({
@@ -63,7 +68,8 @@ export function SettingsVoiceRouteScreen() {
     if (instructionsDraft === null) return;
     setInstructionsDraft(null);
     if (instructionsDraft !== speech.instructions) {
-      savePreferences({ responseSpeechInstructions: instructionsDraft.trim() });
+      // Clearing the field restores the default delivery.
+      savePreferences({ responseSpeechInstructions: instructionsDraft.trim() || undefined });
     }
   };
 

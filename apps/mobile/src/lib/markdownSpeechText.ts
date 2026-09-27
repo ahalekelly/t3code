@@ -44,16 +44,19 @@ export function speechBlocks(document: MarkdownNode): string[] {
 }
 
 /**
- * The blocks to send after `sent`. While a reply streams, its last block may still
- * grow, so only earlier blocks count, and nothing is sent while a reparse disagrees
- * with what was already sent. The final text sends whatever remains.
+ * The blocks to send, replacing `sent` from index `from`, or null when nothing changed.
+ * While a reply streams, its last block may still grow, so only earlier blocks count,
+ * and nothing is sent while a reparse disagrees with what was already sent. The final
+ * text replaces everything from the first block that changed.
  */
 export function unsentSpeechBlocks(
   sent: readonly string[],
   blocks: readonly string[],
   streaming: boolean,
-): string[] {
-  if (!streaming) return blocks.slice(sent.length);
-  const complete = blocks.slice(0, -1);
-  return sent.every((text, index) => complete[index] === text) ? complete.slice(sent.length) : [];
+): { from: number; blocks: string[] } | null {
+  const ready = streaming ? blocks.slice(0, -1) : blocks;
+  let from = 0;
+  while (from < sent.length && ready[from] === sent[from]) from++;
+  if (from < sent.length ? streaming : ready.length === from) return null;
+  return { from, blocks: ready.slice(from) };
 }
