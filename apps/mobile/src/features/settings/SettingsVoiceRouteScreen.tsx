@@ -122,8 +122,8 @@ export function SettingsVoiceRouteScreen() {
           </View>
         </SettingsSection>
         <Text className="px-2 text-sm leading-normal text-foreground-muted">
-          On-device transcription needs iOS 26 on a supported iPhone. The OpenAI sources upload each
-          recording with the API key above, which stays in this device's keychain. With a key,
+          On-device transcription needs iOS 26 on a supported iPhone. OpenAI transcription uploads
+          each recording with the API key above, which stays in this device's keychain. With a key,
           transcription defaults to OpenAI.
         </Text>
         {Platform.OS === "ios" ? (

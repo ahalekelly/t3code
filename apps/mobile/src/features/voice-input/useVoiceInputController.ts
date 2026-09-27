@@ -135,7 +135,7 @@ export function useVoiceInputController(input: {
         const { source, apiKey } = transcriptionConfigRef.current;
         if (source === "local") return getLocalVoiceTranscriber();
         if (apiKey === null) return MISSING_OPENAI_KEY_TRANSCRIBER;
-        return createOpenAiVoiceTranscriber({ apiKey, model: source });
+        return createOpenAiVoiceTranscriber(apiKey);
       },
       requestPermission: async () => {
         const permission = await requestRecordingPermissionsAsync();

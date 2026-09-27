@@ -7,24 +7,21 @@ import {
   type VoiceTranscriber,
   type VoiceTranscriptionOptions,
 } from "@t3tools/client-runtime/voice-input";
-import type { OpenAiTranscriptionModelId } from "../../lib/voiceTranscriptionSources";
 
 const OPENAI_TRANSCRIPTION_URL = "https://api.openai.com/v1/audio/transcriptions";
+const OPENAI_TRANSCRIPTION_MODEL = "gpt-transcribe";
 // The recorder writes MPEG-4 AAC, and the multipart filename comes from the file.
 const RECORDING_MIME_TYPE = "audio/mp4";
 
 /** Uploads the recording straight from the device; no T3 environment is involved. */
-export function createOpenAiVoiceTranscriber(config: {
-  readonly apiKey: string;
-  readonly model: OpenAiTranscriptionModelId;
-}): VoiceTranscriber {
+export function createOpenAiVoiceTranscriber(apiKey: string): VoiceTranscriber {
   return {
     prepare: async ({ signal }: VoiceTranscriptionOptions): Promise<PreparedVoiceTranscription> => {
       throwIfVoiceTranscriptionAborted(signal);
       const locale = Intl.DateTimeFormat().resolvedOptions().locale;
       return {
         locale,
-        transcribe: (uri, options) => transcribeWithOpenAi(uri, locale, config, options),
+        transcribe: (uri, options) => transcribeWithOpenAi(uri, locale, apiKey, options),
       };
     },
   };
@@ -33,11 +30,11 @@ export function createOpenAiVoiceTranscriber(config: {
 async function transcribeWithOpenAi(
   uri: string,
   locale: string,
-  config: { readonly apiKey: string; readonly model: OpenAiTranscriptionModelId },
+  apiKey: string,
   { signal }: VoiceTranscriptionOptions,
 ): Promise<string> {
   throwIfVoiceTranscriptionAborted(signal);
-  const response = await uploadRecording(uri, locale, config, signal);
+  const response = await uploadRecording(uri, locale, apiKey, signal);
   throwIfVoiceTranscriptionAborted(signal);
 
   if (response.status < 200 || response.status >= 300) {
@@ -60,7 +57,7 @@ async function transcribeWithOpenAi(
 async function uploadRecording(
   uri: string,
   locale: string,
-  config: { readonly apiKey: string; readonly model: OpenAiTranscriptionModelId },
+  apiKey: string,
   signal: AbortSignal,
 ): Promise<UploadResult> {
   try {
@@ -69,9 +66,9 @@ async function uploadRecording(
       uploadType: UploadType.MULTIPART,
       fieldName: "file",
       mimeType: RECORDING_MIME_TYPE,
-      headers: { Authorization: `Bearer ${config.apiKey}` },
+      headers: { Authorization: `Bearer ${apiKey}` },
       parameters: {
-        model: config.model,
+        model: OPENAI_TRANSCRIPTION_MODEL,
         language: locale.split(/[-_]/)[0] ?? locale,
         response_format: "json",
       },

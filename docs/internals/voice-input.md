@@ -2,8 +2,8 @@
 
 Transcription edits a composer draft. It does not submit an agent turn. Audio is
 temporary client input, and only normal message submission sends the resulting
-text. Settings → Voice Input picks the transcription source on mobile: the
-device's own model on supported iOS devices, or an OpenAI model that the phone
+text. Settings → Voice picks the transcription source on mobile: the device's
+own model on supported iOS devices, or OpenAI's GPT Transcribe, which the phone
 uploads the recording to directly. The OpenAI key lives only in the device
 keychain, and the T3 environment is not involved either way.
 

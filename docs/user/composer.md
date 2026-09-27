@@ -130,33 +130,33 @@ and use **Attach again** or remove the missing file before sending.
 
 ## Voice input on iPhone
 
-On supported iPhones with iOS 26 or later, use the composer's microphone to record,
-then confirm to transcribe. Text is inserted where your selection was when
-recording started, ready for you to review and edit before sending. The send
-button beside the check mark transcribes and sends the message right away,
-skipping the review. A tone confirms the send, and the reply is read aloud
-automatically while you stay in the thread; the agent is asked to write it for
-listening. Approvals and questions are announced, and failures are spoken. The
-screen stays awake until the reply finishes. Turn off **Read voice replies aloud**
-in **Settings → Voice** to disable this. Enable **Read thinking updates** there to
-hear written progress messages as the agent works; each starts reading while it is
-still being written.
+On iPhone, use the composer's microphone to record, then confirm to transcribe. Text
+is inserted where your selection was when recording started, ready for you to review
+and edit before sending. The send button beside the check mark transcribes and sends
+the message right away, skipping the review. A tone confirms the send, and the reply
+is read aloud automatically while you stay in the thread; the agent is asked to
+write it for listening. Approvals and questions are announced, and failures are
+spoken. The screen stays awake until the reply finishes. Turn off **Read voice
+replies aloud** in **Settings → Voice** to disable this. Enable **Read thinking
+updates** there to hear written progress messages as the agent works; each starts
+reading while it is still being written.
 
-The first use may download Apple's speech model and needs a network connection.
-Later transcription works offline for that language. Recordings can be up to five
-minutes long. Canceling, leaving the screen, or an audio interruption discards the
-recording and preserves your existing draft. While recording, the screen stays
-awake; it can sleep normally once recording stops.
+With on-device transcription, the first use may download Apple's speech model and
+needs a network connection; later transcription works offline for that language.
+Recordings can be up to five minutes long. Canceling, leaving the screen, or an
+audio interruption discards the recording and preserves your existing draft. While
+recording, the screen stays awake; it can sleep normally once recording stops.
 
 T3 Code deletes the temporary audio after transcription or cancellation; only the
 message text is sent when you submit. Messages containing dictated text end with a
 short note marking them as a voice transcription, so the agent expects misheard
 words.
 
-**Settings → Voice** chooses where transcription runs: on this device, or
-with one of the OpenAI models. The OpenAI sources upload each recording straight
-from your phone using the API key you store on the same screen, which stays in
-your device keychain.
+**Settings → Voice** chooses where transcription runs: on this device, which needs
+iOS 26 or later on a supported iPhone, or with OpenAI's GPT Transcribe, which
+uploads each recording straight from your phone using the API key stored on the
+same screen. The key stays in your device keychain. With a key stored, OpenAI is
+the default.
 
 ## Reading responses aloud
 
@@ -170,8 +170,8 @@ reading; resuming starts that paragraph again.
 
 Reading uses OpenAI with the API key in **Settings → Voice**, for about 1.5 cents
 per minute of audio. Choose the voice and pace under **Read aloud**, and describe
-the delivery you want under **Delivery**. Reading continues with the screen locked. Reading another response, leaving the thread, or starting dictation
-stops playback.
+the delivery you want under **Delivery**. Reading continues with the screen locked.
+Reading another response, leaving the thread, or starting dictation stops playback.
 
 ## Commands and skills
 
