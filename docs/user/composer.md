@@ -168,8 +168,8 @@ to read from there. The paragraph being read is highlighted and kept on screen.
 Code blocks are announced rather than read. Removing your headphones pauses
 reading; resuming starts that paragraph again.
 
-Under **Settings → Voice → Read aloud**, choose the model (Gemini Flash-Lite by
-default, Gemini Flash, or OpenAI), voice, and pace, and describe the delivery you want under
+Under **Settings → Voice → Read aloud**, choose the model (Gemini Flash by
+default, Gemini Flash-Lite, or OpenAI), voice, and pace, and describe the delivery you want under
 **Delivery**. Reading uses that provider's API key from the same screen and costs
 about 1 to 1.5 cents per minute of audio. Use a paid-tier Gemini key: Google
 trains on free-tier requests. Reading continues with the screen locked.
