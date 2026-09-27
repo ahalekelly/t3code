@@ -20,6 +20,7 @@ struct OpenAiVoice: Sendable {
         try await stream(text, append: append)
         return
       } catch let error as URLError where attempt < Self.retryDelays.count && error.code != .cancelled {
+        speechLog.error("OpenAI speech attempt \(attempt + 1) failed, retrying: \(error.localizedDescription, privacy: .public)")
         continue
       }
     }
