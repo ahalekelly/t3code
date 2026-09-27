@@ -7,6 +7,16 @@ import * as Schema from "effect/Schema";
 import * as Semaphore from "effect/Semaphore";
 import type { ProviderInstanceId, SidebarProjectGroupingMode } from "@t3tools/contracts";
 import type { ComposerEnterBehavior } from "../lib/composerEnterBehavior";
+import {
+  VOICE_TRANSCRIPTION_SOURCE_LABELS,
+  type VoiceTranscriptionSource,
+} from "../lib/voiceTranscriptionSources";
+import {
+  SPEECH_MODELS,
+  validateSpeechSettings,
+  type SpeechSettings,
+  type SpeechModel,
+} from "../lib/speechModels";
 import { MOBILE_THEME_IDS, type MobileThemeId, type MobileThemeMode } from "../lib/mobileTheme";
 import * as MobileDatabase from "./mobile-database";
 import * as MobileSecureStorage from "./mobile-secure-storage";
@@ -43,6 +53,14 @@ export interface Preferences {
   /** Fresh keys reset both shelves to collapsed when users update. */
   readonly threadListSettledShelfExpanded?: boolean;
   readonly threadListSnoozedShelfExpanded?: boolean;
+  /** Unset means on-device; any OpenAI source needs the key kept in the keychain. */
+  readonly voiceTranscriptionSource?: VoiceTranscriptionSource;
+  readonly responseSpeechSettings?: Partial<Record<SpeechModel, SpeechSettings>>;
+  readonly responseSpeechModel?: SpeechModel;
+  /** Delivery prompt for OpenAI read-aloud; unset uses the default. */
+  readonly responseSpeechInstructions?: string;
+  readonly readVoiceRepliesAloud?: boolean;
+  readonly readThinkingUpdatesAloud?: boolean;
 }
 
 export class MobilePreferencesLoadError extends Schema.TaggedError<MobilePreferencesLoadError>()(
@@ -103,6 +121,12 @@ function sanitizePreferences(parsed: Preferences): Preferences {
     modelFavorites?: Preferences["modelFavorites"];
     threadListSettledShelfExpanded?: boolean;
     threadListSnoozedShelfExpanded?: boolean;
+    voiceTranscriptionSource?: VoiceTranscriptionSource;
+    responseSpeechSettings?: Partial<Record<SpeechModel, SpeechSettings>>;
+    responseSpeechModel?: SpeechModel;
+    responseSpeechInstructions?: string;
+    readVoiceRepliesAloud?: boolean;
+    readThinkingUpdatesAloud?: boolean;
   } = {};
 
   if (typeof parsed.liveActivitiesEnabled === "boolean") {
@@ -186,6 +210,41 @@ function sanitizePreferences(parsed: Preferences): Preferences {
   }
   if (typeof parsed.threadListSnoozedShelfExpanded === "boolean") {
     preferences.threadListSnoozedShelfExpanded = parsed.threadListSnoozedShelfExpanded;
+  }
+  if (
+    typeof parsed.voiceTranscriptionSource === "string" &&
+    parsed.voiceTranscriptionSource in VOICE_TRANSCRIPTION_SOURCE_LABELS
+  ) {
+    preferences.voiceTranscriptionSource = parsed.voiceTranscriptionSource;
+  }
+  if (
+    typeof parsed.responseSpeechModel === "string" &&
+    Object.hasOwn(SPEECH_MODELS, parsed.responseSpeechModel)
+  ) {
+    preferences.responseSpeechModel = parsed.responseSpeechModel;
+  }
+  if (parsed.responseSpeechSettings !== undefined) {
+    if (
+      typeof parsed.responseSpeechSettings !== "object" ||
+      parsed.responseSpeechSettings === null
+    ) {
+      throw new Error("Invalid saved speech settings.");
+    }
+    const settings: Partial<Record<SpeechModel, SpeechSettings>> = {};
+    for (const model of Object.keys(SPEECH_MODELS) as SpeechModel[]) {
+      const value = parsed.responseSpeechSettings[model];
+      if (value !== undefined) settings[model] = validateSpeechSettings(model, value);
+    }
+    preferences.responseSpeechSettings = settings;
+  }
+  if (typeof parsed.responseSpeechInstructions === "string") {
+    preferences.responseSpeechInstructions = parsed.responseSpeechInstructions;
+  }
+  if (typeof parsed.readVoiceRepliesAloud === "boolean") {
+    preferences.readVoiceRepliesAloud = parsed.readVoiceRepliesAloud;
+  }
+  if (typeof parsed.readThinkingUpdatesAloud === "boolean") {
+    preferences.readThinkingUpdatesAloud = parsed.readThinkingUpdatesAloud;
   }
   return preferences;
 }

@@ -436,6 +436,10 @@ const config: ExpoConfig = {
           extraPods: [
             { name: "GoogleUtilities", modular_headers: true },
             { name: "RecaptchaInterop", modular_headers: true },
+            {
+              name: "PocketTTSRuntime",
+              podspec: "../modules/t3-speech/PocketTTSRuntime.podspec",
+            },
           ],
         },
       },
@@ -450,6 +454,7 @@ const config: ExpoConfig = {
       ? ["./plugins/withWidgetLogoAsset.cjs", "./plugins/withNewChatControl.cjs", widgetsPlugin]
       : []),
     "./plugins/withIosSceneLifecycle.cjs",
+    "./plugins/withResponseSpeech.cjs",
     "./plugins/withAndroidCleartextTraffic.cjs",
     "./plugins/withAndroidGradleHeap.cjs",
     "./plugins/withAndroidInputBackground.cjs",

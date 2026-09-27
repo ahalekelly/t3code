@@ -95,6 +95,7 @@ import {
   ComposerDictationCancelAction,
   ComposerDictationDraftContent,
   ComposerDictationPrimaryAction,
+  ComposerDictationSendAction,
   ComposerDictationStartAction,
   ComposerDictationStatus,
   ComposerDictationToolbar,
@@ -396,6 +397,7 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
     selection: composerMenu.selection,
     onChangeDraftMessage: props.onChangeDraftMessage,
     onChangeSelection: composerMenu.onSelectionChange,
+    onSubmit: () => handleSend(),
   });
   const voicePresentation = resolveVoiceComposerPresentation(
     voiceInput.state,
@@ -473,7 +475,7 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
     onEditorFocusChange?.(false);
   }, [onEditorFocusChange, onExpandedChange, settingsSheetPresentation.keepsComposerExpanded]);
   const handleSend = useCallback(async () => {
-    if (voiceInput.blocksSubmission || pendingPastedTextAttachmentCountRef.current > 0) return;
+    if (voiceInput.blocksSubmission || pendingPastedTextAttachmentCountRef.current > 0) return null;
     // Typed out in full rather than picked from the menu. Attachments mean the
     // user is sending a prompt, so those go through as usual.
     if (
@@ -482,15 +484,15 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
       props.draftAttachments.length === 0
     ) {
       if (openUsageLimits()) onChangeDraftMessage("");
-      return;
+      return null;
     }
     const threadKey = scopedThreadKey(props.environmentId, props.selectedThread.id);
-    if (inFlightThreadIdsRef.current.has(threadKey)) return;
+    if (inFlightThreadIdsRef.current.has(threadKey)) return null;
     inFlightThreadIdsRef.current.add(threadKey);
     try {
       const messageId = await onSendMessage();
       if (messageId === null) {
-        return;
+        return null;
       }
       // Sending a prompt starts agent work: arm the lock-screen card while the
       // app is foregrounded and the activity token can be registered. Armed
@@ -501,6 +503,7 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
         threadTitle: props.selectedThread.title,
         projectTitle: props.environmentLabel ?? "T3 Code",
       });
+      return { scope: threadKey, messageId };
     } finally {
       inFlightThreadIdsRef.current.delete(threadKey);
     }
@@ -980,7 +983,12 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
                     onConfirm={voiceInput.stop}
                     onCancel={voiceInput.cancel}
                   />
-                  {showStopAction ? (
+                  {voicePresentation.trailingAction === "confirm" ? (
+                    <ComposerDictationSendAction
+                      presentation={voicePresentation}
+                      onSend={voiceInput.stopAndSend}
+                    />
+                  ) : showStopAction ? (
                     <ComposerActionButton
                       accessibilityLabel="Stop agent"
                       icon="stop.fill"

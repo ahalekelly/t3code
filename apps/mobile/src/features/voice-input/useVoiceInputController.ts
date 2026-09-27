@@ -10,23 +10,37 @@ import { File } from "expo-file-system";
 import { activateKeepAwakeAsync, deactivateKeepAwake } from "expo-keep-awake";
 import { useFocusEffect } from "@react-navigation/native";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
-import { AppState } from "react-native";
+import { Alert, AppState, Platform } from "react-native";
 import { useSharedValue } from "react-native-reanimated";
+import { autoReadResponse } from "../../lib/autoReadResponse";
+import type { SpokenResponse } from "../../lib/autoReadResponse";
+import { announce, playCue, responseSpeech } from "../../lib/responseSpeech";
 
 import type { ComposerEditorSelection } from "../../components/ComposerEditor";
 import { getLocalVoiceTranscriber } from "../../native/voiceTranscription";
 import { getNativeShowcaseScene } from "../showcase/nativeShowcaseScene";
+import { useVoiceSettings } from "../../state/voiceSettings";
+import { withDictationDisclaimer } from "./dictationDisclaimer";
+import { createOpenAiVoiceTranscriber } from "./openAiVoiceTranscriber";
 import {
   VoiceInputController,
+  VoiceTranscriptionError,
   VOICE_RECORDING_LIMIT_SECONDS,
   voiceInputBlocksSubmission,
   voiceInputFreezesEditor,
   type VoiceDraftSnapshot,
   type VoiceInputState,
+  type VoiceTranscriber,
 } from "@t3tools/client-runtime/voice-input";
 import { normalizeVoiceInputDecibels, VOICE_WAVEFORM_SAMPLE_COUNT } from "./voiceInputMetering";
 
 const INITIAL_STATE: VoiceInputState = { phase: "idle", error: null, errorAction: null };
+/** Selecting an OpenAI source without a key is a setup mistake, not a reason to fall back. */
+const MISSING_OPENAI_KEY_TRANSCRIBER: VoiceTranscriber = {
+  prepare: async () => {
+    throw new VoiceTranscriptionError("unavailable", "Add an OpenAI API key in Settings → Voice.");
+  },
+};
 const VOICE_METERING_INTERVAL_MS = 80;
 const VOICE_RECORDING_OPTIONS = {
   ...RecordingPresets.HIGH_QUALITY,
@@ -44,6 +58,8 @@ async function releaseVoiceRecordingAudio(): Promise<void> {
 }
 
 async function configureVoiceRecordingAudio(): Promise<void> {
+  autoReadResponse.cancelAll();
+  if (Platform.OS === "ios") await responseSpeech.stop();
   try {
     await setAudioModeAsync({
       allowsRecording: true,
@@ -69,8 +85,11 @@ export function useVoiceInputController(input: {
   readonly disabled?: boolean;
   readonly onChangeDraftMessage: (value: string) => void;
   readonly onChangeSelection: (selection: ComposerEditorSelection) => void;
+  readonly onSubmit: () => Promise<SpokenResponse | null>;
 }) {
   const [state, setState] = useState<VoiceInputState>(INITIAL_STATE);
+  const sendRequestedRef = useRef(false);
+  const pendingSendTextRef = useRef<string | null>(null);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const keepAwakeId = useId();
   const keepAwakeSessionRef = useRef(0);
@@ -89,6 +108,15 @@ export function useVoiceInputController(input: {
   }
   const latestInputRef = useRef(input);
   latestInputRef.current = input;
+  const voice = useVoiceSettings();
+  const openAiApiKey = voice.apiKey;
+  const readRepliesAloud = Platform.OS === "ios" && (!voice.loaded || voice.readRepliesAloud);
+  const readRepliesAloudRef = useRef(readRepliesAloud);
+  readRepliesAloudRef.current = readRepliesAloud;
+  const transcriptionSource = voice.transcriptionSource;
+  const transcriptionConfig = { source: transcriptionSource, apiKey: openAiApiKey };
+  const transcriptionConfigRef = useRef(transcriptionConfig);
+  transcriptionConfigRef.current = transcriptionConfig;
 
   const handleRecorderStatus = useCallback((status: RecordingStatus) => {
     controllerRef.current?.handleRecorderStatus({
@@ -103,7 +131,12 @@ export function useVoiceInputController(input: {
   if (!controllerRef.current) {
     controllerRef.current = new VoiceInputController({
       recorder,
-      getTranscriber: getLocalVoiceTranscriber,
+      getTranscriber: () => {
+        const { source, apiKey } = transcriptionConfigRef.current;
+        if (source === "local") return getLocalVoiceTranscriber();
+        if (apiKey === null) return MISSING_OPENAI_KEY_TRANSCRIBER;
+        return createOpenAiVoiceTranscriber({ apiKey, model: source });
+      },
       requestPermission: async () => {
         const permission = await requestRecordingPermissionsAsync();
         return { granted: permission.granted, canAskAgain: permission.canAskAgain };
@@ -123,10 +156,29 @@ export function useVoiceInputController(input: {
       },
       commitDraft: (text, selection) => {
         const current = latestInputRef.current;
+        const committed = withDictationDisclaimer(
+          text,
+          sendRequestedRef.current && readRepliesAloudRef.current,
+        );
+        // The disclaimer lands after the caret, so the controller's selection holds.
         current.onChangeSelection(selection);
-        current.onChangeDraftMessage(text);
+        current.onChangeDraftMessage(committed);
+        if (sendRequestedRef.current) {
+          sendRequestedRef.current = false;
+          pendingSendTextRef.current = committed;
+        }
       },
-      onStateChange: setState,
+      onStateChange: (next) => {
+        // Settling without a commit (cancel, empty transcript, stale draft,
+        // failed transcription) must not leave a later manual finish armed.
+        if (next.phase === "error" && sendRequestedRef.current && readRepliesAloudRef.current) {
+          announce(`The voice message was not sent. ${next.error ?? ""}`, "error");
+        }
+        if (next.phase === "error" || (next.phase === "idle" && !pendingSendTextRef.current)) {
+          sendRequestedRef.current = false;
+        }
+        setState(next);
+      },
     });
   }
 
@@ -212,16 +264,48 @@ export function useVoiceInputController(input: {
     return () => clearInterval(intervalId);
   }, [audioLevels, controller, recorder, state.phase]);
 
+  // The controller commits the draft and goes idle in the same render, so the
+  // send waits for the composer to report the committed text back rather than
+  // firing against a stale submit closure.
+  useEffect(() => {
+    if (pendingSendTextRef.current === null) return;
+    if (state.phase !== "idle" || input.draftMessage !== pendingSendTextRef.current) return;
+    pendingSendTextRef.current = null;
+    void latestInputRef.current
+      .onSubmit()
+      .then((prompt) => {
+        if (!readRepliesAloud) return;
+        if (!prompt) {
+          announce("The voice message was not sent.", "error");
+          return;
+        }
+        playCue("sent");
+        autoReadResponse.request(prompt);
+      })
+      .catch((error: unknown) => {
+        const message = error instanceof Error ? error.message : "Please try again.";
+        if (readRepliesAloud) announce(`The voice message was not sent. ${message}`, "error");
+        Alert.alert("Could not send voice message", message);
+      });
+  }, [input.draftMessage, latestInputRef, pendingSendTextRef, readRepliesAloud, state.phase]);
+
   const start = useCallback(() => {
     if (!latestInputRef.current.disabled) void controller.start();
   }, [controller]);
   const stop = useCallback(() => controller.stop(), [controller]);
   const cancel = useCallback(() => controller.cancel(), [controller]);
+  const stopAndSend = useCallback(() => {
+    sendRequestedRef.current = true;
+    return controller.stop();
+  }, [controller]);
 
   return {
     // Store screenshots show the dictation button even on simulators, whose
     // on-device transcription is unavailable.
-    isAvailable: getLocalVoiceTranscriber() !== null || getNativeShowcaseScene() !== null,
+    isAvailable:
+      (transcriptionSource === "local"
+        ? getLocalVoiceTranscriber() !== null
+        : openAiApiKey !== null) || getNativeShowcaseScene() !== null,
     state,
     audioLevels,
     elapsedSeconds,
@@ -230,6 +314,7 @@ export function useVoiceInputController(input: {
     blocksSubmission: voiceInputBlocksSubmission(state),
     start,
     stop,
+    stopAndSend,
     cancel,
   };
 }

@@ -87,6 +87,7 @@ import type {
   ThreadFeedEntry,
 } from "../../lib/threadActivity";
 import { PendingApprovalCard } from "./PendingApprovalCard";
+import { SpeechPlaybackBar } from "./SpeechPlaybackBar";
 import { ComposerFeedback } from "./ComposerFeedback";
 import { ComposerUsageLimits } from "./ComposerUsageLimits";
 import { PendingUserInputCard } from "./PendingUserInputCard";
@@ -108,6 +109,7 @@ import {
   COMPOSER_TRANSITION_DURATION_MS,
   ThreadComposer,
 } from "./ThreadComposer";
+import { useAutoReadResponse } from "./useAutoReadResponse";
 import { ThreadFeed } from "./ThreadFeed";
 import type { ThreadContentPresentation } from "./threadContentPresentation";
 import { resolveThreadFeedSubmissionAnchor } from "./thread-feed-live-follow";
@@ -318,6 +320,14 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
   const navigationHeaderHeight = useContext(HeaderHeightContext) || insets.top + IOS_NAV_BAR_HEIGHT;
   const agentLabel = `${props.selectedThread.modelSelection.instanceId} agent`;
   const selectedThreadKey = scopedThreadKey(props.environmentId, props.selectedThread.id);
+  useAutoReadResponse(
+    selectedThreadKey,
+    props.selectedThread.title,
+    props.selectedThreadFeed,
+    props.selectedThread.latestTurn,
+    props.activePendingApproval,
+    props.activePendingUserInput,
+  );
   const composerEditorRef = useRef<ComposerEditorHandle>(null);
   const draftMessageRef = useRef(props.draftMessage);
   draftMessageRef.current = props.draftMessage;
@@ -913,6 +923,7 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
             <ThreadFeed
               environmentId={props.environmentId}
               threadId={props.selectedThread.id}
+              threadTitle={props.selectedThread.title}
               workspaceRoot={props.threadCwd}
               feed={props.selectedThreadFeed}
               worktreeSetup={props.worktreeSetup}
@@ -984,6 +995,7 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
                 onScrollToEnd={handleScrollToEnd}
               />
               <View className="w-full self-center" style={{ maxWidth: contentMaxWidth }}>
+                {Platform.OS === "ios" ? <SpeechPlaybackBar scope={selectedThreadKey} /> : null}
                 {props.feedbackSubmissions.map((submission) => (
                   <ComposerFeedback
                     key={submission.id}

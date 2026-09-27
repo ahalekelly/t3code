@@ -71,6 +71,7 @@ import { useComposerCommandMenu } from "./use-composer-command-menu";
 import {
   ComposerDictationCancelAction,
   ComposerDictationPrimaryAction,
+  ComposerDictationSendAction,
   ComposerDictationStatus,
   ComposerDictationToolbar,
 } from "../voice-input/ComposerDictationControl";
@@ -80,6 +81,9 @@ import {
   useThreadSettingsSheetPresentation,
   type NavigationWithFinishTransitioning,
 } from "./use-thread-settings-sheet-presentation";
+
+import type { SpokenResponse } from "../../lib/autoReadResponse";
+import { scopedThreadKey } from "../../lib/scopedEntities";
 import { makeTurnCommandMetadata } from "../../lib/commandMetadata";
 import {
   convertPastedImagesToAttachments,
@@ -478,6 +482,7 @@ export function NewTaskDraftScreen(props: {
     disabled: isIncomingShareTransferPending || isImportingShare || flow.submitting,
     onChangeDraftMessage: flow.setPrompt,
     onChangeSelection: composerMenu.onSelectionChange,
+    onSubmit: () => handleStart(),
   });
   const voicePresentation = resolveVoiceComposerPresentation(
     voiceInput.state,
@@ -1181,15 +1186,15 @@ export function NewTaskDraftScreen(props: {
     [composerMenu, flow, selectedEnvironmentServerConfig],
   );
 
-  async function handleStart(): Promise<void> {
-    if (voiceInput.blocksSubmission || pendingPastedTextAttachmentCountRef.current > 0) return;
+  async function handleStart(): Promise<SpokenResponse | null> {
+    if (voiceInput.blocksSubmission || pendingPastedTextAttachmentCountRef.current > 0) return null;
     const selectedProject = flow.selectedProject;
     const draftKey = flow.draftKey;
     if (!selectedProject || !draftKey) {
-      return;
+      return null;
     }
     const draft = getComposerDraftSnapshot(draftKey);
-    if (appAtomRegistry.get(composerContextImportsAtom)[draftKey]) return;
+    if (appAtomRegistry.get(composerContextImportsAtom)[draftKey]) return null;
     // Read the latest explicit pick. Antigravity selections stay unchanged
     // when setup or a catalog change makes them unavailable.
     const modelSelection =
@@ -1208,7 +1213,7 @@ export function NewTaskDraftScreen(props: {
       flow.submitting ||
       (workspaceMode === "worktree" && !selectedBranchName)
     ) {
-      return;
+      return null;
     }
     if (
       environmentConnected &&
@@ -1218,7 +1223,7 @@ export function NewTaskDraftScreen(props: {
         "Antigravity model unavailable",
         "Set up Antigravity on web or desktop, or choose another model.",
       );
-      return;
+      return null;
     }
     // T3's own limits command is answered by the thread composer; a new task would
     // send it to the agent. A provider's same-named command, or a prompt carrying
@@ -1232,7 +1237,7 @@ export function NewTaskDraftScreen(props: {
         "Usage limits",
         "Send /usage-limits inside a thread, or open Settings → Usage → Limits.",
       );
-      return;
+      return null;
     }
     // A failed-send restore can leave the draft over the cap on purpose (it
     // never drops the user's files); starting anyway would upload everything
@@ -1242,13 +1247,13 @@ export function NewTaskDraftScreen(props: {
         "Too many attachments",
         `Remove attachments until there are at most ${PROVIDER_SEND_TURN_MAX_ATTACHMENTS}.`,
       );
-      return;
+      return null;
     }
 
     const contextBlockReason = composerContextSendBlockReason(draft.context);
     if (contextBlockReason) {
       Alert.alert("Too much context", contextBlockReason);
-      return;
+      return null;
     }
 
     const editingPendingTask = flow.editingPendingTask;
@@ -1274,7 +1279,7 @@ export function NewTaskDraftScreen(props: {
       currentCheckoutBranch: queuesInsteadOfStarting ? null : flow.currentCheckoutBranchName,
     });
     if (!message) {
-      return;
+      return null;
     }
     if (!queuesInsteadOfStarting) {
       // Arm the lock-screen card before the async thread creation: backgrounding
@@ -1297,7 +1302,7 @@ export function NewTaskDraftScreen(props: {
         "Could not queue task",
         error instanceof Error ? error.message : "The task could not be saved to the outbox.",
       );
-      return;
+      return null;
     } finally {
       flow.setSubmitting(false);
     }
@@ -1324,6 +1329,10 @@ export function NewTaskDraftScreen(props: {
           }),
     );
     scheduleUnusedComposerAttachmentCleanup(draftSnapshot.attachments);
+    return {
+      scope: scopedThreadKey(message.environmentId, message.threadId),
+      messageId: message.messageId,
+    };
   }
 
   const isAndroid = Platform.OS === "android";
@@ -1727,7 +1736,12 @@ export function NewTaskDraftScreen(props: {
                 onConfirm={voiceInput.stop}
                 onCancel={voiceInput.cancel}
               />
-              {voicePresentation.showsSend ? (
+              {voicePresentation.trailingAction === "confirm" ? (
+                <ComposerDictationSendAction
+                  presentation={voicePresentation}
+                  onSend={voiceInput.stopAndSend}
+                />
+              ) : voicePresentation.showsSend ? (
                 <ComposerActionButton
                   accessibilityLabel={
                     attachmentBlockReason ??

@@ -872,8 +872,10 @@ export function nativeMarkdownNodePosition(node: MarkdownNode, index: number): s
   return node.beg === undefined ? `index:${index}` : `offset:${node.beg}`;
 }
 
+/** With `separateBlocks`, each top-level node gets its own chunk, in document order. */
 export function nativeMarkdownDocumentChunks(
   document: MarkdownNode,
+  separateBlocks = false,
 ): ReadonlyArray<NativeMarkdownDocumentChunk> {
   const chunks: NativeMarkdownDocumentChunk[] = [];
   let selectableNodes: MarkdownNode[] = [];
@@ -901,6 +903,7 @@ export function nativeMarkdownDocumentChunks(
         selectableStart = index;
       }
       selectableNodes.push(child);
+      if (separateBlocks) flushSelectable();
       continue;
     }
 

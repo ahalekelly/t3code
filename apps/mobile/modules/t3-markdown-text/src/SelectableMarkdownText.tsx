@@ -1,5 +1,5 @@
-import { useMemo } from "react";
-import { View } from "react-native";
+import { type ReactNode, useEffect, useMemo, useRef } from "react";
+import { Pressable, StyleSheet, View } from "react-native";
 import { parseMarkdownWithOptions } from "react-native-nitro-markdown/headless";
 
 import {
@@ -16,6 +16,7 @@ import {
   type MarkdownFileContextMenuHandlers,
 } from "./NativeMarkdownSelectableText";
 import type {
+  MarkdownSpeechBlocks,
   SelectableMarkdownSkill,
   SelectableMarkdownTextProps,
 } from "./SelectableMarkdownText.types";
@@ -23,6 +24,7 @@ import type {
 const EMPTY_SKILLS: ReadonlyArray<SelectableMarkdownSkill> = [];
 
 export type {
+  MarkdownSpeechBlocks,
   MarkdownCodeHighlighter,
   MarkdownHighlightedToken,
   MarkdownImageRenderer,
@@ -49,7 +51,9 @@ export function SelectableMarkdownText({
   renderImage,
   marginTop = 0,
   marginBottom = 0,
+  speech,
 }: SelectableMarkdownTextProps) {
+  const separateBlocks = speech !== undefined;
   const chunks = useMemo(() => {
     const parsedDocument = parseMarkdownWithOptions(markdown, {
       gfm: true,
@@ -59,7 +63,7 @@ export function SelectableMarkdownText({
     const document = preserveSoftBreaks
       ? nativeMarkdownWithPreservedSoftBreaks(parsedDocument)
       : parsedDocument;
-    return nativeMarkdownDocumentChunks(document).map((chunk) =>
+    return nativeMarkdownDocumentChunks(document, separateBlocks).map((chunk) =>
       chunk.kind === "selectable"
         ? {
             ...chunk,
@@ -67,7 +71,7 @@ export function SelectableMarkdownText({
           }
         : chunk,
     );
-  }, [markdown, preserveSoftBreaks, skills]);
+  }, [markdown, preserveSoftBreaks, separateBlocks, skills]);
 
   const fileContextMenuHandlers = useMemo<MarkdownFileContextMenuHandlers | null>(
     () =>
@@ -109,7 +113,13 @@ export function SelectableMarkdownText({
                   key={chunk.key}
                   style={{ paddingTop: nativeMarkdownChunkSpacing(chunks[index - 1], chunk) }}
                 >
-                  {content}
+                  {speech ? (
+                    <SpeechBlock index={index} speech={speech}>
+                      {content}
+                    </SpeechBlock>
+                  ) : (
+                    content
+                  )}
                 </View>
               );
             })}
@@ -119,3 +129,42 @@ export function SelectableMarkdownText({
     </MarkdownContextClipboardContext.Provider>
   );
 }
+
+/** One chunk per top-level block while reading, so the index matches the spoken block. */
+function SpeechBlock(props: {
+  readonly index: number;
+  readonly speech: MarkdownSpeechBlocks;
+  readonly children: ReactNode;
+}) {
+  const ref = useRef<View>(null);
+  const active = props.speech.activeBlock === props.index;
+  const { revealBlock } = props.speech;
+  useEffect(() => {
+    if (active && ref.current) revealBlock(ref.current);
+  }, [active, revealBlock]);
+  return (
+    <View
+      ref={ref}
+      style={[styles.speechBlock, active && { backgroundColor: props.speech.highlightColor }]}
+    >
+      {props.children}
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel="Read from here"
+        style={StyleSheet.absoluteFill}
+        onPress={() => props.speech.onPressBlock(props.index)}
+      />
+    </View>
+  );
+}
+
+// Negative margins keep the text where it sits outside reading mode.
+const styles = StyleSheet.create({
+  speechBlock: {
+    borderRadius: 8,
+    marginHorizontal: -6,
+    marginVertical: -3,
+    paddingHorizontal: 6,
+    paddingVertical: 3,
+  },
+});
