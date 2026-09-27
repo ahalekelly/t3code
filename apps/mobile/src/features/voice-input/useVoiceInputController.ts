@@ -13,7 +13,8 @@ import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { Alert, AppState, Platform } from "react-native";
 import { useSharedValue } from "react-native-reanimated";
 import { autoReadResponse } from "../../lib/autoReadResponse";
-import { announce, playCue, responseSpeech, type SpokenResponse } from "../../lib/responseSpeech";
+import type { SpokenResponse } from "../../lib/autoReadResponse";
+import { announce, playCue, responseSpeech } from "../../lib/responseSpeech";
 
 import type { ComposerEditorSelection } from "../../components/ComposerEditor";
 import { getLocalVoiceTranscriber } from "../../native/voiceTranscription";

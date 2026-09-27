@@ -7,7 +7,7 @@ import {
   type VoiceTranscriber,
   type VoiceTranscriptionOptions,
 } from "@t3tools/client-runtime/voice-input";
-import type { OpenAiTranscriptionModelId } from "./voiceTranscriptionSources";
+import type { OpenAiTranscriptionModelId } from "../../lib/voiceTranscriptionSources";
 
 const OPENAI_TRANSCRIPTION_URL = "https://api.openai.com/v1/audio/transcriptions";
 // The recorder writes MPEG-4 AAC, and the multipart filename comes from the file.

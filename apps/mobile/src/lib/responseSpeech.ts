@@ -2,13 +2,11 @@ import { Alert } from "react-native";
 import { parseMarkdownWithOptions } from "react-native-nitro-markdown/headless";
 import { useSyncExternalStore } from "react";
 
-import type { SpeechRequest } from "../state/voiceSettings";
-import { autoReadResponse } from "./autoReadResponse";
+import { autoReadResponse, type SpokenResponse } from "./autoReadResponse";
 import { speechBlocks, unsentSpeechBlocks } from "./markdownSpeechText";
 import { nativeSpeech } from "./nativeSpeech";
-import { SPEECH_MODELS } from "./speechModels";
+import { SPEECH_MODELS, type SpeechRequest } from "./speechModels";
 
-export type SpokenResponse = { readonly scope: string; readonly messageId: string };
 /** `block` indexes the response's top-level Markdown blocks; null until audio starts. */
 export type SpeechSnapshot = {
   readonly response: SpokenResponse;

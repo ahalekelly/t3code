@@ -41,7 +41,7 @@ vi.mock("react-native-nitro-markdown/headless", () => ({
 
 import { autoReadResponse } from "./autoReadResponse";
 import { responseSpeech } from "./responseSpeech";
-import type { SpeechRequest } from "../state/voiceSettings";
+import type { SpeechRequest } from "./speechModels";
 
 const first = { scope: "environment:thread", messageId: "first" };
 const second = { scope: "environment:thread", messageId: "second" };

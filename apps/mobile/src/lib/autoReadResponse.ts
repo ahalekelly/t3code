@@ -1,11 +1,12 @@
 import type { OrchestrationLatestTurn, OrchestrationMessage } from "@t3tools/contracts";
 
-import type { SpokenResponse } from "./responseSpeech";
-
 type Message = Pick<
   OrchestrationMessage,
   "id" | "role" | "text" | "turnId" | "streaming" | "createdAt"
 >;
+
+/** A response being read, or the voice prompt whose replies should be read. */
+export type SpokenResponse = { readonly scope: string; readonly messageId: string };
 
 const pending = new Map<
   string,

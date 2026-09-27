@@ -10,7 +10,7 @@ import type { ComposerEnterBehavior } from "../lib/composerEnterBehavior";
 import {
   VOICE_TRANSCRIPTION_SOURCE_LABELS,
   type VoiceTranscriptionSource,
-} from "../features/voice-input/voiceTranscriptionSources";
+} from "../lib/voiceTranscriptionSources";
 import {
   SPEECH_MODELS,
   validateSpeechSettings,

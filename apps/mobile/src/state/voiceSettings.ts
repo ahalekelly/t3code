@@ -2,20 +2,14 @@ import { useAtomValue } from "@effect/atom-react";
 import { AsyncResult } from "effect/unstable/reactivity";
 import { useMemo } from "react";
 
-import { resolveVoiceTranscriptionSource } from "../features/voice-input/voiceTranscriptionSources";
+import { resolveVoiceTranscriptionSource } from "../lib/voiceTranscriptionSources";
 import {
   DEFAULT_SPEECH_INSTRUCTIONS,
   getSpeechOptions,
-  type SpeechOptions,
+  type SpeechRequest,
 } from "../lib/speechModels";
 import { mobilePreferencesAtom } from "./preferences";
 import { openAiApiKeyAtom } from "./voiceTranscription";
-
-/** What native reading needs beyond the per-model settings. */
-export type SpeechRequest = SpeechOptions & {
-  readonly instructions: string;
-  readonly apiKey: string;
-};
 
 /** Voice input and read-aloud settings, with defaults that follow the stored OpenAI key. */
 export function useVoiceSettings() {

@@ -82,7 +82,7 @@ import {
   type NavigationWithFinishTransitioning,
 } from "./use-thread-settings-sheet-presentation";
 
-import type { SpokenResponse } from "../../lib/responseSpeech";
+import type { SpokenResponse } from "../../lib/autoReadResponse";
 import { scopedThreadKey } from "../../lib/scopedEntities";
 import { makeTurnCommandMetadata } from "../../lib/commandMetadata";
 import {

@@ -47,6 +47,11 @@ export type SpeechSettings = {
   readonly quality: SpeechQuality;
 };
 export type SpeechOptions = SpeechSettings & { readonly model: SpeechModel };
+/** What native reading needs beyond the per-model settings. */
+export type SpeechRequest = SpeechOptions & {
+  readonly instructions: string;
+  readonly apiKey: string;
+};
 export type SpeechPreferences = {
   readonly responseSpeechModel?: SpeechModel;
   readonly responseSpeechSettings?: Partial<Record<SpeechModel, SpeechSettings>>;

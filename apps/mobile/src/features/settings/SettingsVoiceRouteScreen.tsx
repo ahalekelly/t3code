@@ -17,7 +17,7 @@ import { openAiApiKeyAtom, setOpenAiApiKeyAtom } from "../../state/voiceTranscri
 import {
   VOICE_TRANSCRIPTION_SOURCE_LABELS,
   type VoiceTranscriptionSource,
-} from "../voice-input/voiceTranscriptionSources";
+} from "../../lib/voiceTranscriptionSources";
 import {
   DEFAULT_SPEECH_INSTRUCTIONS,
   SPEECH_MODELS,
