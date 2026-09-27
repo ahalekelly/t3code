@@ -1,3 +1,5 @@
+import * as NodeChildProcess from "node:child_process";
+
 import type { ExpoConfig } from "expo/config";
 
 import { BRAND_ASSET_PATHS } from "../../scripts/lib/brand-assets.ts";
@@ -476,6 +478,13 @@ const config: ExpoConfig = {
     secretsFeatureEnabled: ["1", "true"].includes(
       process.env.T3CODE_FEATURE_SECRETS?.trim().toLowerCase() ?? "",
     ),
+    buildTime: isIosPersonalBuild ? new Date().toISOString() : undefined,
+    buildCommit: isIosPersonalBuild
+      ? NodeChildProcess.execFileSync("git", ["rev-parse", "--short=9", "HEAD"], {
+          cwd: __dirname,
+          encoding: "utf8",
+        }).trim()
+      : undefined,
     iosPushEnabled: !isIosPersonalBuild,
     relay: {
       url: repoEnv.T3CODE_RELAY_URL ?? null,
