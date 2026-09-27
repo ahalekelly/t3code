@@ -86,7 +86,9 @@ import IconPlayerStopFilled from "@tabler/icons-react-native/IconPlayerStopFille
 import IconPlus from "@tabler/icons-react-native/IconPlus";
 import IconQrcode from "@tabler/icons-react-native/IconQrcode";
 import IconRefresh from "@tabler/icons-react-native/IconRefresh";
+import IconRewindBackward10 from "@tabler/icons-react-native/IconRewindBackward10";
 import IconSearch from "@tabler/icons-react-native/IconSearch";
+import IconSelector from "@tabler/icons-react-native/IconSelector";
 import IconServer from "@tabler/icons-react-native/IconServer";
 import IconSettings from "@tabler/icons-react-native/IconSettings";
 import IconSparkles from "@tabler/icons-react-native/IconSparkles";
@@ -105,6 +107,7 @@ import IconUpload from "@tabler/icons-react-native/IconUpload";
 import IconUserCircle from "@tabler/icons-react-native/IconUserCircle";
 import IconWifiOff from "@tabler/icons-react-native/IconWifiOff";
 import IconWorld from "@tabler/icons-react-native/IconWorld";
+import IconVolume from "@tabler/icons-react-native/IconVolume";
 import IconX from "@tabler/icons-react-native/IconX";
 import type { AndroidSymbol, SFSymbol, SymbolViewProps } from "expo-symbols";
 import { withUniwind } from "uniwind";
@@ -149,6 +152,7 @@ const ANDROID_ICON_BY_SF_SYMBOL = {
   "chevron.left.forwardslash.chevron.right": IconCode,
   "chevron.right": IconChevronRight,
   "chevron.up": IconChevronUp,
+  "chevron.up.chevron.down": IconSelector,
   desktopcomputer: IconDeviceDesktop,
   "doc.on.doc": IconCopy,
   "doc.text": IconFileText,
@@ -163,6 +167,7 @@ const ANDROID_ICON_BY_SF_SYMBOL = {
   "folder.fill": IconFolder,
   gearshape: IconSettings,
   globe: IconWorld,
+  "gobackward.10": IconRewindBackward10,
   hammer: IconHammer,
   house: IconHome,
   "info.circle": IconInfoCircle,
@@ -195,6 +200,7 @@ const ANDROID_ICON_BY_SF_SYMBOL = {
   "server.rack": IconServer,
   stethoscope: IconStethoscope,
   "sidebar.left": IconLayoutSidebar,
+  "speaker.wave.2": IconVolume,
   "sidebar.right": IconLayoutSidebarRight,
   "slider.horizontal.3": IconAdjustmentsHorizontal,
   "square.and.pencil": IconEdit,

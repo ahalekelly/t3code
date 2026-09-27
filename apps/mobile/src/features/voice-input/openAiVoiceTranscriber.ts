@@ -72,7 +72,7 @@ async function uploadRecording(
       headers: { Authorization: `Bearer ${config.apiKey}` },
       parameters: {
         model: config.model,
-        language: locale.split(/[-_]/)[0],
+        language: locale.split(/[-_]/)[0] ?? locale,
         response_format: "json",
       },
       signal,

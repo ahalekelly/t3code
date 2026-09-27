@@ -475,7 +475,7 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
     onEditorFocusChange?.(false);
   }, [onEditorFocusChange, onExpandedChange, settingsSheetPresentation.keepsComposerExpanded]);
   const handleSend = useCallback(async () => {
-    if (voiceInput.blocksSubmission || pendingPastedTextAttachmentCountRef.current > 0) return;
+    if (voiceInput.blocksSubmission || pendingPastedTextAttachmentCountRef.current > 0) return null;
     // Typed out in full rather than picked from the menu. Attachments mean the
     // user is sending a prompt, so those go through as usual.
     if (
