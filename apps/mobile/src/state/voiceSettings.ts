@@ -3,15 +3,11 @@ import { AsyncResult } from "effect/unstable/reactivity";
 import { useMemo } from "react";
 
 import { resolveVoiceTranscriptionSource } from "../lib/voiceTranscriptionSources";
-import {
-  DEFAULT_SPEECH_INSTRUCTIONS,
-  getSpeechOptions,
-  type SpeechRequest,
-} from "../lib/speechModels";
+import { DEFAULT_SPEECH_INSTRUCTIONS, type SpeechRequest } from "../lib/speechSettings";
 import { mobilePreferencesAtom } from "./preferences";
 import { openAiApiKeyAtom } from "./voiceTranscription";
 
-/** Voice input and read-aloud settings, with defaults that follow the stored OpenAI key. */
+/** Voice input and read-aloud settings; transcription defaults follow the stored OpenAI key. */
 export function useVoiceSettings() {
   const preferencesResult = useAtomValue(mobilePreferencesAtom);
   const apiKeyResult = useAtomValue(openAiApiKeyAtom);
@@ -19,7 +15,8 @@ export function useVoiceSettings() {
     const preferences = AsyncResult.isSuccess(preferencesResult) ? preferencesResult.value : {};
     const apiKey = AsyncResult.isSuccess(apiKeyResult) ? apiKeyResult.value : null;
     const speech: SpeechRequest = {
-      ...getSpeechOptions(preferences, apiKey !== null),
+      voice: preferences.responseSpeechVoice ?? "marin",
+      pace: preferences.responseSpeechPace ?? 1,
       instructions: preferences.responseSpeechInstructions ?? DEFAULT_SPEECH_INSTRUCTIONS,
       apiKey: apiKey ?? "",
     };

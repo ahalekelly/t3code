@@ -15,8 +15,8 @@ enum SpeechCue: String {
   var duration: Double { Double(notes.count) * Self.noteDuration }
 }
 
-/// Tones and system-voice messages for hands-free use. They need no network or
-/// download, so they still work when the chosen reading voice cannot.
+/// Tones and system-voice messages for hands-free use. They need no network, so
+/// they still work when OpenAI cannot be reached.
 @MainActor
 final class SpeechCues: NSObject, AVAudioPlayerDelegate, AVSpeechSynthesizerDelegate {
   static let shared = SpeechCues()

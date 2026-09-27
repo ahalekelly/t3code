@@ -1,9 +1,7 @@
 import { requireNativeModule, type NativeModule } from "expo";
-import type { SpeechModel, SpeechOptions } from "./speechModels";
+import type { SpeechRequest } from "./speechSettings";
 
-export type NativeSpeechOptions = SpeechOptions & {
-  readonly instructions: string;
-  readonly apiKey: string;
+export type NativeSpeechOptions = SpeechRequest & {
   /** Shown on the Lock Screen and car display while reading. */
   readonly title: string;
 };
@@ -20,8 +18,6 @@ export type SpeechCue = "sent" | "attention" | "error";
 declare class SpeechModule extends NativeModule<{
   onSpeechState(state: NativeSpeechState): void;
 }> {
-  isVoiceDownloaded(options: NativeSpeechOptions): boolean;
-  downloadedBytes(model: SpeechModel): number;
   /** Resolves `true` when the reading played to the end, `false` when stopped. */
   start(options: NativeSpeechOptions, reading: string): Promise<boolean>;
   /** Replaces the blocks from index `from`. */
@@ -34,7 +30,6 @@ declare class SpeechModule extends NativeModule<{
   resume(): Promise<void>;
   setPace(pace: number): Promise<void>;
   stop(): Promise<void>;
-  deleteVoice(model: SpeechModel): Promise<void>;
   playCue(cue: SpeechCue): Promise<void>;
   /** Plays the cue, then speaks the text in the system voice. */
   announce(text: string, cue: SpeechCue): Promise<void>;

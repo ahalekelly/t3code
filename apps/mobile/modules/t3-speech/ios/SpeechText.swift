@@ -1,7 +1,7 @@
 import Foundation
 
-/// Packs whole sentences into segments of up to `maxLength` characters, which keeps
-/// generation latency and model memory bounded on long responses.
+/// Packs whole sentences into segments of up to `maxLength` characters, which bounds
+/// each request's latency and the audio a stop can waste.
 func speechSegments(_ text: String, maxLength: Int) -> [String] {
   var segments: [String] = []
   var pending = ""

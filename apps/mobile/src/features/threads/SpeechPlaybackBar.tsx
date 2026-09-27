@@ -5,7 +5,7 @@ import Animated, { FadeInDown, FadeOut } from "react-native-reanimated";
 import { ComposerToolbarButton } from "../../components/ComposerToolbar";
 import { ControlPillMenu } from "../../components/ControlPill";
 import { responseSpeech } from "../../lib/responseSpeech";
-import { SPEECH_PACES } from "../../lib/speechModels";
+import { SPEECH_PACES, type SpeechPace } from "../../lib/speechSettings";
 import { updateMobilePreferencesAtom } from "../../state/preferences";
 import { useVoiceSettings } from "../../state/voiceSettings";
 import { ComposerSurface } from "./ThreadComposer";
@@ -28,7 +28,7 @@ export function SpeechPlaybackBar(props: { readonly scope: string }) {
   const savePreferences = useAtomSet(updateMobilePreferencesAtom);
   if (paused === null) return null;
 
-  const { model, instructions: _instructions, apiKey: _apiKey, ...settings } = voice.speech;
+  const { pace: currentPace } = voice.speech;
   return (
     <Animated.View
       className="mx-4 mb-2"
@@ -61,20 +61,15 @@ export function SpeechPlaybackBar(props: { readonly scope: string }) {
           actions={SPEECH_PACES.map((pace) => ({
             id: String(pace),
             title: `${pace}×`,
-            state: pace === settings.pace ? ("on" as const) : undefined,
+            state: pace === currentPace ? ("on" as const) : undefined,
           }))}
           onPressAction={({ nativeEvent }) => {
-            const pace = Number(nativeEvent.event);
+            const pace = Number(nativeEvent.event) as SpeechPace;
             void responseSpeech.setPace(pace);
-            savePreferences({
-              responseSpeechSettings: {
-                ...voice.preferences.responseSpeechSettings,
-                [model]: { ...settings, pace },
-              },
-            });
+            savePreferences({ responseSpeechPace: pace });
           }}
         >
-          <ComposerToolbarButton accessibilityLabel="Reading pace" label={`${settings.pace}×`} />
+          <ComposerToolbarButton accessibilityLabel="Reading pace" label={`${currentPace}×`} />
         </ControlPillMenu>
         <ComposerToolbarButton
           accessibilityLabel="Stop reading"

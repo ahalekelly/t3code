@@ -168,12 +168,9 @@ to read from there. The paragraph being read is highlighted and kept on screen.
 Code blocks are announced rather than read. Removing your headphones pauses
 reading; resuming starts that paragraph again.
 
-Choose the voice in **Settings → Voice → Read aloud**. With an OpenAI API key
-stored, OpenAI reads by default, for about 1.5 cents per minute of audio; describe
-the delivery you want under **Delivery**. Pocket TTS (240 MB) and Supertonic 3
-(170 MB) run offline after a one-time download; keep the app open while it
-downloads, and delete the files from the same screen. Reading continues with the
-screen locked. Reading another response, leaving the thread, or starting dictation
+Reading uses OpenAI with the API key in **Settings → Voice**, for about 1.5 cents
+per minute of audio. Choose the voice and pace under **Read aloud**, and describe
+the delivery you want under **Delivery**. Reading continues with the screen locked. Reading another response, leaving the thread, or starting dictation
 stops playback.
 
 ## Commands and skills
