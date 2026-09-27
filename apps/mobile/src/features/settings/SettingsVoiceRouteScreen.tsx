@@ -12,17 +12,18 @@ import { ControlPillMenu } from "../../components/ControlPill";
 import { NativeStackScreenOptions } from "../../native/StackHeader";
 import { updateMobilePreferencesAtom } from "../../state/preferences";
 import { useVoiceSettings } from "../../state/voiceSettings";
-import { openAiApiKeyAtom, setOpenAiApiKeyAtom } from "../../state/voiceTranscription";
+import { setVoiceApiKeyAtom, voiceApiKeyAtom } from "../../state/voiceApiKeys";
 import {
   VOICE_TRANSCRIPTION_SOURCE_LABELS,
   type VoiceTranscriptionSource,
 } from "../../lib/voiceTranscriptionSources";
 import {
   DEFAULT_SPEECH_INSTRUCTIONS,
+  SPEECH_MODELS,
   SPEECH_PACES,
-  SPEECH_VOICES,
+  type SpeechModel,
   type SpeechPace,
-  type SpeechVoice,
+  type VoiceApiProvider,
 } from "../../lib/speechSettings";
 import { SettingsSwitchRow } from "./components/SettingsSwitchRow";
 import { SettingsSection } from "./components/SettingsSection";
@@ -30,16 +31,13 @@ import { SettingsSection } from "./components/SettingsSection";
 export function SettingsVoiceRouteScreen() {
   const navigation = useNavigation();
   const insets = useSafeAreaInsets();
-  const storedResult = useAtomValue(openAiApiKeyAtom);
-  const saveApiKey = useAtomSet(setOpenAiApiKeyAtom);
   const savePreferences = useAtomSet(updateMobilePreferencesAtom);
-  const storedKey = AsyncResult.isSuccess(storedResult) ? storedResult.value : null;
-  const [draft, setDraft] = useState<string | null>(null);
   const [instructionsDraft, setInstructionsDraft] = useState<string | null>(null);
 
   const voice = useVoiceSettings();
   const { preferences, speech } = voice;
   const selectedSource = voice.transcriptionSource;
+  const model = SPEECH_MODELS[speech.model];
 
   const commitInstructions = () => {
     if (instructionsDraft === null) return;
@@ -48,12 +46,6 @@ export function SettingsVoiceRouteScreen() {
       // Clearing the field restores the default delivery.
       savePreferences({ responseSpeechInstructions: instructionsDraft.trim() || undefined });
     }
-  };
-
-  const commitDraft = () => {
-    if (draft === null) return;
-    setDraft(null);
-    if (draft.trim() !== (storedKey ?? "")) saveApiKey(draft);
   };
 
   return (
@@ -105,21 +97,7 @@ export function SettingsVoiceRouteScreen() {
           </View>
         </SettingsSection>
         <SettingsSection title="OpenAI API key">
-          <View className="p-4">
-            <TextInput
-              accessibilityLabel="OpenAI API key"
-              autoCapitalize="none"
-              autoCorrect={false}
-              editable={AsyncResult.isSuccess(storedResult)}
-              onBlur={commitDraft}
-              onChangeText={setDraft}
-              onSubmitEditing={commitDraft}
-              placeholder="sk-..."
-              returnKeyType="done"
-              secureTextEntry
-              value={draft ?? storedKey ?? ""}
-            />
-          </View>
+          <ApiKeyField provider="openai" label="OpenAI API key" placeholder="sk-..." />
         </SettingsSection>
         <Text className="px-2 text-sm leading-normal text-foreground-muted">
           On-device transcription needs iOS 26 on a supported iPhone. OpenAI transcription uploads
@@ -129,13 +107,22 @@ export function SettingsVoiceRouteScreen() {
         {Platform.OS === "ios" ? (
           <SettingsSection title="Read aloud">
             <VoiceChoice
+              label="Model"
+              value={speech.model}
+              options={Object.entries(SPEECH_MODELS).map(([id, { label }]) => ({
+                id,
+                title: label,
+              }))}
+              onSelect={(id) => savePreferences({ responseSpeechModel: id as SpeechModel })}
+            />
+            <VoiceChoice
               label="Voice"
               value={speech.voice}
-              options={SPEECH_VOICES.map((voice) => ({
+              options={model.voices.map((voice) => ({
                 id: voice,
                 title: voice.charAt(0).toUpperCase() + voice.slice(1),
               }))}
-              onSelect={(voice) => savePreferences({ responseSpeechVoice: voice as SpeechVoice })}
+              onSelect={(voice) => savePreferences({ responseSpeechVoice: voice })}
             />
             <VoiceChoice
               label="Pace"
@@ -157,8 +144,8 @@ export function SettingsVoiceRouteScreen() {
               />
             </View>
             <Text className="px-4 pb-4 text-sm text-foreground-muted">
-              Describe how the voice should sound. Reading uses OpenAI with the API key above and
-              costs about 1.5 cents per minute of audio.
+              Describe how the voice should sound. Reading with {model.label} uses its API key and
+              costs about {model.centsPerMinute} cents per minute of audio.
             </Text>
             <SettingsSwitchRow
               icon="speaker.wave.2"
@@ -179,7 +166,51 @@ export function SettingsVoiceRouteScreen() {
             />
           </SettingsSection>
         ) : null}
+        {Platform.OS === "ios" ? (
+          <SettingsSection title="Gemini API key">
+            <ApiKeyField provider="gemini" label="Gemini API key" placeholder="AIza..." />
+          </SettingsSection>
+        ) : null}
       </ScrollView>
+    </View>
+  );
+}
+
+function ApiKeyField({
+  provider,
+  label,
+  placeholder,
+}: {
+  provider: VoiceApiProvider;
+  label: string;
+  placeholder: string;
+}) {
+  const storedResult = useAtomValue(voiceApiKeyAtom(provider));
+  const saveApiKey = useAtomSet(setVoiceApiKeyAtom(provider));
+  const storedKey = AsyncResult.isSuccess(storedResult) ? storedResult.value : null;
+  const [draft, setDraft] = useState<string | null>(null);
+
+  const commitDraft = () => {
+    if (draft === null) return;
+    setDraft(null);
+    if (draft.trim() !== (storedKey ?? "")) saveApiKey(draft);
+  };
+
+  return (
+    <View className="p-4">
+      <TextInput
+        accessibilityLabel={label}
+        autoCapitalize="none"
+        autoCorrect={false}
+        editable={AsyncResult.isSuccess(storedResult)}
+        onBlur={commitDraft}
+        onChangeText={setDraft}
+        onSubmitEditing={commitDraft}
+        placeholder={placeholder}
+        returnKeyType="done"
+        secureTextEntry
+        value={draft ?? storedKey ?? ""}
+      />
     </View>
   );
 }
