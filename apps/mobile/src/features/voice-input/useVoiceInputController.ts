@@ -85,7 +85,7 @@ export function useVoiceInputController(input: {
   readonly disabled?: boolean;
   readonly onChangeDraftMessage: (value: string) => void;
   readonly onChangeSelection: (selection: ComposerEditorSelection) => void;
-  readonly onSubmit: () => Promise<SpokenResponse | null>;
+  readonly onSubmit: () => Promise<SpokenResponse | undefined>;
 }) {
   const [state, setState] = useState<VoiceInputState>(INITIAL_STATE);
   const sendRequestedRef = useRef(false);

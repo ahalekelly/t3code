@@ -1186,15 +1186,15 @@ export function NewTaskDraftScreen(props: {
     [composerMenu, flow, selectedEnvironmentServerConfig],
   );
 
-  async function handleStart(): Promise<SpokenResponse | null> {
-    if (voiceInput.blocksSubmission || pendingPastedTextAttachmentCountRef.current > 0) return null;
+  async function handleStart(): Promise<SpokenResponse | undefined> {
+    if (voiceInput.blocksSubmission || pendingPastedTextAttachmentCountRef.current > 0) return;
     const selectedProject = flow.selectedProject;
     const draftKey = flow.draftKey;
     if (!selectedProject || !draftKey) {
-      return null;
+      return;
     }
     const draft = getComposerDraftSnapshot(draftKey);
-    if (appAtomRegistry.get(composerContextImportsAtom)[draftKey]) return null;
+    if (appAtomRegistry.get(composerContextImportsAtom)[draftKey]) return;
     // Read the latest explicit pick. Antigravity selections stay unchanged
     // when setup or a catalog change makes them unavailable.
     const modelSelection =
@@ -1213,7 +1213,7 @@ export function NewTaskDraftScreen(props: {
       flow.submitting ||
       (workspaceMode === "worktree" && !selectedBranchName)
     ) {
-      return null;
+      return;
     }
     if (
       environmentConnected &&
@@ -1223,7 +1223,7 @@ export function NewTaskDraftScreen(props: {
         "Antigravity model unavailable",
         "Set up Antigravity on web or desktop, or choose another model.",
       );
-      return null;
+      return;
     }
     // T3's own limits command is answered by the thread composer; a new task would
     // send it to the agent. A provider's same-named command, or a prompt carrying
@@ -1237,7 +1237,7 @@ export function NewTaskDraftScreen(props: {
         "Usage limits",
         "Send /usage-limits inside a thread, or open Settings → Usage → Limits.",
       );
-      return null;
+      return;
     }
     // A failed-send restore can leave the draft over the cap on purpose (it
     // never drops the user's files); starting anyway would upload everything
@@ -1247,13 +1247,13 @@ export function NewTaskDraftScreen(props: {
         "Too many attachments",
         `Remove attachments until there are at most ${PROVIDER_SEND_TURN_MAX_ATTACHMENTS}.`,
       );
-      return null;
+      return;
     }
 
     const contextBlockReason = composerContextSendBlockReason(draft.context);
     if (contextBlockReason) {
       Alert.alert("Too much context", contextBlockReason);
-      return null;
+      return;
     }
 
     const editingPendingTask = flow.editingPendingTask;
@@ -1279,7 +1279,7 @@ export function NewTaskDraftScreen(props: {
       currentCheckoutBranch: queuesInsteadOfStarting ? null : flow.currentCheckoutBranchName,
     });
     if (!message) {
-      return null;
+      return;
     }
     if (!queuesInsteadOfStarting) {
       // Arm the lock-screen card before the async thread creation: backgrounding
@@ -1302,7 +1302,7 @@ export function NewTaskDraftScreen(props: {
         "Could not queue task",
         error instanceof Error ? error.message : "The task could not be saved to the outbox.",
       );
-      return null;
+      return;
     } finally {
       flow.setSubmitting(false);
     }
