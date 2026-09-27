@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import { markdownSpeechText } from "./markdownSpeechText";
+import { markdownSpeechText, speechBlocks, unsentSpeechBlocks } from "./markdownSpeechText";
 
 describe("markdownSpeechText", () => {
   it("reads formatted text, link labels and image descriptions without their markup or URLs", () => {
@@ -22,7 +22,7 @@ describe("markdownSpeechText", () => {
     ).toBe("Read the guide A diagram\n");
   });
 
-  it("separates headings, list items, code, and table cells for speech", () => {
+  it("separates headings, list items, code, and table cells for speech, summarizing code", () => {
     expect(
       markdownSpeechText({
         type: "document",
@@ -39,7 +39,7 @@ describe("markdownSpeechText", () => {
               },
             ],
           },
-          { type: "code_block", language: "sh", content: "echo hello" },
+          { type: "code_block", language: "sh", content: "echo hello\necho bye\n" },
           {
             type: "table_row",
             children: [
@@ -49,7 +49,7 @@ describe("markdownSpeechText", () => {
           },
         ],
       }),
-    ).toBe("Steps\nFirst\nSecond\necho hello\nName; Value;\n");
+    ).toBe("Steps\nFirst\nSecond\nCode block, 2 lines.\nName; Value;\n");
   });
 
   it("omits HTML tags and separators while preserving inline code and explicit breaks", () => {
@@ -66,5 +66,42 @@ describe("markdownSpeechText", () => {
         ],
       }),
     ).toBe("foo_bar\nDone & dusted.");
+  });
+
+  it("keeps one entry per top-level block so indices match the rendered message", () => {
+    const text = (content: string) => ({ type: "text" as const, content });
+    expect(
+      speechBlocks({
+        type: "document",
+        children: [
+          { type: "heading", children: [text("Plan")] },
+          { type: "paragraph", children: [text("First paragraph.")] },
+          { type: "horizontal_rule" },
+          {
+            type: "list",
+            children: [
+              { type: "list_item", children: [text("one")] },
+              { type: "list_item", children: [text("two")] },
+            ],
+          },
+          { type: "code_block", language: "ts", content: "const a = 1;\n" },
+        ],
+      }),
+    ).toEqual(["Plan", "First paragraph.", "", "one\ntwo", "Code block, 1 line."]);
+  });
+});
+
+describe("unsentSpeechBlocks", () => {
+  it("holds back the growing last block while streaming", () => {
+    expect(unsentSpeechBlocks([], ["One.", "Tw"], true)).toEqual(["One."]);
+    expect(unsentSpeechBlocks(["One."], ["One.", "Two.", "Thr"], true)).toEqual(["Two."]);
+    expect(unsentSpeechBlocks(["One.", "Two."], ["One.", "Two.", "Three."], false)).toEqual([
+      "Three.",
+    ]);
+  });
+
+  it("waits while a reparse changes blocks that were already sent", () => {
+    expect(unsentSpeechBlocks(["One."], ["One. More", "Two.", "Three"], true)).toEqual([]);
+    expect(unsentSpeechBlocks(["One."], ["One. More", "Two."], false)).toEqual(["Two."]);
   });
 });

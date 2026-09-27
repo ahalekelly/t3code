@@ -1,29 +1,100 @@
 import { Alert } from "react-native";
 import { parseMarkdownWithOptions } from "react-native-nitro-markdown/headless";
+import { useSyncExternalStore } from "react";
 
+import type { SpeechRequest } from "../state/voiceSettings";
 import { autoReadResponse } from "./autoReadResponse";
-import { markdownSpeechText } from "./markdownSpeechText";
+import { speechBlocks, unsentSpeechBlocks } from "./markdownSpeechText";
 import { nativeSpeech } from "./nativeSpeech";
-import { SPEECH_MODELS, type SpeechOptions } from "./speechModels";
-import { SerializedAsyncQueue } from "./serialized-async-queue";
+import { SPEECH_MODELS } from "./speechModels";
 
 export type SpokenResponse = { readonly scope: string; readonly messageId: string };
+/** `block` indexes the response's top-level Markdown blocks; null until audio starts. */
+export type SpeechSnapshot = {
+  readonly response: SpokenResponse;
+  readonly block: number | null;
+  readonly paused: boolean;
+};
 
-let activeResponse: SpokenResponse | null = null;
+type Reading = {
+  readonly response: SpokenResponse;
+  markdown: string;
+  streaming: boolean;
+  started: boolean;
+  sent: readonly string[];
+};
+
+let snapshot: SpeechSnapshot | null = null;
+let reading: Reading | null = null;
+let listening = false;
 const listeners = new Set<() => void>();
-const queue = new SerializedAsyncQueue();
 
-function setActiveResponse(response: SpokenResponse | null) {
-  activeResponse = response;
+function setSnapshot(next: SpeechSnapshot | null) {
+  snapshot = next;
   for (const listener of listeners) listener();
+}
+
+function isResponse(a: SpokenResponse, b: SpokenResponse) {
+  return a.scope === b.scope && a.messageId === b.messageId;
+}
+
+function listen() {
+  if (listening) return;
+  listening = true;
+  nativeSpeech().addListener("onSpeechState", (state) => {
+    if (snapshot) setSnapshot({ ...snapshot, ...state });
+  });
+}
+
+function blocksOf(markdown: string) {
+  return speechBlocks(parseMarkdownWithOptions(markdown, { gfm: true, html: true, math: false }));
+}
+
+/** Sends the blocks that are ready, and ends the input once the text is final. */
+function flush(current: Reading) {
+  const blocks = unsentSpeechBlocks(current.sent, blocksOf(current.markdown), current.streaming);
+  if (blocks.length > 0) {
+    current.sent = [...current.sent, ...blocks];
+    void nativeSpeech().append(blocks);
+  }
+  if (!current.streaming) void nativeSpeech().finish();
+}
+
+function confirmDownload(model: keyof typeof SPEECH_MODELS) {
+  const { label, download } = SPEECH_MODELS[model];
+  if (!download) return Promise.resolve(true);
+  return new Promise<boolean>((resolve) => {
+    Alert.alert(
+      "Download offline voice?",
+      `${label} needs model and voice files (up to ${download.size}). Only missing files will download. Keep the app open while it downloads. Your responses stay on this device.\n\n${download.attribution}`,
+      [
+        { text: "Cancel", style: "cancel", onPress: () => resolve(false) },
+        { text: "Download", onPress: () => resolve(true) },
+      ],
+      { cancelable: true, onDismiss: () => resolve(false) },
+    );
+  });
+}
+
+export function playCue(cue: "sent" | "attention" | "error") {
+  void nativeSpeech()
+    .playCue(cue)
+    .catch((error: unknown) => console.error("Failed to play a cue", error));
+}
+
+/** Plays a tone and speaks the message in the system voice, which needs no network. */
+export function announce(text: string, cue: "attention" | "error") {
+  void nativeSpeech()
+    .playCue(cue)
+    .then(() => nativeSpeech().announce(text))
+    .catch((error: unknown) => console.error("Failed to announce", error));
 }
 
 export function reportResponseSpeechError(error: unknown) {
   console.error("Failed to read response aloud", error);
-  Alert.alert(
-    "Could not read response aloud",
-    error instanceof Error ? error.message : "Please try again.",
-  );
+  const message = error instanceof Error ? error.message : "Please try again.";
+  announce(`Could not read the response aloud. ${message}`, "error");
+  Alert.alert("Could not read response aloud", message);
 }
 
 export const responseSpeech = {
@@ -33,74 +104,90 @@ export const responseSpeech = {
       listeners.delete(listener);
     };
   },
-  getSnapshot: () => activeResponse,
-  stop() {
-    setActiveResponse(null);
-    return queue.run(() => nativeSpeech.stop());
-  },
-  rewind() {
-    return queue.run(() => nativeSpeech.rewind()).catch(reportResponseSpeechError);
-  },
-  async toggle({ scope, messageId }: SpokenResponse, markdown: string, options: SpeechOptions) {
-    const response = { scope, messageId };
-    const previous = activeResponse;
-    const stopping = responseSpeech.stop();
-    const stoppingCurrent =
-      previous?.scope === response.scope && previous.messageId === response.messageId;
-    if (!stoppingCurrent) setActiveResponse(response);
+  getSnapshot: () => snapshot,
 
+  /**
+   * Reads a response aloud. While `streaming`, pass later text to `update`; each
+   * block is read once the next one starts, and the rest once streaming ends.
+   */
+  async read(
+    response: SpokenResponse,
+    markdown: string,
+    streaming: boolean,
+    request: SpeechRequest,
+    title: string,
+  ) {
+    listen();
+    const current: Reading = { response, markdown, streaming, started: false, sent: [] };
+    reading = current;
+    setSnapshot({ response, block: null, paused: false });
+    const finish = () => {
+      if (reading !== current) return false;
+      reading = null;
+      setSnapshot(null);
+      return true;
+    };
     try {
-      await stopping;
-      if (stoppingCurrent || activeResponse !== response) return;
-
-      const text = markdownSpeechText(
-        parseMarkdownWithOptions(markdown, { gfm: true, html: true, math: false }),
-      ).trim();
-      if (!text) throw new Error("This response has no readable text.");
-
-      if (!nativeSpeech.isVoiceDownloaded(options)) {
-        const voice = SPEECH_MODELS[options.model];
-        const download = await new Promise<boolean>((resolve) => {
-          Alert.alert(
-            "Download offline voice?",
-            `${voice.label} needs model and voice files (up to ${voice.download}). Only missing files will download. Keep the app open while it downloads. Your responses stay on this device.\n\n${voice.attribution}`,
-            [
-              { text: "Cancel", style: "cancel", onPress: () => resolve(false) },
-              { text: "Download", onPress: () => resolve(true) },
-            ],
-            { cancelable: true, onDismiss: () => resolve(false) },
-          );
-        });
-        if (activeResponse !== response) return;
+      if (!streaming && blocksOf(markdown).every((block) => block === "")) {
+        throw new Error("This response has no readable text.");
+      }
+      const options = { ...request, title };
+      if (!nativeSpeech().isVoiceDownloaded(options)) {
+        const download = await confirmDownload(request.model);
+        if (reading !== current) return;
         if (!download) {
-          autoReadResponse.cancel(scope);
-          setActiveResponse(null);
+          autoReadResponse.cancel(response.scope);
+          finish();
           return;
         }
       }
-
-      // A previous reading can finish after another response starts.
-      const finish = () => {
-        if (activeResponse === response) setActiveResponse(null);
-      };
-      void nativeSpeech.speak(text, options).then(
-        (completed) => {
-          if (activeResponse !== response) return;
-          if (!completed) autoReadResponse.cancel(scope);
-          finish();
-        },
-        (error: unknown) => {
-          if (activeResponse !== response) return;
-          autoReadResponse.cancel(scope);
-          finish();
-          reportResponseSpeechError(error);
-        },
-      );
+      const done = nativeSpeech().start(options);
+      current.started = true;
+      flush(current);
+      const completed = await done;
+      if (!completed && reading === current) autoReadResponse.cancel(response.scope);
+      finish();
     } catch (error) {
-      if (activeResponse !== response) return;
-      autoReadResponse.cancel(scope);
-      setActiveResponse(null);
+      if (reading !== current) return;
+      autoReadResponse.cancel(response.scope);
+      finish();
       reportResponseSpeechError(error);
     }
   },
+
+  /** Passes newer text of a streaming response to its reading. */
+  update(response: SpokenResponse, markdown: string, streaming: boolean) {
+    const current = reading;
+    if (!current || !isResponse(current.response, response) || !current.streaming) return;
+    current.markdown = markdown;
+    current.streaming = streaming;
+    if (current.started) flush(current);
+  },
+
+  toggle(response: SpokenResponse, markdown: string, request: SpeechRequest, title: string) {
+    if (snapshot && isResponse(snapshot.response, response)) return responseSpeech.stop();
+    return responseSpeech.read(response, markdown, false, request, title);
+  },
+
+  stop() {
+    reading = null;
+    setSnapshot(null);
+    return nativeSpeech().stop().catch(reportResponseSpeechError);
+  },
+  rewind: () => nativeSpeech().rewind().catch(reportResponseSpeechError),
+  nextBlock: () => nativeSpeech().nextBlock().catch(reportResponseSpeechError),
+  seekToBlock: (block: number) =>
+    nativeSpeech().seekToBlock(block).catch(reportResponseSpeechError),
+  pause: () => nativeSpeech().pause().catch(reportResponseSpeechError),
+  resume: () => nativeSpeech().resume().catch(reportResponseSpeechError),
+  setPace: (pace: number) => nativeSpeech().setPace(pace).catch(reportResponseSpeechError),
 };
+
+/** The block being read in this message: undefined when it is not being read, null before audio starts. */
+export function useSpokenBlock(scope: string, messageId: string) {
+  return useSyncExternalStore(responseSpeech.subscribe, () =>
+    snapshot && snapshot.response.scope === scope && snapshot.response.messageId === messageId
+      ? snapshot.block
+      : undefined,
+  );
+}

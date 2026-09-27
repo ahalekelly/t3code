@@ -8,23 +8,19 @@ import {
 } from "expo-audio";
 import { File } from "expo-file-system";
 import { activateKeepAwakeAsync, deactivateKeepAwake } from "expo-keep-awake";
-import { useAtomValue } from "@effect/atom-react";
 import { useFocusEffect } from "@react-navigation/native";
-import { AsyncResult } from "effect/unstable/reactivity";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { Alert, AppState, Platform } from "react-native";
 import { useSharedValue } from "react-native-reanimated";
 import { autoReadResponse } from "../../lib/autoReadResponse";
-import { responseSpeech, type SpokenResponse } from "../../lib/responseSpeech";
+import { announce, playCue, responseSpeech, type SpokenResponse } from "../../lib/responseSpeech";
 
 import type { ComposerEditorSelection } from "../../components/ComposerEditor";
 import { getLocalVoiceTranscriber } from "../../native/voiceTranscription";
 import { getNativeShowcaseScene } from "../showcase/nativeShowcaseScene";
-import { mobilePreferencesAtom } from "../../state/preferences";
-import { openAiApiKeyAtom } from "../../state/voiceTranscription";
+import { useVoiceSettings } from "../../state/voiceSettings";
 import { withDictationDisclaimer } from "./dictationDisclaimer";
 import { createOpenAiVoiceTranscriber } from "./openAiVoiceTranscriber";
-import { DEFAULT_VOICE_TRANSCRIPTION_SOURCE } from "./voiceTranscriptionSources";
 import {
   VoiceInputController,
   VoiceTranscriptionError,
@@ -111,16 +107,12 @@ export function useVoiceInputController(input: {
   }
   const latestInputRef = useRef(input);
   latestInputRef.current = input;
-  const openAiApiKeyResult = useAtomValue(openAiApiKeyAtom);
-  const openAiApiKey = AsyncResult.isSuccess(openAiApiKeyResult) ? openAiApiKeyResult.value : null;
-  const preferencesResult = useAtomValue(mobilePreferencesAtom);
-  const readRepliesAloud =
-    Platform.OS === "ios" &&
-    (!AsyncResult.isSuccess(preferencesResult) ||
-      (preferencesResult.value.readVoiceRepliesAloud ?? true));
-  const transcriptionSource = AsyncResult.isSuccess(preferencesResult)
-    ? (preferencesResult.value.voiceTranscriptionSource ?? DEFAULT_VOICE_TRANSCRIPTION_SOURCE)
-    : DEFAULT_VOICE_TRANSCRIPTION_SOURCE;
+  const voice = useVoiceSettings();
+  const openAiApiKey = voice.apiKey;
+  const readRepliesAloud = Platform.OS === "ios" && (!voice.loaded || voice.readRepliesAloud);
+  const readRepliesAloudRef = useRef(readRepliesAloud);
+  readRepliesAloudRef.current = readRepliesAloud;
+  const transcriptionSource = voice.transcriptionSource;
   const transcriptionConfig = { source: transcriptionSource, apiKey: openAiApiKey };
   const transcriptionConfigRef = useRef(transcriptionConfig);
   transcriptionConfigRef.current = transcriptionConfig;
@@ -163,7 +155,10 @@ export function useVoiceInputController(input: {
       },
       commitDraft: (text, selection) => {
         const current = latestInputRef.current;
-        const committed = withDictationDisclaimer(text);
+        const committed = withDictationDisclaimer(
+          text,
+          sendRequestedRef.current && readRepliesAloudRef.current,
+        );
         // The disclaimer lands after the caret, so the controller's selection holds.
         current.onChangeSelection(selection);
         current.onChangeDraftMessage(committed);
@@ -175,6 +170,9 @@ export function useVoiceInputController(input: {
       onStateChange: (next) => {
         // Settling without a commit (cancel, empty transcript, stale draft,
         // failed transcription) must not leave a later manual finish armed.
+        if (next.phase === "error" && sendRequestedRef.current && readRepliesAloudRef.current) {
+          announce(`The voice message was not sent. ${next.error ?? ""}`, "error");
+        }
         if (next.phase === "error" || (next.phase === "idle" && !pendingSendTextRef.current)) {
           sendRequestedRef.current = false;
         }
@@ -275,13 +273,18 @@ export function useVoiceInputController(input: {
     void latestInputRef.current
       .onSubmit()
       .then((prompt) => {
-        if (prompt && readRepliesAloud) autoReadResponse.request(prompt);
+        if (!readRepliesAloud) return;
+        if (!prompt) {
+          announce("The voice message was not sent.", "error");
+          return;
+        }
+        playCue("sent");
+        autoReadResponse.request(prompt);
       })
       .catch((error: unknown) => {
-        Alert.alert(
-          "Could not send voice message",
-          error instanceof Error ? error.message : "Please try again.",
-        );
+        const message = error instanceof Error ? error.message : "Please try again.";
+        if (readRepliesAloud) announce(`The voice message was not sent. ${message}`, "error");
+        Alert.alert("Could not send voice message", message);
       });
   }, [input.draftMessage, latestInputRef, pendingSendTextRef, readRepliesAloud, state.phase]);
 

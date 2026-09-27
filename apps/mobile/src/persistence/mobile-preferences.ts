@@ -57,6 +57,8 @@ export interface Preferences {
   readonly voiceTranscriptionSource?: VoiceTranscriptionSource;
   readonly responseSpeechSettings?: Partial<Record<SpeechModel, SpeechSettings>>;
   readonly responseSpeechModel?: SpeechModel;
+  /** Delivery prompt for OpenAI read-aloud; unset uses the default. */
+  readonly responseSpeechInstructions?: string;
   readonly readVoiceRepliesAloud?: boolean;
   readonly readThinkingUpdatesAloud?: boolean;
 }
@@ -122,6 +124,7 @@ function sanitizePreferences(parsed: Preferences): Preferences {
     voiceTranscriptionSource?: VoiceTranscriptionSource;
     responseSpeechSettings?: Partial<Record<SpeechModel, SpeechSettings>>;
     responseSpeechModel?: SpeechModel;
+    responseSpeechInstructions?: string;
     readVoiceRepliesAloud?: boolean;
     readThinkingUpdatesAloud?: boolean;
   } = {};
@@ -233,6 +236,9 @@ function sanitizePreferences(parsed: Preferences): Preferences {
       if (value !== undefined) settings[model] = validateSpeechSettings(model, value);
     }
     preferences.responseSpeechSettings = settings;
+  }
+  if (typeof parsed.responseSpeechInstructions === "string") {
+    preferences.responseSpeechInstructions = parsed.responseSpeechInstructions;
   }
   if (typeof parsed.readVoiceRepliesAloud === "boolean") {
     preferences.readVoiceRepliesAloud = parsed.readVoiceRepliesAloud;

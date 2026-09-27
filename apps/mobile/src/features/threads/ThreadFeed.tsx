@@ -85,7 +85,7 @@ import {
 } from "react-native";
 import { FilePreviewModal, type FilePreviewSource } from "../../components/FilePreviewModal";
 import { isPdfFile } from "../../lib/filePreview";
-import { flattenThemeColor } from "../../lib/mobileTheme";
+import { flattenThemeColor, themeColorWithAlpha } from "../../lib/mobileTheme";
 import { PresentationSource } from "../../components/NativePresentation";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Animated, { FadeIn, type SharedValue } from "react-native-reanimated";
@@ -121,7 +121,7 @@ import {
 import { CopyTextButton } from "../../components/CopyTextButton";
 import { autoReadResponse } from "../../lib/autoReadResponse";
 import { ReadResponseButton } from "../../components/ReadResponseButton";
-import { reportResponseSpeechError, responseSpeech } from "../../lib/responseSpeech";
+import { responseSpeech, useSpokenBlock } from "../../lib/responseSpeech";
 import { parseReviewCommentMessageSegments } from "../review/reviewCommentSelection";
 import type { ReviewDiffTheme } from "../review/shikiReviewHighlighter";
 import {
@@ -255,6 +255,8 @@ export interface ThreadFeedProps {
   readonly onEditPendingMessage: (message: QueuedThreadMessage) => void;
   readonly environmentId: EnvironmentId;
   readonly threadId: ThreadId;
+  /** Names the reading on the Lock Screen and car display. */
+  readonly threadTitle: string;
   readonly workspaceRoot?: string | null;
   readonly feed: ReadonlyArray<ThreadFeedEntry>;
   readonly contentPresentation: ThreadContentPresentation;
@@ -624,6 +626,8 @@ interface MarkdownStyleSet {
 
 const failedMarkdownFaviconHosts = new Set<string>();
 const MarkdownLinkLabelContext = createContext(false);
+/** Scrolls the paragraph being read into view. */
+const RevealSpokenBlockContext = createContext<(view: View) => void>(() => {});
 const markdownLinkStyles = StyleSheet.create({
   inlineIcon: {
     width: 14,
@@ -783,6 +787,8 @@ interface MarkdownLinkHandlers {
 }
 
 const AssistantMarkdownContent = memo(function AssistantMarkdownContent(props: {
+  /** Set for messages that can be read aloud, so reading can highlight and seek blocks. */
+  readonly spoken?: { readonly scope: string; readonly messageId: string };
   readonly markdown: string;
   readonly markdownStyles: MarkdownStyleSet;
   readonly linkHandlers: MarkdownLinkHandlers;
@@ -793,6 +799,22 @@ const AssistantMarkdownContent = memo(function AssistantMarkdownContent(props: {
   const segments = useMemo(
     () => splitCodexArtifactTemplateMarkdown(props.markdown),
     [props.markdown],
+  );
+  const spokenBlock = useSpokenBlock(props.spoken?.scope ?? "", props.spoken?.messageId ?? "");
+  const revealBlock = useContext(RevealSpokenBlockContext);
+  const highlightColor = themeColorWithAlpha(useUniwindTheme()["--color-focus"], 0.14);
+  // Artifact templates split the message, so their block indices would not match the reading.
+  const speech = useMemo(
+    () =>
+      spokenBlock === undefined || segments.length !== 1
+        ? undefined
+        : {
+            activeBlock: spokenBlock,
+            highlightColor,
+            onPressBlock: (block: number) => void responseSpeech.seekToBlock(block),
+            revealBlock,
+          },
+    [highlightColor, revealBlock, segments.length, spokenBlock],
   );
 
   return segments.map((segment) => {
@@ -816,6 +838,7 @@ const AssistantMarkdownContent = memo(function AssistantMarkdownContent(props: {
         textStyle={props.markdownStyles.nativeTextStyle}
         {...props.linkHandlers}
         renderImage={props.renderImage}
+        speech={speech}
       />
     ) : (
       <Markdown
@@ -1359,6 +1382,7 @@ function renderFeedEntry(
     ThreadFeedProps,
     | "environmentId"
     | "threadId"
+    | "threadTitle"
     | "onUseArtifactTemplate"
     | "skills"
     | "dispatchingMessageId"
@@ -1702,6 +1726,14 @@ function renderFeedEntry(
         {renderedText.trim().length > 0 ? (
           <MarkdownImageAvailableWidthContext value={props.markdownContentWidth}>
             <AssistantMarkdownContent
+              spoken={
+                Platform.OS === "ios"
+                  ? {
+                      scope: scopedThreadKey(props.environmentId, props.threadId),
+                      messageId: message.id,
+                    }
+                  : undefined
+              }
               markdown={renderedText}
               markdownStyles={styles}
               linkHandlers={props.markdownLinkHandlers}
@@ -1744,14 +1776,15 @@ function renderFeedEntry(
               accessibilityLabel="Copy message"
               text={renderedText}
               tintColor={iconSubtleColor}
-              buttonSize={28}
-              iconSize={13}
+              buttonSize={40}
+              iconSize={20}
             />
           ) : null}
           {Platform.OS === "ios" && renderedText.trim().length > 0 ? (
             <ReadResponseButton
               scope={scopedThreadKey(props.environmentId, props.threadId)}
               messageId={message.id}
+              title={props.threadTitle}
               text={renderedText}
               canStart={showAssistantMeta}
               tintColor={iconSubtleColor}
@@ -1973,9 +2006,7 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
       const scope = scopedThreadKey(props.environmentId, props.threadId);
       return () => {
         autoReadResponse.cancel(scope);
-        if (responseSpeech.getSnapshot()?.scope === scope) {
-          void responseSpeech.stop().catch(reportResponseSpeechError);
-        }
+        if (responseSpeech.getSnapshot()?.response.scope === scope) void responseSpeech.stop();
       };
     }, [props.environmentId, props.threadId]),
   );
@@ -2786,6 +2817,7 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
           {renderFeedEntry(info, {
             environmentId: props.environmentId,
             threadId: props.threadId,
+            threadTitle: props.threadTitle,
             dispatchingMessageId: props.dispatchingMessageId,
             onEditPendingMessage: props.onEditPendingMessage,
             copiedRowId,
@@ -2861,11 +2893,31 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
       onToggleWorkRow,
       props.environmentId,
       props.threadId,
+      props.threadTitle,
       props.onUseArtifactTemplate,
       props.skills,
       renderMarkdownImage,
       renderViewedImage,
     ],
+  );
+
+  // Keep the paragraph being read on screen unless the user is scrolling.
+  const listFrameRef = useRef<View>(null);
+  const revealSpokenBlock = useCallback(
+    (view: View) => {
+      const list = props.listRef.current;
+      if (!list || !listFrameRef.current || userScrollSessionRef.current) return;
+      listFrameRef.current.measureInWindow((_listX, listY, _listWidth, listHeight) => {
+        view.measureInWindow((_x, y, _width, height) => {
+          const top = listY + anchorTopInset + 12;
+          const bottom = listY + listHeight - bottomContentInset - 12;
+          if (y >= top && (y + height <= bottom || y - top < 1)) return;
+          // A block taller than the view shows from its start.
+          void list.scrollToOffset({ offset: list.getState().scroll + y - top, animated: true });
+        });
+      });
+    },
+    [anchorTopInset, bottomContentInset, props.listRef],
   );
 
   if (props.contentPresentation.kind === "unavailable" && props.queuedMessages.length === 0) {
@@ -2883,151 +2935,157 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
   return (
     <PresentationSource identifier={fileShareSourceIdentifier} style={{ flex: 1 }}>
       <View className="flex-1" onLayout={handleViewportLayout}>
-        <View className="flex-1">
-          <KeyboardAwareLegendList
-            ref={props.listRef}
-            // The empty↔filled key remounts the list when messages first
-            // arrive. LegendList's maintainScrollAtEnd calls scrollToEnd(),
-            // which is blind to UIKit's adjustedContentInset — inserting into
-            // an already-attached list under a transparent header can pin
-            // short content at offset 0 (one header-height too high). A fresh
-            // mount positions during attach, where UIKit applies the inset.
-            key={listMountKey}
-            style={{ flex: 1 }}
-            // RN 0.81+ drops touches inside the contentInset area
-            // (facebook/react-native#54123); the anchored end space after a send
-            // is pure inset, so without this the blank region can't be scrolled.
-            applyWorkaroundForContentInsetHitTestBug
-            contentInsetAdjustmentBehavior={usesNativeAutomaticInsets ? "automatic" : "never"}
-            automaticallyAdjustsScrollIndicatorInsets={usesNativeAutomaticInsets}
-            {...(usesNativeAutomaticInsets
-              ? {
-                  // Do NOT pass a manual `contentInset` here. Like the Home
-                  // ScrollView, we rely purely on `contentInsetAdjustmentBehavior:
-                  // "automatic"` so UIKit derives the top inset from the transparent
-                  // header. A manual contentInset (which LegendList consumes into its
-                  // own layout math) collapses the scroll view's adjustedContentInset
-                  // top to 0, leaving the iOS 26/27 scroll-edge effect no region to
-                  // render into — which is why the header blur was missing on threads.
-                  scrollIndicatorInsets: { top: 0, left: 0, right: 0, bottom: 0 },
-                }
-              : { scrollIndicatorInsets: { top: topContentInset, bottom: 0 } })}
-            {...(anchoredEndSpace ? { anchoredEndSpace } : {})}
-            // Patched LegendList prop (patches/@legendapp__list@3.3.5.patch):
-            // lets its scroll math clamp programmatic scrolls to -headerInset
-            // instead of 0, so initialScrollAtEnd/maintainScrollAtEnd on short
-            // content rest below the transparent header rather than at frame top.
-            contentInsetStartAdjustment={usesNativeAutomaticInsets ? anchorTopInset : 0}
-            contentInsetEndAdjustment={props.contentInsetEndAdjustment}
-            // UIKit's automatic behavior adds the safe-area bottom on top of the
-            // raw contentInset the keyboard integration writes. The detail screen
-            // under-reports the composer inset by this amount (see
-            // ThreadDetailScreen); this tells LegendList's scroll math about the
-            // extra so programmatic end scrolls land at the true resting offset.
-            contentInsetEndStaticAdjustment={usesNativeAutomaticInsets ? insets.bottom : 0}
-            // Android: the composer overlay only exists as the keyboard
-            // integration's animated bottom padding, which the list's scroll
-            // math cannot see until the inset reports above land — and those
-            // arrive via runOnJS, racing the remounted list's one-shot initial
-            // scroll-at-end. Seed the estimated overlay height as a declarative
-            // contentInset floor: LegendList consumes it in JS math only
-            // (Android's ScrollView has no native contentInset prop) and the
-            // first reported override REPLACES it instead of adding to it.
-            // Not on iOS: there the prop would reach UIKit and inset natively
-            // on top of the animated padding.
-            {...(initialContentInset ? { contentInset: initialContentInset } : {})}
-            // The keyboard integration's offset math (end pinning, max scroll)
-            // must add the same UIKit-added extra, or its keyboard-open end
-            // targets land one safe-area short of the true resting offset.
-            adjustedInsetCompensation={usesNativeAutomaticInsets ? insets.bottom : 0}
-            freeze={props.freeze}
-            // Follow the measured end immediately. Animating toward an estimated
-            // end races row measurement when a pending message is acknowledged.
-            maintainScrollAtEnd={
-              disclosureToggleSettling || !endFollowEnabled
-                ? false
-                : {
-                    animated: false,
-                    on: {
-                      dataChange: true,
-                      itemLayout: true,
-                      layout: true,
-                    },
+        <View ref={listFrameRef} className="flex-1">
+          <RevealSpokenBlockContext value={revealSpokenBlock}>
+            <KeyboardAwareLegendList
+              ref={props.listRef}
+              // The empty↔filled key remounts the list when messages first
+              // arrive. LegendList's maintainScrollAtEnd calls scrollToEnd(),
+              // which is blind to UIKit's adjustedContentInset — inserting into
+              // an already-attached list under a transparent header can pin
+              // short content at offset 0 (one header-height too high). A fresh
+              // mount positions during attach, where UIKit applies the inset.
+              key={listMountKey}
+              style={{ flex: 1 }}
+              // RN 0.81+ drops touches inside the contentInset area
+              // (facebook/react-native#54123); the anchored end space after a send
+              // is pure inset, so without this the blank region can't be scrolled.
+              applyWorkaroundForContentInsetHitTestBug
+              contentInsetAdjustmentBehavior={usesNativeAutomaticInsets ? "automatic" : "never"}
+              automaticallyAdjustsScrollIndicatorInsets={usesNativeAutomaticInsets}
+              {...(usesNativeAutomaticInsets
+                ? {
+                    // Do NOT pass a manual `contentInset` here. Like the Home
+                    // ScrollView, we rely purely on `contentInsetAdjustmentBehavior:
+                    // "automatic"` so UIKit derives the top inset from the transparent
+                    // header. A manual contentInset (which LegendList consumes into its
+                    // own layout math) collapses the scroll view's adjustedContentInset
+                    // top to 0, leaving the iOS 26/27 scroll-edge effect no region to
+                    // render into — which is why the header blur was missing on threads.
+                    scrollIndicatorInsets: { top: 0, left: 0, right: 0, bottom: 0 },
                   }
-            }
-            maintainVisibleContentPosition={
-              endFollowEnabled && !disclosureToggleSettling ? false : maintainVisibleContentPosition
-            }
-            data={presentedFeed}
-            extraData={listAppearanceData}
-            renderItem={renderItem}
-            viewabilityConfig={THREAD_MEDIA_VIEWABILITY_CONFIG}
-            keyExtractor={(entry) => entry.id}
-            getItemType={(entry) =>
-              entry.type === "message" ? `message:${entry.message.role}` : entry.type
-            }
-            getFixedItemSize={getFixedItemSize}
-            // Virtualized rows must move with their measurements. Native layout
-            // transitions can retain stale positions during sync, even at duration 0.
-            onItemSizeChanged={handleItemSizeChanged}
-            // Measure rows well before they scroll into view so estimate→actual
-            // corrections land offscreen instead of under the user's finger.
-            drawDistance={500}
-            keyboardShouldPersistTaps="always"
-            keyboardDismissMode="none"
-            keyboardLiftBehavior="whenAtEnd"
-            // Seed the list's scroll math with the real viewport before its own
-            // onLayout: the empty→filled remount can then tell at mount that
-            // short content underflows the viewport and skip programmatic
-            // positioning entirely (any offset write during screen attach races
-            // UIKit's adjustedContentInset application and lands high or low).
-            {...(viewportHeight > 0 && viewportWidth > 0
-              ? { estimatedListSize: { height: viewportHeight, width: viewportWidth } }
-              : {})}
-            // RN's native scrollTo command clamps targets to a floor of
-            // -contentInset.top using the RAW inset — under automatic insets the
-            // header inset only exists in adjustedContentInset, so scrolls to
-            // negative offsets (content top below the transparent header) get
-            // clamped to 0. This prop disables that clamp; UIKit still bounces
-            // user overscroll back to the adjusted rest position.
-            scrollToOverflowEnabled
-            estimatedItemSize={180}
-            // Chat-style bottom alignment: when a thread is shorter than the
-            // viewport, pad above the content so messages rest just above the
-            // composer instead of under the header. No effect on threads that
-            // overflow the viewport (the padding clamps to zero).
-            alignItemsAtEnd
-            initialScrollAtEnd
-            onScroll={handleScroll}
-            onScrollBeginDrag={handleScrollBeginDrag}
-            onScrollEndDrag={handleScrollEndDrag}
-            onMomentumScrollBegin={handleMomentumScrollBegin}
-            onMomentumScrollEnd={handleMomentumScrollEnd}
-            scrollEventThrottle={16}
-            ListHeaderComponent={
-              <>
-                {usesNativeAutomaticInsets ? null : <View style={{ height: topContentInset }} />}
-                {setupAnchorIndex < 0 && props.worktreeSetup ? (
-                  <WorktreeSetupCard key={props.threadId} {...props.worktreeSetup} />
-                ) : null}
-                {props.loadEarlier != null ? (
-                  <Pressable
-                    onPress={props.loadEarlier.onLoadEarlier}
-                    disabled={props.loadEarlier.loading}
-                    className="items-center py-2"
-                  >
-                    <Text className="text-xs text-foreground-secondary">
-                      {props.loadEarlier.loading ? "Loading earlier turns…" : "Load earlier turns"}
-                    </Text>
-                  </Pressable>
-                ) : null}
-              </>
-            }
-            contentContainerStyle={{
-              paddingTop: 12,
-              paddingHorizontal: contentHorizontalPadding,
-            }}
-          />
+                : { scrollIndicatorInsets: { top: topContentInset, bottom: 0 } })}
+              {...(anchoredEndSpace ? { anchoredEndSpace } : {})}
+              // Patched LegendList prop (patches/@legendapp__list@3.3.5.patch):
+              // lets its scroll math clamp programmatic scrolls to -headerInset
+              // instead of 0, so initialScrollAtEnd/maintainScrollAtEnd on short
+              // content rest below the transparent header rather than at frame top.
+              contentInsetStartAdjustment={usesNativeAutomaticInsets ? anchorTopInset : 0}
+              contentInsetEndAdjustment={props.contentInsetEndAdjustment}
+              // UIKit's automatic behavior adds the safe-area bottom on top of the
+              // raw contentInset the keyboard integration writes. The detail screen
+              // under-reports the composer inset by this amount (see
+              // ThreadDetailScreen); this tells LegendList's scroll math about the
+              // extra so programmatic end scrolls land at the true resting offset.
+              contentInsetEndStaticAdjustment={usesNativeAutomaticInsets ? insets.bottom : 0}
+              // Android: the composer overlay only exists as the keyboard
+              // integration's animated bottom padding, which the list's scroll
+              // math cannot see until the inset reports above land — and those
+              // arrive via runOnJS, racing the remounted list's one-shot initial
+              // scroll-at-end. Seed the estimated overlay height as a declarative
+              // contentInset floor: LegendList consumes it in JS math only
+              // (Android's ScrollView has no native contentInset prop) and the
+              // first reported override REPLACES it instead of adding to it.
+              // Not on iOS: there the prop would reach UIKit and inset natively
+              // on top of the animated padding.
+              {...(initialContentInset ? { contentInset: initialContentInset } : {})}
+              // The keyboard integration's offset math (end pinning, max scroll)
+              // must add the same UIKit-added extra, or its keyboard-open end
+              // targets land one safe-area short of the true resting offset.
+              adjustedInsetCompensation={usesNativeAutomaticInsets ? insets.bottom : 0}
+              freeze={props.freeze}
+              // Follow the measured end immediately. Animating toward an estimated
+              // end races row measurement when a pending message is acknowledged.
+              maintainScrollAtEnd={
+                disclosureToggleSettling || !endFollowEnabled
+                  ? false
+                  : {
+                      animated: false,
+                      on: {
+                        dataChange: true,
+                        itemLayout: true,
+                        layout: true,
+                      },
+                    }
+              }
+              maintainVisibleContentPosition={
+                endFollowEnabled && !disclosureToggleSettling
+                  ? false
+                  : maintainVisibleContentPosition
+              }
+              data={presentedFeed}
+              extraData={listAppearanceData}
+              renderItem={renderItem}
+              viewabilityConfig={THREAD_MEDIA_VIEWABILITY_CONFIG}
+              keyExtractor={(entry) => entry.id}
+              getItemType={(entry) =>
+                entry.type === "message" ? `message:${entry.message.role}` : entry.type
+              }
+              getFixedItemSize={getFixedItemSize}
+              // Virtualized rows must move with their measurements. Native layout
+              // transitions can retain stale positions during sync, even at duration 0.
+              onItemSizeChanged={handleItemSizeChanged}
+              // Measure rows well before they scroll into view so estimate→actual
+              // corrections land offscreen instead of under the user's finger.
+              drawDistance={500}
+              keyboardShouldPersistTaps="always"
+              keyboardDismissMode="none"
+              keyboardLiftBehavior="whenAtEnd"
+              // Seed the list's scroll math with the real viewport before its own
+              // onLayout: the empty→filled remount can then tell at mount that
+              // short content underflows the viewport and skip programmatic
+              // positioning entirely (any offset write during screen attach races
+              // UIKit's adjustedContentInset application and lands high or low).
+              {...(viewportHeight > 0 && viewportWidth > 0
+                ? { estimatedListSize: { height: viewportHeight, width: viewportWidth } }
+                : {})}
+              // RN's native scrollTo command clamps targets to a floor of
+              // -contentInset.top using the RAW inset — under automatic insets the
+              // header inset only exists in adjustedContentInset, so scrolls to
+              // negative offsets (content top below the transparent header) get
+              // clamped to 0. This prop disables that clamp; UIKit still bounces
+              // user overscroll back to the adjusted rest position.
+              scrollToOverflowEnabled
+              estimatedItemSize={180}
+              // Chat-style bottom alignment: when a thread is shorter than the
+              // viewport, pad above the content so messages rest just above the
+              // composer instead of under the header. No effect on threads that
+              // overflow the viewport (the padding clamps to zero).
+              alignItemsAtEnd
+              initialScrollAtEnd
+              onScroll={handleScroll}
+              onScrollBeginDrag={handleScrollBeginDrag}
+              onScrollEndDrag={handleScrollEndDrag}
+              onMomentumScrollBegin={handleMomentumScrollBegin}
+              onMomentumScrollEnd={handleMomentumScrollEnd}
+              scrollEventThrottle={16}
+              ListHeaderComponent={
+                <>
+                  {usesNativeAutomaticInsets ? null : <View style={{ height: topContentInset }} />}
+                  {setupAnchorIndex < 0 && props.worktreeSetup ? (
+                    <WorktreeSetupCard key={props.threadId} {...props.worktreeSetup} />
+                  ) : null}
+                  {props.loadEarlier != null ? (
+                    <Pressable
+                      onPress={props.loadEarlier.onLoadEarlier}
+                      disabled={props.loadEarlier.loading}
+                      className="items-center py-2"
+                    >
+                      <Text className="text-xs text-foreground-secondary">
+                        {props.loadEarlier.loading
+                          ? "Loading earlier turns…"
+                          : "Load earlier turns"}
+                      </Text>
+                    </Pressable>
+                  ) : null}
+                </>
+              }
+              contentContainerStyle={{
+                paddingTop: 12,
+                paddingHorizontal: contentHorizontalPadding,
+              }}
+            />
+          </RevealSpokenBlockContext>
         </View>
         {presentedFeed.length === 0 &&
         !props.worktreeSetup &&

@@ -81,7 +81,10 @@ import IconPencil from "@tabler/icons-react-native/IconPencil";
 import IconPhoto from "@tabler/icons-react-native/IconPhoto";
 import IconPin from "@tabler/icons-react-native/IconPin";
 import IconPinnedOff from "@tabler/icons-react-native/IconPinnedOff";
+import IconPlayerPauseFilled from "@tabler/icons-react-native/IconPlayerPauseFilled";
 import IconPlayerPlay from "@tabler/icons-react-native/IconPlayerPlay";
+import IconPlayerPlayFilled from "@tabler/icons-react-native/IconPlayerPlayFilled";
+import IconPlayerTrackNextFilled from "@tabler/icons-react-native/IconPlayerTrackNextFilled";
 import IconPlayerStopFilled from "@tabler/icons-react-native/IconPlayerStopFilled";
 import IconPlus from "@tabler/icons-react-native/IconPlus";
 import IconQrcode from "@tabler/icons-react-native/IconQrcode";
@@ -165,6 +168,7 @@ const ANDROID_ICON_BY_SF_SYMBOL = {
   folder: IconFolder,
   "folder.badge.plus": IconFolderPlus,
   "folder.fill": IconFolder,
+  "forward.end.fill": IconPlayerTrackNextFilled,
   gearshape: IconSettings,
   globe: IconWorld,
   "gobackward.10": IconRewindBackward10,
@@ -185,12 +189,14 @@ const ANDROID_ICON_BY_SF_SYMBOL = {
   magnifyingglass: IconSearch,
   mic: IconMicrophone,
   paintbrush: IconPalette,
+  "pause.fill": IconPlayerPauseFilled,
   pencil: IconPencil,
   "person.crop.circle": IconUserCircle,
   photo: IconPhoto,
   pin: IconPin,
   "pin.slash": IconPinnedOff,
   play: IconPlayerPlay,
+  "play.fill": IconPlayerPlayFilled,
   plus: IconPlus,
   minus: IconMinus,
   "qrcode.viewfinder": IconQrcode,

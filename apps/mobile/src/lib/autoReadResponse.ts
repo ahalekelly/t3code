@@ -33,6 +33,14 @@ export const autoReadResponse = {
     if (!pending.delete(scope)) return;
     for (const listener of listeners) listener();
   },
+  /** True the first time a hands-free exchange sees this approval or question. */
+  takeAnnouncement(scope: string, requestId: string) {
+    const request = pending.get(scope);
+    if (!request || request.spoken.has(requestId)) return false;
+    pending.set(scope, { ...request, spoken: new Set([...request.spoken, requestId]) });
+    return true;
+  },
+  /** The next reply to read; a streaming reply is read live as it grows. */
   takeReply(
     scope: string,
     messages: readonly Message[],
@@ -69,7 +77,6 @@ export const autoReadResponse = {
       : turn.state === "completed"
         ? replies.at(-1)
         : undefined;
-    if (reply?.streaming) return null;
     if (!reply || request.spoken.has(reply.id) || !reply.text.trim()) {
       if (turn.state === "completed") autoReadResponse.cancel(scope);
       return null;

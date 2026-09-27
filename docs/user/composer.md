@@ -3,8 +3,6 @@
 Give the agent a task in the composer. Add files, quote a previous response, or
 include a skill when the task needs more context.
 
-On iOS, tap the speaker beneath a response to read it aloud. Tap again to stop, or rewind 10 seconds during playback. Choose Pocket TTS (240 MB) or Supertonic 3 (170 MB), and choose a voice, pace, and quality for each model, in **Settings → Voice → Read aloud**. Keep the app open for the first model download; reading then works offline and with the screen locked. Reading another response, leaving the thread, or starting dictation stops playback.
-
 Messages can contain up to 120,000 characters. Longer drafts stay in the composer
 so you can shorten them or split them into several messages.
 
@@ -136,10 +134,13 @@ On supported iPhones with iOS 26 or later, use the composer's microphone to reco
 then confirm to transcribe. Text is inserted where your selection was when
 recording started, ready for you to review and edit before sending. The send
 button beside the check mark transcribes and sends the message right away,
-skipping the review. The completed reply is read aloud automatically while you stay
-in the thread. Turn off **Read voice replies aloud** in **Settings → Voice**
-to disable this. Enable **Read thinking updates** there to hear written progress
-messages as the agent works.
+skipping the review. A tone confirms the send, and the reply is read aloud
+automatically while you stay in the thread; the agent is asked to write it for
+listening. Approvals and questions are announced, and failures are spoken. The
+screen stays awake until the reply finishes. Turn off **Read voice replies aloud**
+in **Settings → Voice** to disable this. Enable **Read thinking updates** there to
+hear written progress messages as the agent works; each starts reading while it is
+still being written.
 
 The first use may download Apple's speech model and needs a network connection.
 Later transcription works offline for that language. Recordings can be up to five
@@ -156,6 +157,24 @@ words.
 with one of the OpenAI models. The OpenAI sources upload each recording straight
 from your phone using the API key you store on the same screen, which stays in
 your device keychain.
+
+## Reading responses aloud
+
+On iOS, tap the speaker beneath a response to read it aloud, and tap it again to
+stop. While reading, the bar above the composer rewinds 10 seconds, pauses, skips
+to the next paragraph, changes the pace, and stops. Headphone, car, and Lock Screen
+controls do the same: previous rewinds and next skips a paragraph. Tap a paragraph
+to read from there. The paragraph being read is highlighted and kept on screen.
+Code blocks are announced rather than read. Removing your headphones pauses
+reading; resuming starts that paragraph again.
+
+Choose the voice in **Settings → Voice → Read aloud**. With an OpenAI API key
+stored, OpenAI reads by default, for about 1.5 cents per minute of audio; describe
+the delivery you want under **Delivery**. Pocket TTS (240 MB) and Supertonic 3
+(170 MB) run offline after a one-time download; keep the app open while it
+downloads, and delete the files from the same screen. Reading continues with the
+screen locked. Reading another response, leaving the thread, or starting dictation
+stops playback.
 
 ## Commands and skills
 

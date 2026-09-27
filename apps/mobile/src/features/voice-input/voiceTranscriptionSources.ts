@@ -15,4 +15,10 @@ export type VoiceTranscriptionSource = keyof typeof VOICE_TRANSCRIPTION_SOURCE_L
 
 export type OpenAiTranscriptionModelId = Exclude<VoiceTranscriptionSource, "local">;
 
-export const DEFAULT_VOICE_TRANSCRIPTION_SOURCE: VoiceTranscriptionSource = "local";
+/** Without a stored choice, OpenAI transcribes when a key is stored and the device otherwise. */
+export function resolveVoiceTranscriptionSource(
+  preference: VoiceTranscriptionSource | undefined,
+  hasOpenAiApiKey: boolean,
+): VoiceTranscriptionSource {
+  return preference ?? (hasOpenAiApiKey ? "gpt-transcribe" : "local");
+}

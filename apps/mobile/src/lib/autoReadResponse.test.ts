@@ -44,16 +44,23 @@ describe("automatic voice replies", () => {
     request();
     const running = { ...completed, state: "running" as const, completedAt: null };
     const update = { ...reply, id: MessageId.make("update"), text: "Checking the files" };
-    expect(
-      autoReadResponse.takeReply(scope, [prompt, { ...update, streaming: true }], running, true),
-    ).toBeNull();
-    expect(autoReadResponse.takeReply(scope, [prompt, update], running, true)).toEqual(update);
+    const streaming = { ...update, streaming: true };
+    expect(autoReadResponse.takeReply(scope, [prompt, streaming], running, true)).toEqual(
+      streaming,
+    );
     expect(autoReadResponse.takeReply(scope, [prompt, update], running, true)).toBeNull();
     expect(autoReadResponse.takeReply(scope, [prompt, update, reply], running, true)).toEqual(
       reply,
     );
     expect(autoReadResponse.takeReply(scope, [prompt, update, reply], completed, true)).toBeNull();
     expect(autoReadResponse.getSnapshot(scope)).toBeNull();
+  });
+
+  it("announces each pending approval once per exchange", () => {
+    expect(autoReadResponse.takeAnnouncement(scope, "approval")).toBe(false);
+    request();
+    expect(autoReadResponse.takeAnnouncement(scope, "approval")).toBe(true);
+    expect(autoReadResponse.takeAnnouncement(scope, "approval")).toBe(false);
   });
 
   it("drains updates received while another update was playing", () => {
@@ -90,7 +97,7 @@ describe("automatic voice replies", () => {
     expect(autoReadResponse.getSnapshot(scope)?.messageId).toBe(prompt.id);
   });
 
-  it("waits for the full turn and the final response to finish streaming", () => {
+  it("waits for the full turn, reading a final response that is still streaming live", () => {
     request();
     expect(
       autoReadResponse.takeReply(
@@ -104,9 +111,11 @@ describe("automatic voice replies", () => {
         false,
       ),
     ).toBeNull();
-    expect(
-      autoReadResponse.takeReply(scope, [prompt, { ...reply, streaming: true }], completed, false),
-    ).toBeNull();
+    const streaming = { ...reply, streaming: true };
+    expect(autoReadResponse.takeReply(scope, [prompt, streaming], completed, false)).toEqual(
+      streaming,
+    );
+    request();
     const final = { ...reply, id: MessageId.make("final"), text: "Finished" };
     expect(
       autoReadResponse.takeReply(

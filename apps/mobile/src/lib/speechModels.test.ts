@@ -9,24 +9,34 @@ describe("speech settings", () => {
         supertonic: { voice: "M3", pace: 1.5, quality: "fast" },
       },
     };
-    expect(getSpeechOptions(preferences)).toEqual({
+    expect(getSpeechOptions({ ...preferences, responseSpeechModel: "pocket" }, true)).toEqual({
       model: "pocket",
       voice: "Marius",
       pace: 0.75,
       quality: "high",
     });
-    expect(getSpeechOptions({ ...preferences, responseSpeechModel: "supertonic" })).toEqual({
+    expect(getSpeechOptions({ ...preferences, responseSpeechModel: "supertonic" }, false)).toEqual({
       model: "supertonic",
       voice: "M3",
       pace: 1.5,
       quality: "fast",
     });
-    expect(getSpeechOptions({ responseSpeechModel: "supertonic" })).toEqual({
+    expect(getSpeechOptions({ responseSpeechModel: "supertonic" }, false)).toEqual({
       model: "supertonic",
       voice: "F1",
       pace: 1,
       quality: "balanced",
     });
+  });
+
+  it("defaults to OpenAI only when a key is stored", () => {
+    expect(getSpeechOptions({}, true)).toEqual({
+      model: "openai",
+      voice: "marin",
+      pace: 1,
+      quality: "balanced",
+    });
+    expect(getSpeechOptions({}, false).model).toBe("pocket");
   });
 
   it("rejects a voice from the wrong model and invalid generation controls", () => {

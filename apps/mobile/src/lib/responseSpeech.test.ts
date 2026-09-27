@@ -1,41 +1,69 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
+import type { NativeSpeechState } from "./nativeSpeech";
+
 const mocks = vi.hoisted(() => ({
+  start: vi.fn<() => Promise<boolean>>(),
+  append: vi.fn<(blocks: readonly string[]) => Promise<void>>(),
+  finish: vi.fn<() => Promise<void>>(),
   stop: vi.fn<() => Promise<void>>(),
-  rewind: vi.fn<() => Promise<void>>(),
-  speak: vi.fn<(text: string, rate: number, model: string) => Promise<boolean>>(),
   downloaded: vi.fn<() => boolean>(),
-  parse: vi.fn(),
+  playCue: vi.fn<() => Promise<void>>(),
+  announce: vi.fn<() => Promise<void>>(),
+  listener: null as ((state: NativeSpeechState) => void) | null,
   alert: vi.fn(),
 }));
 vi.mock("./nativeSpeech", () => ({
-  nativeSpeech: {
+  nativeSpeech: () => ({
+    start: mocks.start,
+    append: mocks.append,
+    finish: mocks.finish,
     stop: mocks.stop,
-    rewind: mocks.rewind,
-    speak: mocks.speak,
     isVoiceDownloaded: mocks.downloaded,
-  },
+    playCue: mocks.playCue,
+    announce: mocks.announce,
+    addListener: (_event: string, listener: (state: NativeSpeechState) => void) => {
+      mocks.listener = listener;
+    },
+  }),
 }));
 vi.mock("react-native", () => ({ Alert: { alert: mocks.alert } }));
-vi.mock("react-native-nitro-markdown/headless", () => ({ parseMarkdownWithOptions: mocks.parse }));
+// Paragraphs separated by blank lines stand in for the native Markdown parser.
+vi.mock("react-native-nitro-markdown/headless", () => ({
+  parseMarkdownWithOptions: (markdown: string) => ({
+    type: "document",
+    children: markdown
+      .split("\n\n")
+      .filter(Boolean)
+      .map((content) => ({ type: "paragraph", children: [{ type: "text", content }] })),
+  }),
+}));
 
 import { autoReadResponse } from "./autoReadResponse";
-import { getSpeechOptions } from "./speechModels";
 import { responseSpeech } from "./responseSpeech";
+import type { SpeechRequest } from "../state/voiceSettings";
 
 const first = { scope: "environment:thread", messageId: "first" };
 const second = { scope: "environment:thread", messageId: "second" };
+const request: SpeechRequest = {
+  model: "openai",
+  voice: "marin",
+  pace: 1,
+  quality: "balanced",
+  instructions: "Read clearly.",
+  apiKey: "sk-test",
+};
+const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
 
 beforeEach(() => {
   vi.clearAllMocks();
-  mocks.alert.mockReset();
+  mocks.start.mockImplementation(() => new Promise(() => {}));
+  mocks.append.mockResolvedValue(undefined);
+  mocks.finish.mockResolvedValue(undefined);
   mocks.stop.mockResolvedValue(undefined);
-  mocks.speak.mockImplementation(() => new Promise(() => {}));
+  mocks.playCue.mockResolvedValue(undefined);
+  mocks.announce.mockResolvedValue(undefined);
   mocks.downloaded.mockReturnValue(true);
-  mocks.parse.mockReturnValue({
-    type: "paragraph",
-    children: [{ type: "text", content: "Hello" }],
-  });
   vi.spyOn(console, "error").mockImplementation(() => undefined);
 });
 afterEach(async () => {
@@ -45,177 +73,135 @@ afterEach(async () => {
 });
 
 describe("responseSpeech", () => {
-  it("cancels queued updates when audio is interrupted", async () => {
-    autoReadResponse.request(first);
-    mocks.speak.mockResolvedValueOnce(false);
-    await responseSpeech.toggle(first, "Hello", getSpeechOptions({}));
-    expect(autoReadResponse.getSnapshot(first.scope)).toBeNull();
-    expect(responseSpeech.getSnapshot()).toBeNull();
-  });
-
-  it("cancels queued updates when the voice download is declined", async () => {
-    autoReadResponse.request(first);
-    mocks.downloaded.mockReturnValue(false);
-    mocks.alert.mockImplementationOnce((_title, _body, buttons) => buttons[0].onPress());
-    await responseSpeech.toggle(first, "Hello", getSpeechOptions({}));
-    expect(autoReadResponse.getSnapshot(first.scope)).toBeNull();
-    expect(mocks.speak).not.toHaveBeenCalled();
-  });
-
-  it("uses the selected speed and rewinds without regenerating speech", async () => {
-    await responseSpeech.toggle(first, "Hello", { ...getSpeechOptions({}), pace: 1.5 });
-    await responseSpeech.rewind();
-    expect(mocks.speak).toHaveBeenCalledExactlyOnceWith("Hello", {
-      ...getSpeechOptions({}),
-      pace: 1.5,
-    });
-    expect(mocks.rewind).toHaveBeenCalledOnce();
-    expect(responseSpeech.getSnapshot()).toEqual(first);
-  });
-
-  it("downloads the selected model and can switch back to Pocket", async () => {
-    mocks.downloaded.mockReturnValue(false);
-    mocks.alert.mockImplementation((_title, _body, buttons) => buttons[1].onPress());
-    await responseSpeech.toggle(
-      first,
-      "Hello",
-      getSpeechOptions({ responseSpeechModel: "supertonic" }),
-    );
-    expect(mocks.alert.mock.calls[0]?.[1]).toContain("Supertonic 3");
-    expect(mocks.alert.mock.calls[0]?.[1]).toContain("170 MB");
-    expect(mocks.downloaded).toHaveBeenCalledWith(
-      getSpeechOptions({ responseSpeechModel: "supertonic" }),
-    );
-    expect(mocks.speak).toHaveBeenLastCalledWith(
-      "Hello",
-      getSpeechOptions({ responseSpeechModel: "supertonic" }),
-    );
-    await responseSpeech.toggle(second, "Hello", getSpeechOptions({}));
-    expect(mocks.speak).toHaveBeenLastCalledWith("Hello", getSpeechOptions({}));
-  });
-
-  it("waits for previous playback to stop and reads plain text until playback completes", async () => {
-    const stopped = Promise.withResolvers<void>();
+  it("reads every block of a finished response and clears when playback ends", async () => {
     const played = Promise.withResolvers<boolean>();
-    mocks.stop.mockReturnValueOnce(stopped.promise);
-    mocks.speak.mockReturnValueOnce(played.promise);
-    const reading = responseSpeech.toggle(first, "**Hello**", getSpeechOptions({}));
-    expect(responseSpeech.getSnapshot()).toEqual(first);
-    expect(mocks.speak).not.toHaveBeenCalled();
-    stopped.resolve();
-    await reading;
-    expect(mocks.speak).toHaveBeenCalledWith("Hello", getSpeechOptions({}));
-    expect(responseSpeech.getSnapshot()).toEqual(first);
+    mocks.start.mockReturnValueOnce(played.promise);
+    const reading = responseSpeech.toggle(first, "One.\n\nTwo.", request, "Thread");
+    await flush();
+    expect(mocks.start).toHaveBeenCalledWith({ ...request, title: "Thread" });
+    expect(mocks.append).toHaveBeenCalledExactlyOnceWith(["One.", "Two."]);
+    expect(mocks.finish).toHaveBeenCalledOnce();
+    expect(responseSpeech.getSnapshot()).toEqual({ response: first, block: null, paused: false });
     played.resolve(true);
-    await played.promise;
+    await reading;
     expect(responseSpeech.getSnapshot()).toBeNull();
+  });
+
+  it("reads a streaming response block by block as it grows", async () => {
+    void responseSpeech.read(first, "One.\n\nTw", true, request, "Thread");
+    await flush();
+    expect(mocks.append).toHaveBeenLastCalledWith(["One."]);
+    responseSpeech.update(first, "One.\n\nTwo.\n\nThr", true);
+    expect(mocks.append).toHaveBeenLastCalledWith(["Two."]);
+    responseSpeech.update(second, "Other.\n\nText.", true);
+    expect(mocks.append).toHaveBeenCalledTimes(2);
+    expect(mocks.finish).not.toHaveBeenCalled();
+    responseSpeech.update(first, "One.\n\nTwo.\n\nThree.", false);
+    expect(mocks.append).toHaveBeenLastCalledWith(["Three."]);
+    expect(mocks.finish).toHaveBeenCalledOnce();
+  });
+
+  it("keeps text that streamed in while the download prompt was open", async () => {
+    mocks.downloaded.mockReturnValue(false);
+    const prompted = Promise.withResolvers<() => void>();
+    mocks.alert.mockImplementationOnce((_title, _body, buttons) =>
+      prompted.resolve(buttons[1].onPress),
+    );
+    void responseSpeech.read(
+      first,
+      "One.",
+      true,
+      { ...request, model: "pocket", voice: "Alba" },
+      "Thread",
+    );
+    const accept = await prompted.promise;
+    responseSpeech.update(first, "One.\n\nTwo.", false);
+    accept();
+    await flush();
+    expect(mocks.append).toHaveBeenCalledExactlyOnceWith(["One.", "Two."]);
+    expect(mocks.finish).toHaveBeenCalledOnce();
+  });
+
+  it("tracks the block and pause state reported by native playback", async () => {
+    void responseSpeech.toggle(first, "One.\n\nTwo.", request, "Thread");
+    await flush();
+    mocks.listener?.({ block: 1, paused: true });
+    expect(responseSpeech.getSnapshot()).toEqual({ response: first, block: 1, paused: true });
   });
 
   it("tapping the active response stops it", async () => {
-    await responseSpeech.toggle(first, "Hello", getSpeechOptions({}));
-    await responseSpeech.toggle({ ...first }, "Hello", getSpeechOptions({}));
+    void responseSpeech.toggle(first, "Hello", request, "Thread");
+    await flush();
+    await responseSpeech.toggle({ ...first }, "Hello", request, "Thread");
     expect(responseSpeech.getSnapshot()).toBeNull();
-    expect(mocks.speak).toHaveBeenCalledTimes(1);
+    expect(mocks.stop).toHaveBeenCalledOnce();
+    expect(mocks.start).toHaveBeenCalledOnce();
+  });
+
+  it("cancels the hands-free exchange when playback is stopped from outside", async () => {
+    autoReadResponse.request(first);
+    mocks.start.mockResolvedValueOnce(false);
+    await responseSpeech.toggle(first, "Hello", request, "Thread");
+    expect(autoReadResponse.getSnapshot(first.scope)).toBeNull();
+    expect(responseSpeech.getSnapshot()).toBeNull();
   });
 
   it.each(["completion", "error"])(
     "ignores a late %s from a replaced response",
     async (outcome) => {
       const previous = Promise.withResolvers<boolean>();
-      mocks.speak.mockReturnValueOnce(previous.promise);
-      await responseSpeech.toggle(first, "Hello", getSpeechOptions({}));
-      await responseSpeech.toggle(second, "World", getSpeechOptions({}));
-      if (outcome === "completion") previous.resolve(true);
+      mocks.start.mockReturnValueOnce(previous.promise);
+      void responseSpeech.toggle(first, "Hello", request, "Thread");
+      await flush();
+      void responseSpeech.toggle(second, "World", request, "Thread");
+      await flush();
+      if (outcome === "completion") previous.resolve(false);
       else previous.reject(new Error("Previous playback failed"));
-      await previous.promise.catch(() => {});
-      expect(responseSpeech.getSnapshot()).toEqual(second);
+      await flush();
+      expect(responseSpeech.getSnapshot()?.response).toEqual(second);
       expect(mocks.alert).not.toHaveBeenCalled();
     },
   );
 
-  it("starts only the latest response when taps race with stopping", async () => {
-    const stopped = Promise.withResolvers<void>();
-    mocks.stop.mockReturnValueOnce(stopped.promise);
-    const a = responseSpeech.toggle(first, "Hello", getSpeechOptions({}));
-    const b = responseSpeech.toggle(second, "World", getSpeechOptions({}));
-    stopped.resolve();
-    await Promise.all([a, b]);
-    expect(mocks.speak).toHaveBeenCalledTimes(1);
-    expect(mocks.parse).toHaveBeenCalledWith("World", expect.anything());
-    expect(responseSpeech.getSnapshot()).toEqual(second);
-  });
-
-  it("does not start after the thread closes or voice recording starts", async () => {
-    const stopped = Promise.withResolvers<void>();
-    mocks.stop.mockReturnValueOnce(stopped.promise);
-    const reading = responseSpeech.toggle(first, "Hello", getSpeechOptions({}));
-    const closing = responseSpeech.stop();
-    stopped.resolve();
-    await Promise.all([reading, closing]);
-    expect(mocks.speak).not.toHaveBeenCalled();
+  it("reports playback errors aloud and on screen, and clears the reading", async () => {
+    autoReadResponse.request(first);
+    mocks.start.mockRejectedValueOnce(new Error("Add your OpenAI API key in Settings → Voice."));
+    await responseSpeech.toggle(first, "Hello", request, "Thread");
+    await flush();
     expect(responseSpeech.getSnapshot()).toBeNull();
-  });
-
-  it("distinguishes matching message IDs in different environments", async () => {
-    await responseSpeech.toggle(first, "Hello", getSpeechOptions({}));
-    const remote = { ...first, scope: "remote:thread" };
-    await responseSpeech.toggle(remote, "Hello", getSpeechOptions({}));
-    expect(responseSpeech.getSnapshot()).toEqual(remote);
-    expect(mocks.speak).toHaveBeenCalledTimes(2);
-  });
-
-  it("reports playback errors and clears the active response", async () => {
-    const played = Promise.withResolvers<boolean>();
-    mocks.speak.mockReturnValueOnce(played.promise);
-    await responseSpeech.toggle(first, "Hello", getSpeechOptions({}));
-    played.reject(new Error("Voice download failed"));
-    await played.promise.catch(() => {});
-    expect(responseSpeech.getSnapshot()).toBeNull();
+    expect(autoReadResponse.getSnapshot(first.scope)).toBeNull();
     expect(mocks.alert).toHaveBeenCalledWith(
       "Could not read response aloud",
-      "Voice download failed",
+      "Add your OpenAI API key in Settings → Voice.",
     );
-  });
-
-  it("reports stop failures and permits another attempt", async () => {
-    mocks.stop.mockRejectedValueOnce(new Error("Stop failed"));
-    await responseSpeech.toggle(first, "Hello", getSpeechOptions({}));
-    expect(responseSpeech.getSnapshot()).toBeNull();
-    expect(mocks.alert).toHaveBeenCalledTimes(1);
-    await responseSpeech.toggle(first, "Hello", getSpeechOptions({}));
-    expect(mocks.speak).toHaveBeenCalledTimes(1);
+    expect(mocks.playCue).toHaveBeenCalledWith("error");
+    expect(mocks.announce).toHaveBeenCalledWith(
+      "Could not read the response aloud. Add your OpenAI API key in Settings → Voice.",
+    );
   });
 
   it("rejects responses without readable text", async () => {
-    mocks.parse.mockReturnValue({ type: "document", children: [] });
-    await responseSpeech.toggle(first, "---", getSpeechOptions({}));
-    expect(mocks.speak).not.toHaveBeenCalled();
+    await responseSpeech.toggle(first, "", request, "Thread");
+    expect(mocks.start).not.toHaveBeenCalled();
     expect(responseSpeech.getSnapshot()).toBeNull();
-    expect(mocks.alert).toHaveBeenCalledTimes(1);
+    expect(mocks.alert).toHaveBeenCalledOnce();
   });
 
-  it.each([true, false])("only downloads the voice when the user accepts (%s)", async (accept) => {
+  it.each([true, false])("only downloads an offline voice when accepted (%s)", async (accept) => {
+    autoReadResponse.request(first);
     mocks.downloaded.mockReturnValue(false);
-    mocks.alert.mockImplementationOnce((_title, _body, buttons) =>
-      buttons[accept ? 1 : 0].onPress(),
+    mocks.alert.mockImplementationOnce((_title, body, buttons) => {
+      expect(body).toContain("170 MB");
+      buttons[accept ? 1 : 0].onPress();
+    });
+    void responseSpeech.toggle(
+      first,
+      "Hello",
+      { ...request, model: "supertonic", voice: "F1" },
+      "Thread",
     );
-    await responseSpeech.toggle(first, "Hello", getSpeechOptions({}));
-    expect(mocks.speak).toHaveBeenCalledTimes(accept ? 1 : 0);
-    expect(responseSpeech.getSnapshot()).toEqual(accept ? first : null);
-  });
-
-  it("ignores download confirmation after leaving the response", async () => {
-    mocks.downloaded.mockReturnValue(false);
-    const prompted = Promise.withResolvers<() => void>();
-    mocks.alert.mockImplementationOnce((_title, _body, buttons) =>
-      prompted.resolve(buttons[1].onPress),
-    );
-    const reading = responseSpeech.toggle(first, "Hello", getSpeechOptions({}));
-    const accept = await prompted.promise;
-    await responseSpeech.stop();
-    accept();
-    await reading;
-    expect(mocks.speak).not.toHaveBeenCalled();
-    expect(responseSpeech.getSnapshot()).toBeNull();
+    await flush();
+    expect(mocks.start).toHaveBeenCalledTimes(accept ? 1 : 0);
+    expect(autoReadResponse.getSnapshot(first.scope) === null).toBe(!accept);
   });
 });
