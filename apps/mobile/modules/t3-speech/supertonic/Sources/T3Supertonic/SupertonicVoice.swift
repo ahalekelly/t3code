@@ -12,6 +12,17 @@ public struct SupertonicVoice: Sendable {
       .appendingPathComponent("SupertonicVoice", isDirectory: true)
   }
 
+  public static var downloadedBytes: Int {
+    let files = FileManager.default.enumerator(at: directory, includingPropertiesForKeys: [.totalFileAllocatedSizeKey])
+    return (files?.allObjects as? [URL] ?? []).reduce(0) {
+      $0 + ((try? $1.resourceValues(forKeys: [.totalFileAllocatedSizeKey]).totalFileAllocatedSize) ?? 0)
+    }
+  }
+
+  public static func delete() throws {
+    if FileManager.default.fileExists(atPath: directory.path) { try FileManager.default.removeItem(at: directory) }
+  }
+
   public static func isDownloaded(voice: String) -> Bool {
     guard let voice = Supertonic3Voice(rawValue: voice) else { return false }
     let repo = directory.appendingPathComponent(Repo.supertonic3.folderName)

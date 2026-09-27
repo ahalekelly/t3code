@@ -15,6 +15,6 @@ Pod::Spec.new do |s|
     requirement: nil,
     products: ['T3Supertonic'])
   s.source_files = '*.swift'
-  s.frameworks = 'AVFoundation', 'CryptoKit'
+  s.frameworks = 'AVFoundation', 'CryptoKit', 'MediaPlayer'
   s.resource_bundles = { 'T3SpeechNotices' => ['../THIRD_PARTY_NOTICES.md', '../FluidAudio-LICENSE', '../Supertonic-LICENSE'] }
 end

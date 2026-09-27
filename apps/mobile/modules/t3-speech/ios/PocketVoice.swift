@@ -18,9 +18,21 @@ enum PocketVoice {
     ("embeddings/jean.safetensors", "voices/jean.safetensors", "329530f87ce503061acefca8669300963420ff97e43647a326aa46bd987b983c"),
     ("embeddings/marius.safetensors", "voices/marius.safetensors", "33f75e45fac0005630671f4b1bb632d51b6a083b18417de94855bbd7596a0630"),
   ]
-  private static var directory: URL {
+  private static var root: URL {
     FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-      .appendingPathComponent("PocketVoice/\(revision)", isDirectory: true)
+      .appendingPathComponent("PocketVoice", isDirectory: true)
+  }
+  private static var directory: URL { root.appendingPathComponent(revision, isDirectory: true) }
+
+  static var downloadedBytes: Int {
+    let files = FileManager.default.enumerator(at: root, includingPropertiesForKeys: [.totalFileAllocatedSizeKey])
+    return (files?.allObjects as? [URL] ?? []).reduce(0) {
+      $0 + ((try? $1.resourceValues(forKeys: [.totalFileAllocatedSizeKey]).totalFileAllocatedSize) ?? 0)
+    }
+  }
+
+  static func delete() throws {
+    if FileManager.default.fileExists(atPath: root.path) { try FileManager.default.removeItem(at: root) }
   }
 
   static var isDownloaded: Bool {
