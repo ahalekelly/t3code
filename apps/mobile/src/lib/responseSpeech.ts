@@ -5,7 +5,7 @@ import { useSyncExternalStore } from "react";
 import { autoReadResponse, type SpokenResponse } from "./autoReadResponse";
 import { speechBlocks, unsentSpeechBlocks } from "./markdownSpeechText";
 import { nativeSpeech, type SpeechCue } from "./nativeSpeech";
-import { SPEECH_MODELS, type SpeechRequest } from "./speechModels";
+import type { SpeechRequest } from "./speechSettings";
 
 /** `block` indexes the response's top-level Markdown blocks; null until audio starts. */
 export type SpeechSnapshot = {
@@ -19,7 +19,6 @@ type Reading = {
   readonly response: SpokenResponse;
   markdown: string;
   streaming: boolean;
-  started: boolean;
   sent: readonly string[];
 };
 
@@ -58,22 +57,6 @@ function flush(current: Reading) {
     void nativeSpeech().append(unsent.blocks, unsent.from);
   }
   if (!current.streaming) void nativeSpeech().finish();
-}
-
-function confirmDownload(model: keyof typeof SPEECH_MODELS) {
-  const { label, download } = SPEECH_MODELS[model];
-  if (!download) return Promise.resolve(true);
-  return new Promise<boolean>((resolve) => {
-    Alert.alert(
-      "Download offline voice?",
-      `${label} needs model and voice files (up to ${download.size}). Only missing files will download. Keep the app open while it downloads. Your responses stay on this device.\n\n${download.attribution}`,
-      [
-        { text: "Cancel", style: "cancel", onPress: () => resolve(false) },
-        { text: "Download", onPress: () => resolve(true) },
-      ],
-      { cancelable: true, onDismiss: () => resolve(false) },
-    );
-  });
 }
 
 export function playCue(cue: SpeechCue) {
@@ -117,40 +100,19 @@ export const responseSpeech = {
     title: string,
   ) {
     listen();
-    const current: Reading = {
-      id: String(++readings),
-      response,
-      markdown,
-      streaming,
-      started: false,
-      sent: [],
-    };
-    // The previous reading stops now, not once the next one's voice is ready.
-    if (reading) void nativeSpeech().stop();
+    const current: Reading = { id: String(++readings), response, markdown, streaming, sent: [] };
     reading = current;
     setSnapshot({ response, block: null, paused: false });
     const finish = () => {
-      if (reading !== current) return false;
+      if (reading !== current) return;
       reading = null;
       setSnapshot(null);
-      return true;
     };
     try {
       if (!streaming && blocksOf(markdown).every((block) => block === "")) {
         throw new Error("This response has no readable text.");
       }
-      const options = { ...request, title };
-      if (!nativeSpeech().isVoiceDownloaded(options)) {
-        const download = await confirmDownload(request.model);
-        if (reading !== current) return;
-        if (!download) {
-          autoReadResponse.cancel(response.scope);
-          finish();
-          return;
-        }
-      }
-      const done = nativeSpeech().start(options, current.id);
-      current.started = true;
+      const done = nativeSpeech().start({ ...request, title }, current.id);
       flush(current);
       const completed = await done;
       if (!completed && reading === current) autoReadResponse.cancel(response.scope);
@@ -169,7 +131,7 @@ export const responseSpeech = {
     if (!current || !isResponse(current.response, response) || !current.streaming) return;
     current.markdown = markdown;
     current.streaming = streaming;
-    if (current.started) flush(current);
+    flush(current);
   },
 
   toggle(response: SpokenResponse, markdown: string, request: SpeechRequest, title: string) {

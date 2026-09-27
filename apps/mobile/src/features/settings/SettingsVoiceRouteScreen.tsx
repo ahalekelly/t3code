@@ -1,8 +1,8 @@
 import { useAtomSet, useAtomValue } from "@effect/atom-react";
 import { useNavigation } from "@react-navigation/native";
 import { AsyncResult } from "effect/unstable/reactivity";
-import { useMemo, useState } from "react";
-import { Alert, Platform, Pressable, ScrollView, View } from "react-native";
+import { useState } from "react";
+import { Platform, Pressable, ScrollView, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { AndroidScreenHeader } from "../../components/AndroidScreenHeader";
@@ -10,7 +10,6 @@ import { AppText as Text, AppTextInput as TextInput } from "../../components/App
 import { SymbolView } from "../../components/AppSymbol";
 import { ControlPillMenu } from "../../components/ControlPill";
 import { NativeStackScreenOptions } from "../../native/StackHeader";
-import { nativeSpeech } from "../../lib/nativeSpeech";
 import { updateMobilePreferencesAtom } from "../../state/preferences";
 import { useVoiceSettings } from "../../state/voiceSettings";
 import { openAiApiKeyAtom, setOpenAiApiKeyAtom } from "../../state/voiceTranscription";
@@ -20,14 +19,11 @@ import {
 } from "../../lib/voiceTranscriptionSources";
 import {
   DEFAULT_SPEECH_INSTRUCTIONS,
-  SPEECH_MODELS,
   SPEECH_PACES,
-  SPEECH_QUALITIES,
-  type SpeechModel,
-  type SpeechQuality,
-  type SpeechSettings,
-} from "../../lib/speechModels";
-import { SettingsActionRow } from "./components/SettingsActionRow";
+  SPEECH_VOICES,
+  type SpeechPace,
+  type SpeechVoice,
+} from "../../lib/speechSettings";
 import { SettingsSwitchRow } from "./components/SettingsSwitchRow";
 import { SettingsSection } from "./components/SettingsSection";
 
@@ -40,29 +36,10 @@ export function SettingsVoiceRouteScreen() {
   const storedKey = AsyncResult.isSuccess(storedResult) ? storedResult.value : null;
   const [draft, setDraft] = useState<string | null>(null);
   const [instructionsDraft, setInstructionsDraft] = useState<string | null>(null);
-  // Bumped after deleting a voice so the downloaded size is read again.
-  const [deletions, setDeletions] = useState(0);
 
   const voice = useVoiceSettings();
   const { preferences, speech } = voice;
   const selectedSource = voice.transcriptionSource;
-  const model = SPEECH_MODELS[speech.model];
-  const downloadedBytes = useMemo(
-    () =>
-      Platform.OS === "ios" && SPEECH_MODELS[speech.model].download
-        ? nativeSpeech().downloadedBytes(speech.model)
-        : 0,
-    [speech.model, deletions],
-  );
-  const saveSpeech = (patch: Partial<SpeechSettings>) => {
-    const { model, instructions: _instructions, apiKey: _apiKey, ...settings } = speech;
-    savePreferences({
-      responseSpeechSettings: {
-        ...preferences.responseSpeechSettings,
-        [model]: { ...settings, ...patch },
-      },
-    });
-  };
 
   const commitInstructions = () => {
     if (instructionsDraft === null) return;
@@ -71,31 +48,6 @@ export function SettingsVoiceRouteScreen() {
       // Clearing the field restores the default delivery.
       savePreferences({ responseSpeechInstructions: instructionsDraft.trim() || undefined });
     }
-  };
-
-  const deleteDownload = () => {
-    Alert.alert(
-      `Delete ${model.label} files?`,
-      "The files download again the next time this voice reads a response.",
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Delete",
-          style: "destructive",
-          onPress: () =>
-            void nativeSpeech()
-              .deleteVoice(speech.model)
-              .then(
-                () => setDeletions((count) => count + 1),
-                (error: unknown) =>
-                  Alert.alert(
-                    "Could not delete voice files",
-                    error instanceof Error ? error.message : "Please try again.",
-                  ),
-              ),
-        },
-      ],
-    );
   };
 
   const commitDraft = () => {
@@ -172,75 +124,42 @@ export function SettingsVoiceRouteScreen() {
         <Text className="px-2 text-sm leading-normal text-foreground-muted">
           On-device transcription needs iOS 26 on a supported iPhone. The OpenAI sources upload each
           recording with the API key above, which stays in this device's keychain. With a key,
-          transcription and reading default to OpenAI.
+          transcription defaults to OpenAI.
         </Text>
         {Platform.OS === "ios" ? (
           <SettingsSection title="Read aloud">
             <VoiceChoice
-              label="Voice model"
-              value={speech.model}
-              options={Object.entries(SPEECH_MODELS).map(([id, model]) => ({
-                id,
-                title: model.label,
-              }))}
-              onSelect={(model) => savePreferences({ responseSpeechModel: model as SpeechModel })}
-            />
-            <VoiceChoice
               label="Voice"
               value={speech.voice}
-              options={model.voices.map((voice) => ({
+              options={SPEECH_VOICES.map((voice) => ({
                 id: voice,
                 title: voice.charAt(0).toUpperCase() + voice.slice(1),
               }))}
-              onSelect={(voice) => saveSpeech({ voice })}
+              onSelect={(voice) => savePreferences({ responseSpeechVoice: voice as SpeechVoice })}
             />
             <VoiceChoice
               label="Pace"
               value={String(speech.pace)}
               options={SPEECH_PACES.map((pace) => ({ id: String(pace), title: `${pace}×` }))}
-              onSelect={(pace) => saveSpeech({ pace: Number(pace) })}
+              onSelect={(pace) =>
+                savePreferences({ responseSpeechPace: Number(pace) as SpeechPace })
+              }
             />
-            {model.download ? (
-              <>
-                <VoiceChoice
-                  label="Quality"
-                  value={speech.quality}
-                  options={Object.entries(SPEECH_QUALITIES).map(([id, title]) => ({ id, title }))}
-                  onSelect={(quality) => saveSpeech({ quality: quality as SpeechQuality })}
-                />
-                <Text className="px-4 pb-4 text-sm text-foreground-muted">
-                  Runs on this device after a download of up to {model.download.size}. Higher
-                  quality takes longer to generate. Voice, pace, and quality are saved for each
-                  model.
-                </Text>
-                {downloadedBytes > 0 ? (
-                  <SettingsActionRow
-                    icon="trash"
-                    label={`Delete downloaded files (${Math.round(downloadedBytes / 1_000_000)} MB)`}
-                    tone="danger"
-                    onPress={deleteDownload}
-                  />
-                ) : null}
-              </>
-            ) : (
-              <>
-                <View className="gap-2 p-4">
-                  <Text className="text-lg text-foreground">Delivery</Text>
-                  <TextInput
-                    accessibilityLabel="Reading instructions"
-                    multiline
-                    onBlur={commitInstructions}
-                    onChangeText={setInstructionsDraft}
-                    placeholder={DEFAULT_SPEECH_INSTRUCTIONS}
-                    value={instructionsDraft ?? speech.instructions}
-                  />
-                </View>
-                <Text className="px-4 pb-4 text-sm text-foreground-muted">
-                  Describe how the voice should sound. Reading uses the API key above and costs
-                  about 1.5 cents per minute of audio.
-                </Text>
-              </>
-            )}
+            <View className="gap-2 p-4">
+              <Text className="text-lg text-foreground">Delivery</Text>
+              <TextInput
+                accessibilityLabel="Reading instructions"
+                multiline
+                onBlur={commitInstructions}
+                onChangeText={setInstructionsDraft}
+                placeholder={DEFAULT_SPEECH_INSTRUCTIONS}
+                value={instructionsDraft ?? speech.instructions}
+              />
+            </View>
+            <Text className="px-4 pb-4 text-sm text-foreground-muted">
+              Describe how the voice should sound. Reading uses OpenAI with the API key above and
+              costs about 1.5 cents per minute of audio.
+            </Text>
             <SettingsSwitchRow
               icon="speaker.wave.2"
               label="Read voice replies aloud"

@@ -7,7 +7,6 @@ const mocks = vi.hoisted(() => ({
   append: vi.fn<(blocks: readonly string[], from: number) => Promise<void>>(),
   finish: vi.fn<() => Promise<void>>(),
   stop: vi.fn<() => Promise<void>>(),
-  downloaded: vi.fn<() => boolean>(),
   playCue: vi.fn<() => Promise<void>>(),
   announce: vi.fn<() => Promise<void>>(),
   listener: null as ((state: NativeSpeechState) => void) | null,
@@ -19,7 +18,6 @@ vi.mock("./nativeSpeech", () => ({
     append: mocks.append,
     finish: mocks.finish,
     stop: mocks.stop,
-    isVoiceDownloaded: mocks.downloaded,
     playCue: mocks.playCue,
     announce: mocks.announce,
     addListener: (_event: string, listener: (state: NativeSpeechState) => void) => {
@@ -41,15 +39,13 @@ vi.mock("react-native-nitro-markdown/headless", () => ({
 
 import { autoReadResponse } from "./autoReadResponse";
 import { responseSpeech } from "./responseSpeech";
-import type { SpeechRequest } from "./speechModels";
+import type { SpeechRequest } from "./speechSettings";
 
 const first = { scope: "environment:thread", messageId: "first" };
 const second = { scope: "environment:thread", messageId: "second" };
 const request: SpeechRequest = {
-  model: "openai",
   voice: "marin",
   pace: 1,
-  quality: "balanced",
   instructions: "Read clearly.",
   apiKey: "sk-test",
 };
@@ -63,7 +59,6 @@ beforeEach(() => {
   mocks.stop.mockResolvedValue(undefined);
   mocks.playCue.mockResolvedValue(undefined);
   mocks.announce.mockResolvedValue(undefined);
-  mocks.downloaded.mockReturnValue(true);
   vi.spyOn(console, "error").mockImplementation(() => undefined);
 });
 afterEach(async () => {
@@ -106,27 +101,6 @@ describe("responseSpeech", () => {
     await flush();
     responseSpeech.update(first, "One.\n\nTwo, more.\n\nThree.", false);
     expect(mocks.append).toHaveBeenLastCalledWith(["Two, more.", "Three."], 1);
-  });
-
-  it("keeps text that streamed in while the download prompt was open", async () => {
-    mocks.downloaded.mockReturnValue(false);
-    const prompted = Promise.withResolvers<() => void>();
-    mocks.alert.mockImplementationOnce((_title, _body, buttons) =>
-      prompted.resolve(buttons[1].onPress),
-    );
-    void responseSpeech.read(
-      first,
-      "One.",
-      true,
-      { ...request, model: "pocket", voice: "Alba" },
-      "Thread",
-    );
-    const accept = await prompted.promise;
-    responseSpeech.update(first, "One.\n\nTwo.", false);
-    accept();
-    await flush();
-    expect(mocks.append).toHaveBeenCalledExactlyOnceWith(["One.", "Two."], 0);
-    expect(mocks.finish).toHaveBeenCalledOnce();
   });
 
   it("tracks the block and pause state reported by the current native reading", async () => {
@@ -195,23 +169,5 @@ describe("responseSpeech", () => {
     expect(mocks.start).not.toHaveBeenCalled();
     expect(responseSpeech.getSnapshot()).toBeNull();
     expect(mocks.alert).toHaveBeenCalledOnce();
-  });
-
-  it.each([true, false])("only downloads an offline voice when accepted (%s)", async (accept) => {
-    autoReadResponse.request(first);
-    mocks.downloaded.mockReturnValue(false);
-    mocks.alert.mockImplementationOnce((_title, body, buttons) => {
-      expect(body).toContain("170 MB");
-      buttons[accept ? 1 : 0].onPress();
-    });
-    void responseSpeech.toggle(
-      first,
-      "Hello",
-      { ...request, model: "supertonic", voice: "F1" },
-      "Thread",
-    );
-    await flush();
-    expect(mocks.start).toHaveBeenCalledTimes(accept ? 1 : 0);
-    expect(autoReadResponse.getSnapshot(first.scope) === null).toBe(!accept);
   });
 });
