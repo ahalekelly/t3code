@@ -16,10 +16,12 @@ unchanged conditions.
 
 Foregrounding needs different treatment depending on the connection's state.
 It wakes a retry immediately, leaves an ordinary in-flight attempt alone, and
-probes an established session before replacing it. A long mobile background
-suspension forces replacement because the OS can kill a socket without reporting
-closure. Treating every foreground event as a reconnect delays healthy attempts;
-treating every resume as harmless leaves suspended sockets stuck.
+probes an established session before replacing it. After a long mobile
+background suspension the OS may have killed the socket without reporting
+closure, so the probe races a fresh lease: whichever settles first is kept and
+the other is dropped, and the phase stays connected until the probe fails.
+Treating every resume as a reconnect discards healthy sockets and pays a full
+setup; probing alone leaves a dead socket stuck for the probe timeout.
 
 The [registry](../../packages/client-runtime/src/connection/registry.ts) scopes
 connections by environment. An involuntary disconnect retains the registration

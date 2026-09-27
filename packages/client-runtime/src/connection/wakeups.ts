@@ -9,15 +9,7 @@ export type ConnectionWakeup =
   | "credentials-changed";
 
 export function isApplicationActiveWakeup(reason: ConnectionWakeup): boolean {
-  return (
-    reason === "application-active" ||
-    reason === "application-active-probe" ||
-    reason === "application-active-reconnect"
-  );
-}
-
-export function shouldResubscribeAfterWakeup(reason: ConnectionWakeup): boolean {
-  return reason === "application-active" || reason === "application-active-probe";
+  return reason !== "credentials-changed";
 }
 
 export class ConnectionWakeups extends Context.Service<
