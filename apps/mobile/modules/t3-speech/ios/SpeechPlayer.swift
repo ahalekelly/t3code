@@ -126,7 +126,7 @@ private final class SpeechSession: @unchecked Sendable {
   private let cacheURL = FileManager.default.temporaryDirectory.appendingPathComponent("t3-speech-\(UUID()).pcm")
   private var format: AVAudioFormat?
   private var cache: FileHandle?
-  private let voice: OpenAiVoice
+  private let voice: CloudVoice
   private var pace: Float
   private var observers: [NSObjectProtocol] = []
 
@@ -152,7 +152,7 @@ private final class SpeechSession: @unchecked Sendable {
   private var epoch = 0
   private var pendingBuffers = 0
   /// Generation works up to 15 seconds ahead, so a slow response or brief coverage gap stays silent-free.
-  private let lookaheadFrames = Int64(OpenAiVoice.sampleRate * 15)
+  private let lookaheadFrames = Int64(CloudVoice.sampleRate * 15)
   private var paused = false
   /// Set while an interruption holds the reading, so its end resumes only that pause.
   private var interrupted = false
@@ -172,7 +172,7 @@ private final class SpeechSession: @unchecked Sendable {
   init(settings: SpeechSettings, onState: @escaping @Sendable (SpeechState) -> Void) {
     self.settings = settings
     self.onState = onState
-    voice = OpenAiVoice(apiKey: settings.apiKey, voice: settings.voice, instructions: settings.instructions)
+    voice = settings.voice
     pace = settings.pace
   }
 
@@ -184,11 +184,11 @@ private final class SpeechSession: @unchecked Sendable {
       return true
     }
     guard opened else { return false }
-    speechLog.notice("start voice \(self.settings.voice, privacy: .public) pace \(self.settings.pace)")
+    speechLog.notice("start \(self.voice.model.rawValue, privacy: .public) voice \(self.voice.voice, privacy: .public) pace \(self.settings.pace)")
     return try await withTaskCancellationHandler {
       while let (index, text, generation) = await takeBlock() {
         markStart(of: index, generation: generation)
-        for segment in speechSegments(text, maxLength: OpenAiVoice.segmentLength) {
+        for segment in speechSegments(text, maxLength: CloudVoice.segmentLength) {
           guard isCurrent(generation) else { break }
           let started = ContinuousClock.now
           let framesBefore = lock.withLock {
@@ -449,7 +449,7 @@ private final class SpeechSession: @unchecked Sendable {
   // MARK: Playback
 
   private func openAudio() throws {
-    let format = AVAudioFormat(standardFormatWithSampleRate: OpenAiVoice.sampleRate, channels: 1)!
+    let format = AVAudioFormat(standardFormatWithSampleRate: CloudVoice.sampleRate, channels: 1)!
     self.format = format
     try Data().write(to: cacheURL)
     cache = try FileHandle(forUpdating: cacheURL)
@@ -620,10 +620,8 @@ private final class SpeechSession: @unchecked Sendable {
 }
 
 struct SpeechSettings: Sendable {
-  let voice: String
+  let voice: CloudVoice
   let pace: Float
-  let instructions: String
-  let apiKey: String
   let title: String
 }
 

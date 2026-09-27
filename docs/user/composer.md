@@ -168,9 +168,11 @@ to read from there. The paragraph being read is highlighted and kept on screen.
 Code blocks are announced rather than read. Removing your headphones pauses
 reading; resuming starts that paragraph again.
 
-Reading uses OpenAI with the API key in **Settings → Voice**, for about 1.5 cents
-per minute of audio. Choose the voice and pace under **Read aloud**, and describe
-the delivery you want under **Delivery**. Reading continues with the screen locked.
+Under **Settings → Voice → Read aloud**, choose the model (OpenAI, Gemini Flash,
+or Gemini Flash-Lite), voice, and pace, and describe the delivery you want under
+**Delivery**. Reading uses that provider's API key from the same screen and costs
+about 1 to 1.5 cents per minute of audio. Use a paid-tier Gemini key: Google
+trains on free-tier requests. Reading continues with the screen locked.
 Reading another response, leaving the thread, or starting dictation stops playback.
 
 ## Commands and skills

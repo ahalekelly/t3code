@@ -12,10 +12,10 @@ import {
   type VoiceTranscriptionSource,
 } from "../lib/voiceTranscriptionSources";
 import {
+  SPEECH_MODELS,
   SPEECH_PACES,
-  SPEECH_VOICES,
+  type SpeechModel,
   type SpeechPace,
-  type SpeechVoice,
 } from "../lib/speechSettings";
 import { MOBILE_THEME_IDS, type MobileThemeId, type MobileThemeMode } from "../lib/mobileTheme";
 import * as MobileDatabase from "./mobile-database";
@@ -55,9 +55,11 @@ export interface Preferences {
   readonly threadListSnoozedShelfExpanded?: boolean;
   /** Unset means on-device; any OpenAI source needs the key kept in the keychain. */
   readonly voiceTranscriptionSource?: VoiceTranscriptionSource;
-  readonly responseSpeechVoice?: SpeechVoice;
+  readonly responseSpeechModel?: SpeechModel;
+  /** Read-aloud voice; one that the selected model lacks falls back to its default. */
+  readonly responseSpeechVoice?: string;
   readonly responseSpeechPace?: SpeechPace;
-  /** Delivery prompt for OpenAI read-aloud; unset uses the default. */
+  /** Delivery prompt for read-aloud; unset uses the default. */
   readonly responseSpeechInstructions?: string;
   readonly readVoiceRepliesAloud?: boolean;
   readonly readThinkingUpdatesAloud?: boolean;
@@ -122,7 +124,8 @@ function sanitizePreferences(parsed: Preferences): Preferences {
     threadListSettledShelfExpanded?: boolean;
     threadListSnoozedShelfExpanded?: boolean;
     voiceTranscriptionSource?: VoiceTranscriptionSource;
-    responseSpeechVoice?: SpeechVoice;
+    responseSpeechModel?: SpeechModel;
+    responseSpeechVoice?: string;
     responseSpeechPace?: SpeechPace;
     responseSpeechInstructions?: string;
     readVoiceRepliesAloud?: boolean;
@@ -218,10 +221,13 @@ function sanitizePreferences(parsed: Preferences): Preferences {
     preferences.voiceTranscriptionSource = parsed.voiceTranscriptionSource;
   }
   if (
-    typeof parsed.responseSpeechVoice === "string" &&
-    (SPEECH_VOICES as readonly string[]).includes(parsed.responseSpeechVoice)
+    typeof parsed.responseSpeechModel === "string" &&
+    parsed.responseSpeechModel in SPEECH_MODELS
   ) {
-    preferences.responseSpeechVoice = parsed.responseSpeechVoice as SpeechVoice;
+    preferences.responseSpeechModel = parsed.responseSpeechModel;
+  }
+  if (typeof parsed.responseSpeechVoice === "string") {
+    preferences.responseSpeechVoice = parsed.responseSpeechVoice;
   }
   if (
     typeof parsed.responseSpeechPace === "number" &&

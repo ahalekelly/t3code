@@ -78,6 +78,7 @@ public class T3SpeechModule: Module {
 }
 
 struct SpeechOptionsRecord: Record {
+  @Field(.required) var model: String = ""
   @Field(.required) var voice: String = ""
   @Field(.required) var pace: Float = 1
   @Field(.required) var instructions: String = ""
@@ -88,8 +89,10 @@ struct SpeechOptionsRecord: Record {
     guard pace.isFinite, (0.75...2).contains(pace) else {
       throw SpeechError("Pace must be between 0.75× and 2×.")
     }
-    guard !apiKey.isEmpty else { throw SpeechError("Add your OpenAI API key in Settings → Voice.") }
-    guard OpenAiVoice.voices.contains(voice) else { throw SpeechError("Unknown OpenAI voice: \(voice)") }
-    return SpeechSettings(voice: voice, pace: pace, instructions: instructions, apiKey: apiKey, title: title)
+    guard let model = CloudVoice.Model(rawValue: model) else { throw SpeechError("Unknown speech model: \(model)") }
+    guard !apiKey.isEmpty else { throw SpeechError("Add your \(model.provider) API key in Settings → Voice.") }
+    guard model.voices.contains(voice) else { throw SpeechError("Unknown \(model.provider) voice: \(voice)") }
+    let voice = CloudVoice(model: model, apiKey: apiKey, voice: voice, instructions: instructions)
+    return SpeechSettings(voice: voice, pace: pace, title: title)
   }
 }
