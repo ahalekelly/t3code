@@ -192,6 +192,7 @@ patchedDependencies:
   dbus-next@0.10.2: patches/dbus-next@0.10.2.patch
   effect@4.0.0-rc.115: patches/effect@4.0.0-rc.115.patch
   expo-audio@57.0.4: patches/expo-audio@57.0.4.patch
+  # Guard the permissions registry, and call Worklets 0.12's runSync (from 57.0.15).
   expo-modules-core@57.0.14: patches/expo-modules-core@57.0.14.patch
   expo-notifications@57.0.15: patches/expo-notifications@57.0.15.patch
   expo-sharing@57.0.17: patches/expo-sharing@57.0.17.patch
@@ -202,8 +203,9 @@ patchedDependencies:
   # Link http(s) URLs with a port or a single-label host, and ignore single-tilde
   # strikethrough as GitHub does. md4c otherwise requires a dotted host and stops at ':'.
   react-native-nitro-markdown@0.5.8: patches/react-native-nitro-markdown@0.5.8.patch
-  # Preserve the final layout frame. Backport of [#10171](https://github.com/software-mansion/react-native-reanimated/pull/10171).
-  react-native-reanimated@4.5.5: patches/react-native-reanimated@4.5.5.patch
+  # Keep props that animated props add after mounting, such as the keyboard
+  # integration's contentOffset, when animations settle.
+  react-native-reanimated@4.6.0: patches/react-native-reanimated@4.6.0.patch
   react-native-screens@4.26.2: patches/react-native-screens@4.26.2.patch
   uniwind@1.11.0: patches/uniwind@1.11.0.patch
 

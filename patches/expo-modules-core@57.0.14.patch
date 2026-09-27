@@ -1,7 +1,24 @@
+diff --git a/android/src/main/cpp/worklets/WorkletJSCallInvoker.cpp b/android/src/main/cpp/worklets/WorkletJSCallInvoker.cpp
+index a2d707c..be2e3d6 100644
+--- a/android/src/main/cpp/worklets/WorkletJSCallInvoker.cpp
++++ b/android/src/main/cpp/worklets/WorkletJSCallInvoker.cpp
+@@ -24,10 +24,7 @@ namespace expo {
+       return;
+     }
+ 
+-    workletRuntime->executeSync([func = std::move(func)](jsi::Runtime &rt) -> jsi::Value {
+-      func(rt);
+-      return jsi::Value::undefined();
+-    });
++    workletRuntime->runSync(func);
+   }
+ } // namespace expo
+ 
 diff --git a/ios/Legacy/Services/Permissions/EXPermissionsService.m b/ios/Legacy/Services/Permissions/EXPermissionsService.m
+index 00dbd94..bb8cc29 100644
 --- a/ios/Legacy/Services/Permissions/EXPermissionsService.m
 +++ b/ios/Legacy/Services/Permissions/EXPermissionsService.m
-@@ -32,8 +32,11 @@
+@@ -32,8 +32,11 @@ NSString * const EXPermissionExpiresNever = @"never";
  
  - (void)registerRequesters:(NSArray<id<EXPermissionsRequester>> *)newRequesters {
    for (id<EXPermissionsRequester> requester in newRequesters) {
@@ -15,7 +32,7 @@ diff --git a/ios/Legacy/Services/Permissions/EXPermissionsService.m b/ios/Legacy
    }
  }
  
-@@ -162,12 +165,16 @@
+@@ -162,12 +165,16 @@ NSString * const EXPermissionExpiresNever = @"never";
  
  - (id<EXPermissionsRequester>)getPermissionRequesterForType:(NSString *)type
  {
@@ -34,3 +51,16 @@ diff --git a/ios/Legacy/Services/Permissions/EXPermissionsService.m b/ios/Legacy
  }
  
  @end
+diff --git a/ios/WorkletsAdapter/ExpoWorkletsBridgeProvider.mm b/ios/WorkletsAdapter/ExpoWorkletsBridgeProvider.mm
+index 126545f..d97163a 100644
+--- a/ios/WorkletsAdapter/ExpoWorkletsBridgeProvider.mm
++++ b/ios/WorkletsAdapter/ExpoWorkletsBridgeProvider.mm
+@@ -233,7 +233,7 @@ static jsi::Value callWorklet(jsi::Runtime &rt, std::shared_ptr<worklets::Serial
+     return;
+   }
+ 
+-  workletRuntime->executeSync([worklet, arguments](jsi::Runtime &rt) -> jsi::Value {
++  workletRuntime->runSync([worklet, arguments](jsi::Runtime &rt) -> jsi::Value {
+     return callWorklet(rt, worklet, arguments);
+   });
+ }
