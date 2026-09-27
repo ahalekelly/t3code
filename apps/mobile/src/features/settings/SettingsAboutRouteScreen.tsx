@@ -54,13 +54,25 @@ function AppSettingsSection() {
   const hiddenUpdateTapCount = useRef(0);
 
   const version = Constants.expoConfig?.version ?? "0.0.0";
+  // EAS assigns build numbers remotely; only the installed binary knows its own.
+  const build = Application.nativeBuildVersion;
+  const versionName = build ? `${version} (${build})` : version;
+  const buildCommit = Constants.expoConfig?.extra?.buildCommit as string | undefined;
+  const buildTime = Constants.expoConfig?.extra?.buildTime as string | undefined;
+  const buildDateLabel = buildTime
+    ? new Date(buildTime).toLocaleString(undefined, {
+        year: "numeric",
+        month: "short",
+        day: "numeric",
+        hour: "numeric",
+        minute: "2-digit",
+        timeZoneName: "short",
+      })
+    : undefined;
   // Match app.config.ts's production fallback to avoid mislabeling builds as development.
   const variant = (Constants.expoConfig?.extra?.appVariant as string | undefined) ?? "production";
   const variantLabel = variant === "production" ? "" : capitalize(variant);
-  // EAS assigns build numbers remotely; only the installed binary knows its own.
-  const build = Application.nativeBuildVersion;
-  const versionWithBuild = build ? `${version} (${build})` : version;
-  const versionLabel = variantLabel ? `${versionWithBuild} · ${variantLabel}` : versionWithBuild;
+  const versionLabel = [versionName, buildCommit, variantLabel].filter(Boolean).join(" · ");
   const updateCheckAvailable = isAppUpdateCheckAvailable();
   const busy =
     updateState === "checking" || updateState === "downloading" || updateState === "restarting";
@@ -115,11 +127,14 @@ function AppSettingsSection() {
         type="monochrome"
         weight="regular"
       />
-      <Text className="flex-1 text-lg text-foreground">
+      <Text className="text-lg text-foreground">
         <T>Version</T>
       </Text>
-      <View className="items-end">
-        <Text className="text-lg text-foreground-muted">{versionLabel}</Text>
+      <View className="min-w-0 flex-1 items-end">
+        <Text className="text-right text-lg text-foreground-muted">{versionLabel}</Text>
+        {buildDateLabel ? (
+          <Text className="text-right text-xs text-foreground-muted">{buildDateLabel}</Text>
+        ) : null}
         {statusLabel ? (
           <Text className="text-xs text-foreground-muted/70">{statusLabel}</Text>
         ) : null}
@@ -143,7 +158,9 @@ function AppSettingsSection() {
       <SettingsRow icon="doc.text" label={gt("Legal")} fullScreenTarget="SettingsLegal" />
       {updateCheckAvailable ? (
         <Pressable
-          accessibilityLabel={gt("Version {version}", { version: versionLabel })}
+          accessibilityLabel={[gt("Version {version}", { version: versionLabel }), buildDateLabel]
+            .filter(Boolean)
+            .join(" · ")}
           accessibilityRole="text"
           disabled={busy}
           onPress={handleVersionPress}
