@@ -5,6 +5,7 @@ import * as HttpApi from "effect/unstable/httpapi/HttpApi";
 import * as HttpApiEndpoint from "effect/unstable/httpapi/HttpApiEndpoint";
 import * as HttpApiGroup from "effect/unstable/httpapi/HttpApiGroup";
 import * as HttpApiMiddleware from "effect/unstable/httpapi/HttpApiMiddleware";
+import * as HttpApiSchema from "effect/unstable/httpapi/HttpApiSchema";
 import * as HttpServerRespondable from "effect/unstable/http/HttpServerRespondable";
 import * as HttpServerResponse from "effect/unstable/http/HttpServerResponse";
 
@@ -53,6 +54,9 @@ import {
   RelayEnvironmentMintResponse,
   RelayLinkProofRequest,
 } from "./relay.ts";
+
+/** Clients post OTLP/JSON spans here to record them in the environment's trace file. */
+export const ENVIRONMENT_OTLP_TRACES_PATH = "/api/observability/v1/traces";
 
 const OptionalBearerHeaders = Schema.Struct({
   authorization: Schema.optionalKey(Schema.String),
@@ -615,9 +619,22 @@ class EnvironmentConnectHttpApi extends HttpApiGroup.make("connect")
     }),
   ) {}
 
+// The payload is opaque OTLP/JSON: the server decodes it itself. No auth
+// middleware: the handler authenticates with tracing disabled, so exporting
+// spans never produces new server spans.
+class EnvironmentObservabilityHttpApi extends HttpApiGroup.make("observability").add(
+  HttpApiEndpoint.post("traces", ENVIRONMENT_OTLP_TRACES_PATH, {
+    headers: OptionalBearerHeaders,
+    payload: Schema.Unknown,
+    success: HttpApiSchema.NoContent,
+    error: [EnvironmentAuthInvalidError, EnvironmentScopeRequiredError, EnvironmentInternalError],
+  }),
+) {}
+
 export class EnvironmentHttpApi extends HttpApi.make("environment")
   .add(EnvironmentMetadataHttpApi)
   .add(EnvironmentAuthHttpApi)
   .add(EnvironmentOrchestrationHttpApi)
   .add(EnvironmentPullRequestsHttpApi)
-  .add(EnvironmentConnectHttpApi) {}
+  .add(EnvironmentConnectHttpApi)
+  .add(EnvironmentObservabilityHttpApi) {}
