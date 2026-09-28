@@ -40,10 +40,8 @@ function AppSettingsSection() {
   const hiddenUpdateTapCount = useRef(0);
 
   const version = Constants.expoConfig?.version ?? "0.0.0";
-  // CFBundleVersion from the embedded Info.plist. Personal Team builds set it to
-  // the T3 Code server release they are based on, so it names what you installed.
-  const buildNumber = Constants.platform?.ios?.buildNumber;
-  const versionName = buildNumber ? `${version} (${buildNumber})` : version;
+  const serverRelease = Constants.expoConfig?.extra?.serverRelease as string | undefined;
+  const versionName = serverRelease ? `${version} (${serverRelease})` : version;
   const buildCommit = Constants.expoConfig?.extra?.buildCommit as string | undefined;
   const buildTime = Constants.expoConfig?.extra?.buildTime as string | undefined;
   const buildDateLabel = buildTime

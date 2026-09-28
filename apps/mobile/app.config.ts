@@ -481,6 +481,24 @@ const config: ExpoConfig = {
           encoding: "utf8",
         }).trim()
       : undefined,
+    // The newest stable T3 Code release this build contains.
+    serverRelease: isIosPersonalBuild
+      ? NodeChildProcess.execFileSync(
+          "git",
+          [
+            "describe",
+            "--tags",
+            "--abbrev=0",
+            "--exclude",
+            "*-*",
+            "--match",
+            "v[0-9]*.[0-9]*.[0-9]*",
+          ],
+          { cwd: __dirname, encoding: "utf8" },
+        )
+          .trim()
+          .slice(1)
+      : undefined,
     iosPushEnabled: !isIosPersonalBuild,
     relay: {
       url: repoEnv.T3CODE_RELAY_URL ?? null,
