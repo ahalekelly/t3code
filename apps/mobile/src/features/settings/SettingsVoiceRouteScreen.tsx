@@ -18,7 +18,6 @@ import {
   type VoiceTranscriptionSource,
 } from "../../lib/voiceTranscriptionSources";
 import {
-  DEFAULT_SPEECH_INSTRUCTIONS,
   SPEECH_MODELS,
   SPEECH_PACES,
   type SpeechModel,
@@ -43,8 +42,7 @@ export function SettingsVoiceRouteScreen() {
     if (instructionsDraft === null) return;
     setInstructionsDraft(null);
     if (instructionsDraft !== speech.instructions) {
-      // Clearing the field restores the default delivery.
-      savePreferences({ responseSpeechInstructions: instructionsDraft.trim() || undefined });
+      savePreferences({ responseSpeechInstructions: instructionsDraft.trim() });
     }
   };
 
@@ -139,7 +137,7 @@ export function SettingsVoiceRouteScreen() {
                 multiline
                 onBlur={commitInstructions}
                 onChangeText={setInstructionsDraft}
-                placeholder={DEFAULT_SPEECH_INSTRUCTIONS}
+                placeholder="No instructions"
                 value={instructionsDraft ?? speech.instructions}
               />
             </View>
