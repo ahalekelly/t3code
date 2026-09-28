@@ -99,6 +99,10 @@
       "types": "./src/operations/index.ts",
       "default": "./src/operations/index.ts"
     },
+    "./observability/connection-traces": {
+      "types": "./src/observability/connectionTraces.ts",
+      "default": "./src/observability/connectionTraces.ts"
+    },
     "./operations/projects": {
       "types": "./src/operations/projects.ts",
       "default": "./src/operations/projects.ts"
