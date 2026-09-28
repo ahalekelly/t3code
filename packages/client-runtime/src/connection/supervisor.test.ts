@@ -5,6 +5,7 @@ import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
+import * as PubSub from "effect/PubSub";
 import * as Ref from "effect/Ref";
 import * as Stream from "effect/Stream";
 import * as SubscriptionRef from "effect/SubscriptionRef";
@@ -100,6 +101,18 @@ function awaitState(
     Effect.map(Option.getOrThrow),
   );
 }
+
+// Returns a drain of every phase published after this call. The subscription
+// buffers, so the drain is exact regardless of fiber scheduling.
+const observePhases = Effect.fn("TestConnectionHarness.observePhases")(function* (
+  state: SubscriptionRef.SubscriptionRef<SupervisorConnectionState>,
+) {
+  const subscription = yield* PubSub.subscribe(state.pubsub);
+  yield* PubSub.takeAll(subscription);
+  return PubSub.takeUpTo(subscription, Number.POSITIVE_INFINITY).pipe(
+    Effect.map((states) => states.map((value) => value.phase)),
+  );
+});
 
 const eventuallyState = Effect.fn("TestConnectionHarness.eventuallyState")(function* (
   state: SubscriptionRef.SubscriptionRef<SupervisorConnectionState>,
@@ -837,7 +850,7 @@ describe("EnvironmentSupervisor", () => {
 
   it.effect("restarts the retry ladder when a long resume replaces a connected session", () =>
     Effect.gen(function* () {
-      const harness = yield* makeHarness();
+      const harness = yield* makeHarness({ probe: () => Effect.never });
       const supervisor = yield* EnvironmentSupervisor.make(TARGET_ENTRY, {
         initiallyDesired: true,
       }).pipe(Effect.provide(harness.dependencies));
@@ -916,27 +929,76 @@ describe("EnvironmentSupervisor", () => {
     }),
   );
 
-  it.effect("immediately replaces a mobile session after a long background resume", () =>
+  it.effect("keeps a mobile session that answers the resume probe before a fresh lease opens", () =>
     Effect.gen(function* () {
-      const probeCount = yield* Ref.make(0);
+      const probeGate = yield* Deferred.make<void>();
+      const freshStarted = yield* Deferred.make<void>();
+      const freshGate = yield* Deferred.make<void>();
+      const probeCalls = yield* Ref.make(0);
+      const secondProbe = yield* Deferred.make<void>();
       const harness = yield* makeHarness({
-        probe: () => Ref.update(probeCount, (count) => count + 1),
+        prepare: (attempt) =>
+          attempt === 2
+            ? Deferred.succeed(freshStarted, undefined).pipe(
+                Effect.andThen(Deferred.await(freshGate)),
+                Effect.as(PREPARED_CONNECTION),
+              )
+            : Effect.succeed(PREPARED_CONNECTION),
+        probe: () =>
+          Ref.updateAndGet(probeCalls, (count) => count + 1).pipe(
+            Effect.flatMap((call) =>
+              call === 1 ? Deferred.await(probeGate) : Deferred.succeed(secondProbe, undefined),
+            ),
+          ),
       });
       const supervisor = yield* EnvironmentSupervisor.make(TARGET_ENTRY, {
         initiallyDesired: true,
       }).pipe(Effect.provide(harness.dependencies));
+      yield* awaitState(supervisor.state, (state) => state.phase === "connected");
+      const original = yield* SubscriptionRef.get(supervisor.session);
+      const phases = yield* observePhases(supervisor.state);
 
+      yield* harness.wake("application-active-reconnect");
+      yield* Deferred.await(freshStarted);
+      expect((yield* SubscriptionRef.get(supervisor.state)).generation).toBe(1);
+
+      yield* Deferred.succeed(probeGate, undefined);
+      // A later probe on the same session proves the race settled on it and
+      // the fresh attempt was abandoned before its gate opens.
+      yield* harness.wake("application-active-probe");
+      yield* Deferred.await(secondProbe);
+      yield* Deferred.succeed(freshGate, undefined);
+
+      expect(yield* phases).toEqual([]);
+      expect(yield* SubscriptionRef.get(supervisor.session)).toBe(original);
+      expect(yield* Ref.get(harness.sessionCount)).toBe(1);
+      expect(yield* Ref.get(harness.releaseCount)).toBe(0);
+    }),
+  );
+
+  it.effect("swaps to the fresh lease when it opens before the resume probe answers", () =>
+    Effect.gen(function* () {
+      const harness = yield* makeHarness({
+        probe: (attempt) => (attempt === 1 ? Effect.never : Effect.void),
+      });
+      const supervisor = yield* EnvironmentSupervisor.make(TARGET_ENTRY, {
+        initiallyDesired: true,
+      }).pipe(Effect.provide(harness.dependencies));
       yield* awaitState(
         supervisor.state,
         (state) => state.phase === "connected" && state.generation === 1,
       );
+      const original = yield* SubscriptionRef.get(supervisor.session);
+      const phases = yield* observePhases(supervisor.state);
+
       yield* harness.wake("application-active-reconnect");
       yield* awaitState(
         supervisor.state,
-        (state) => state.phase === "connected" && state.generation === 2,
+        (state) => state.phase === "connected" && state.generation === 2 && state.attempt === 1,
       );
 
-      expect(yield* Ref.get(probeCount)).toBe(0);
+      expect(yield* phases).toEqual(["connected"]);
+      expect(yield* SubscriptionRef.get(supervisor.session)).not.toBe(original);
       expect(yield* Ref.get(harness.sessionCount)).toBe(2);
       expect(yield* Ref.get(harness.releaseCount)).toBe(1);
     }),
@@ -968,6 +1030,167 @@ describe("EnvironmentSupervisor", () => {
     }),
   );
 
+  it.effect("shows the pending fresh lease as connecting once the resume probe fails", () =>
+    Effect.gen(function* () {
+      const freshGate = yield* Deferred.make<void>();
+      const harness = yield* makeHarness({
+        ready: (attempt) => (attempt === 2 ? Deferred.await(freshGate) : Effect.void),
+        probe: (attempt) =>
+          attempt === 1 ? Effect.fail(transient("The live session is stale.")) : Effect.void,
+      });
+      const supervisor = yield* EnvironmentSupervisor.make(TARGET_ENTRY, {
+        initiallyDesired: true,
+      }).pipe(Effect.provide(harness.dependencies));
+      yield* awaitState(supervisor.state, (state) => state.phase === "connected");
+
+      yield* harness.wake("application-active-reconnect");
+      // Progress of the fresh lease is published only once the old session is dead.
+      const reconnecting = yield* awaitState(
+        supervisor.state,
+        (state) => state.phase === "connecting" && state.stage === "synchronizing",
+      );
+      expect(reconnecting.attempt).toBe(1);
+      expect(reconnecting.generation).toBe(2);
+      expect(reconnecting.lastFailure?.detail).toBe("The live session is stale.");
+      expect(Option.isNone(yield* SubscriptionRef.get(supervisor.session))).toBe(true);
+      expect(yield* Ref.get(harness.releaseCount)).toBe(1);
+
+      yield* Deferred.succeed(freshGate, undefined);
+      yield* awaitState(
+        supervisor.state,
+        (state) => state.phase === "connected" && state.generation === 2 && state.attempt === 1,
+      );
+      expect(yield* Ref.get(harness.sessionCount)).toBe(2);
+    }),
+  );
+
+  it.effect("times out the resume probe and then the fresh lease before backing off", () =>
+    Effect.gen(function* () {
+      const harness = yield* makeHarness({
+        prepare: (attempt) => (attempt === 2 ? Effect.never : Effect.succeed(PREPARED_CONNECTION)),
+        probe: () => Effect.never,
+      });
+      const supervisor = yield* EnvironmentSupervisor.make(TARGET_ENTRY, {
+        initiallyDesired: true,
+      }).pipe(Effect.provide(harness.dependencies));
+      yield* awaitState(supervisor.state, (state) => state.phase === "connected");
+
+      yield* harness.wake("application-active-reconnect");
+      yield* TestClock.adjust("2999 millis");
+      expect((yield* SubscriptionRef.get(supervisor.state)).phase).toBe("connected");
+      yield* TestClock.adjust("1 milli");
+      const reconnecting = yield* eventuallyState(
+        supervisor.state,
+        (state) => state.phase === "connecting",
+      );
+      expect(reconnecting.lastFailure?.reason).toBe("timeout");
+      expect(yield* Ref.get(harness.releaseCount)).toBe(1);
+
+      yield* TestClock.adjust("12 seconds");
+      const backoff = yield* eventuallyState(
+        supervisor.state,
+        (state) => state.phase === "backoff" && state.attempt === 1,
+      );
+      expect(backoff.lastFailure?.detail).toContain("did not respond during connection setup");
+    }).pipe(Effect.provide(TestClock.layer())),
+  );
+
+  it.effect("backs off normally when both the resume probe and the fresh lease fail", () =>
+    Effect.gen(function* () {
+      const harness = yield* makeHarness({
+        prepare: (attempt) =>
+          attempt === 2
+            ? Effect.fail(transient("Fresh lease failed."))
+            : Effect.succeed(PREPARED_CONNECTION),
+        probe: (attempt) =>
+          attempt === 1 ? Effect.fail(transient("The live session is stale.")) : Effect.void,
+      });
+      const supervisor = yield* EnvironmentSupervisor.make(TARGET_ENTRY, {
+        initiallyDesired: true,
+      }).pipe(Effect.provide(harness.dependencies));
+      yield* awaitState(supervisor.state, (state) => state.phase === "connected");
+
+      yield* harness.wake("application-active-reconnect");
+      const backoff = yield* awaitState(
+        supervisor.state,
+        (state) => state.phase === "backoff" && state.attempt === 1,
+      );
+      expect(backoff.lastFailure?.detail).toBe("Fresh lease failed.");
+      expect(yield* Ref.get(harness.releaseCount)).toBe(1);
+      yield* TestClock.adjust("2999 millis");
+      expect(yield* Ref.get(harness.prepareCount)).toBe(2);
+      yield* TestClock.adjust("1 milli");
+      yield* eventuallyState(
+        supervisor.state,
+        (state) => state.phase === "connected" && state.generation === 2,
+      );
+      expect(yield* Ref.get(harness.prepareCount)).toBe(3);
+    }).pipe(Effect.provide(TestClock.layer())),
+  );
+
+  it.effect("keeps the session when the fresh lease fails but the resume probe answers", () =>
+    Effect.gen(function* () {
+      const probeGate = yield* Deferred.make<void>();
+      const freshFailed = yield* Deferred.make<void>();
+      const harness = yield* makeHarness({
+        prepare: (attempt) =>
+          attempt === 2
+            ? Deferred.succeed(freshFailed, undefined).pipe(
+                Effect.andThen(Effect.fail(transient("Fresh lease failed."))),
+              )
+            : Effect.succeed(PREPARED_CONNECTION),
+        probe: () => Deferred.await(probeGate),
+      });
+      const supervisor = yield* EnvironmentSupervisor.make(TARGET_ENTRY, {
+        initiallyDesired: true,
+      }).pipe(Effect.provide(harness.dependencies));
+      yield* awaitState(supervisor.state, (state) => state.phase === "connected");
+
+      yield* harness.wake("application-active-reconnect");
+      yield* Deferred.await(freshFailed);
+      yield* Deferred.succeed(probeGate, undefined);
+      yield* Effect.yieldNow;
+      expect((yield* SubscriptionRef.get(supervisor.state)).phase).toBe("connected");
+      expect(yield* Ref.get(harness.releaseCount)).toBe(0);
+
+      // The kept session stays supervised: a later close is reported as its
+      // own failure, not the discarded fresh attempt's.
+      yield* harness.closeLatestSession();
+      const backoff = yield* awaitState(supervisor.state, (state) => state.phase === "backoff");
+      expect(backoff.lastFailure?.detail).toBe("Session closed.");
+      expect(backoff.attempt).toBe(1);
+    }),
+  );
+
+  it.effect("honors an explicit disconnect while a resume race is pending", () =>
+    Effect.gen(function* () {
+      const freshGate = yield* Deferred.make<void>();
+      const freshOpened = yield* Deferred.make<void>();
+      const harness = yield* makeHarness({
+        ready: (attempt) =>
+          attempt === 2
+            ? Deferred.succeed(freshOpened, undefined).pipe(
+                Effect.andThen(Deferred.await(freshGate)),
+              )
+            : Effect.void,
+        probe: () => Effect.never,
+      });
+      const supervisor = yield* EnvironmentSupervisor.make(TARGET_ENTRY, {
+        initiallyDesired: true,
+      }).pipe(Effect.provide(harness.dependencies));
+      yield* awaitState(supervisor.state, (state) => state.phase === "connected");
+
+      yield* harness.wake("application-active-reconnect");
+      yield* Deferred.await(freshOpened);
+      yield* supervisor.disconnect;
+      yield* awaitState(supervisor.state, (state) => state.phase === "available");
+
+      // Both the kept session and the half-open fresh session are released.
+      expect(yield* Ref.get(harness.sessionCount)).toBe(2);
+      expect(yield* Ref.get(harness.releaseCount)).toBe(2);
+      expect(Option.isNone(yield* SubscriptionRef.get(supervisor.session))).toBe(true);
+    }),
+  );
   it.effect("reconnects immediately when the foreground liveness probe fails", () =>
     Effect.gen(function* () {
       const allowReconnect = yield* Deferred.make<void>();

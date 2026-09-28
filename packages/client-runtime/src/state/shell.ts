@@ -7,15 +7,18 @@ import {
 } from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
 import * as Effect from "effect/Effect";
+import * as Exit from "effect/Exit";
+import * as Fiber from "effect/Fiber";
 import * as Option from "effect/Option";
 import * as Queue from "effect/Queue";
 import * as Ref from "effect/Ref";
 import * as Stream from "effect/Stream";
 import * as SubscriptionRef from "effect/SubscriptionRef";
+import * as SynchronizedRef from "effect/SynchronizedRef";
 import { AsyncResult, Atom } from "effect/unstable/reactivity";
 
 import { EnvironmentRegistry } from "../connection/registry.ts";
-import { connectionProjectionPhase } from "../connection/model.ts";
+import { connectionProjectionPhase, type PreparedConnection } from "../connection/model.ts";
 import { EnvironmentSupervisor } from "../connection/supervisor.ts";
 import * as ConnectionWakeups from "../connection/wakeups.ts";
 import { safeErrorLogAttributes } from "../errors/safeLog.ts";
@@ -48,6 +51,13 @@ function shellStatusForSnapshot(
 }
 
 const SHELL_SYNCHRONIZATION_ERROR_MESSAGE = "Could not synchronize environment data.";
+
+interface ShellSnapshotLoad {
+  readonly prepared: PreparedConnection;
+  readonly fiber: Fiber.Fiber<Option.Option<OrchestrationShellSnapshot>>;
+  // A load is used by at most one session; later sessions load again.
+  readonly claimed: boolean;
+}
 
 export const makeEnvironmentShellState = Effect.fn("EnvironmentShellState.make")(function* () {
   const supervisor = yield* EnvironmentSupervisor;
@@ -188,8 +198,45 @@ export const makeEnvironmentShellState = Effect.fn("EnvironmentShellState.make")
   const foregroundResubscriptions = Option.match(wakeups, {
     onNone: () => Stream.never,
     onSome: (service) =>
-      service.changes.pipe(Stream.filter(ConnectionWakeups.shouldResubscribeAfterWakeup)),
+      service.changes.pipe(Stream.filter(ConnectionWakeups.isApplicationActiveWakeup)),
   });
+
+  // The HTTP snapshot load for the current prepared connection. It starts as
+  // soon as the supervisor prepares a connection, so it overlaps the socket
+  // handshake, and is interrupted once that connection is superseded.
+  const scope = yield* Effect.scope;
+  const snapshotLoad = yield* SynchronizedRef.make<ShellSnapshotLoad | null>(null);
+  const interruptSnapshotLoad = (current: ShellSnapshotLoad | null) =>
+    current === null ? Effect.void : Fiber.interrupt(current.fiber);
+  const startSnapshotLoad = (
+    current: ShellSnapshotLoad | null,
+    prepared: PreparedConnection,
+    claimed: boolean,
+  ) =>
+    interruptSnapshotLoad(current).pipe(
+      Effect.andThen(Effect.forkIn(snapshotLoader.load(prepared), scope)),
+      Effect.map((fiber): ShellSnapshotLoad => ({ prepared, fiber, claimed })),
+      Effect.uninterruptible,
+    );
+  yield* SubscriptionRef.changes(supervisor.prepared).pipe(
+    Stream.map(Option.getOrNull),
+    Stream.runForEach((prepared) =>
+      SynchronizedRef.updateEffect(snapshotLoad, (current) => {
+        if ((current?.prepared ?? null) === prepared) return Effect.succeed(current);
+        if (prepared === null) return interruptSnapshotLoad(current).pipe(Effect.as(null));
+        return startSnapshotLoad(current, prepared, false);
+      }),
+    ),
+    Effect.forkScoped,
+  );
+  const claimSnapshotLoad = (prepared: PreparedConnection) =>
+    SynchronizedRef.modifyEffect(snapshotLoad, (current) =>
+      current?.prepared === prepared && !current.claimed
+        ? Effect.succeed([current.fiber, { ...current, claimed: true }] as const)
+        : startSnapshotLoad(current, prepared, true).pipe(
+            Effect.map((next) => [next.fiber, next] as const),
+          ),
+    );
 
   yield* setSynchronizing;
   yield* Effect.forkScoped(
@@ -225,7 +272,11 @@ export const makeEnvironmentShellState = Effect.fn("EnvironmentShellState.make")
               }),
             ),
           );
-          const httpSnapshot = yield* snapshotLoader.load(prepared);
+          // An interrupted load belongs to a superseded connection; fall back
+          // to the socket snapshot.
+          const httpSnapshot = Option.flatten(
+            Exit.getSuccess(yield* Fiber.await(yield* claimSnapshotLoad(prepared))),
+          );
           if (Option.isSome(httpSnapshot)) {
             yield* applyItems([{ kind: "snapshot", snapshot: httpSnapshot.value }]);
             canResume = true;

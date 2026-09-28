@@ -149,6 +149,7 @@ const makeHarness = Effect.fn("TestEnvironmentThreads.makeHarness")(function* (o
   const stateChangeCount = yield* Ref.make(0);
   const retryCount = yield* Ref.make(0);
   const subscriptionCount = yield* Ref.make(0);
+  const subscriptionCounts = yield* Queue.unbounded<number>();
   const loaderCalls = yield* Ref.make(0);
   const lastSubscribeAfterSequence = yield* Ref.make<number | undefined>(undefined);
   const lastRequestCompletionMarker = yield* Ref.make<boolean | undefined>(undefined);
@@ -179,6 +180,7 @@ const makeHarness = Effect.fn("TestEnvironmentThreads.makeHarness")(function* (o
     }) =>
       Stream.unwrap(
         Ref.updateAndGet(subscriptionCount, (count) => count + 1).pipe(
+          Effect.tap((count) => Queue.offer(subscriptionCounts, count)),
           Effect.andThen(Ref.set(lastSubscribeAfterSequence, input.afterSequence)),
           Effect.andThen(Ref.set(lastRequestCompletionMarker, input.requestCompletionMarker)),
           Effect.as(streamFrom(inputs)),
@@ -269,6 +271,9 @@ const makeHarness = Effect.fn("TestEnvironmentThreads.makeHarness")(function* (o
     stateChangeCount,
     retryCount,
     subscriptionCount,
+    // Resolves once the Nth subscription has been requested.
+    awaitSubscriptionCount: (count: number) =>
+      Queue.take(subscriptionCounts).pipe(Effect.repeat({ until: (seen) => seen >= count })),
     loaderCalls,
     lastSubscribeAfterSequence,
     lastRequestCompletionMarker,
@@ -1021,17 +1026,12 @@ describe("EnvironmentThreads", () => {
       expect(Option.getOrThrow(live.data).title).toBe("Latest title");
 
       yield* Queue.offer(harness.wakeups, "application-active-probe");
-      for (let attempt = 0; attempt < 100; attempt += 1) {
-        if ((yield* Ref.get(harness.subscriptionCount)) >= 3) break;
-        yield* Effect.yieldNow;
-      }
+      yield* harness.awaitSubscriptionCount(3);
       expect(yield* Ref.get(harness.subscriptionCount)).toBe(3);
 
       yield* Queue.offer(harness.wakeups, "application-active-reconnect");
-      for (let attempt = 0; attempt < 10; attempt += 1) {
-        yield* Effect.yieldNow;
-      }
-      expect(yield* Ref.get(harness.subscriptionCount)).toBe(3);
+      yield* harness.awaitSubscriptionCount(4);
+      expect(yield* Ref.get(harness.subscriptionCount)).toBe(4);
     }),
   );
 

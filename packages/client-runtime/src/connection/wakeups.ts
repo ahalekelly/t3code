@@ -16,10 +16,6 @@ export function isApplicationActiveWakeup(reason: ConnectionWakeup): boolean {
   );
 }
 
-export function shouldResubscribeAfterWakeup(reason: ConnectionWakeup): boolean {
-  return reason === "application-active" || reason === "application-active-probe";
-}
-
 export class ConnectionWakeups extends Context.Service<
   ConnectionWakeups,
   {
