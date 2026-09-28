@@ -137,7 +137,6 @@ export function SettingsVoiceRouteScreen() {
                 multiline
                 onBlur={commitInstructions}
                 onChangeText={setInstructionsDraft}
-                placeholder="No instructions"
                 value={instructionsDraft ?? speech.instructions}
               />
             </View>
