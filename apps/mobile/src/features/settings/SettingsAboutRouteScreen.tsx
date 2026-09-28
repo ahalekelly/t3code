@@ -54,8 +54,10 @@ function AppSettingsSection() {
   const hiddenUpdateTapCount = useRef(0);
 
   const version = Constants.expoConfig?.version ?? "0.0.0";
-  // EAS assigns build numbers remotely; only the installed binary knows its own.
-  const build = Application.nativeBuildVersion;
+  // Personal builds name the server release they contain; others show the binary's build number,
+  // which EAS assigns remotely.
+  const serverRelease = Constants.expoConfig?.extra?.serverRelease as string | undefined;
+  const build = serverRelease ?? Application.nativeBuildVersion;
   const versionName = build ? `${version} (${build})` : version;
   const buildCommit = Constants.expoConfig?.extra?.buildCommit as string | undefined;
   const buildTime = Constants.expoConfig?.extra?.buildTime as string | undefined;
