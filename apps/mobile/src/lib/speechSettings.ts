@@ -79,7 +79,7 @@ export const SPEECH_MODELS = {
   }
 >;
 export type SpeechModel = keyof typeof SPEECH_MODELS;
-export const DEFAULT_SPEECH_MODEL: SpeechModel = "gemini-3.8-flash-lite-tts";
+export const DEFAULT_SPEECH_MODEL: SpeechModel = "gemini-3.8-flash-tts";
 
 export const SPEECH_PACES = [0.75, 1, 1.25, 1.5, 1.75, 2] as const;
 export type SpeechPace = (typeof SPEECH_PACES)[number];
