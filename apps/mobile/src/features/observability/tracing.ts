@@ -1,4 +1,12 @@
 import Constants from "expo-constants";
+import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
+import * as Tracer from "effect/Tracer";
+import {
+  ConnectionTraceRecorder,
+  makeConnectionTraceRecorder,
+} from "@t3tools/client-runtime/observability/connection-traces";
 import * as RelayTracing from "@t3tools/shared/relayTracing";
 
 import { hasTracingPublicConfig, resolveCloudPublicConfig } from "../cloud/publicConfig";
@@ -23,13 +31,39 @@ export function resolveTracingConfig(): TracingConfig | null {
   return { tracesUrl, tracesDataset, tracesToken };
 }
 
+/**
+ * Every span the app ends is buffered by the connection trace recorder, which
+ * posts them to the environment after each connect. The relay tracer (hosted
+ * OTLP export, when configured) is wrapped too so its spans are recorded as well.
+ */
 export function layerFromConfig(config: TracingConfig | null, resource: TracingResource) {
-  return RelayTracing.layer(config, {
+  const recorder = makeConnectionTraceRecorder({
+    serviceName: "t3code-mobile",
+    serviceVersion: resource.serviceVersion,
+    attributes: {
+      "service.runtime": "react-native",
+      "t3.client.surface": `mobile-${resource.appVariant}`,
+    },
+  });
+  const layerRelayTracer = RelayTracing.layer(config, {
     serviceName: "t3code-mobile",
     serviceVersion: resource.serviceVersion,
     runtime: "react-native",
     client: `mobile-${resource.appVariant}`,
   });
+  return Layer.mergeAll(
+    Layer.succeed(ConnectionTraceRecorder, recorder),
+    Layer.succeed(
+      Tracer.Tracer,
+      recorder.wrap(Tracer.make({ span: (options) => new Tracer.NativeSpan(options) })),
+    ),
+    Layer.effect(
+      RelayTracing.RelayClientTracer,
+      Effect.gen(function* () {
+        return Option.map(yield* RelayTracing.RelayClientTracer, recorder.wrap);
+      }),
+    ).pipe(Layer.provide(layerRelayTracer)),
+  );
 }
 
 export const layer = layerFromConfig(resolveTracingConfig(), {
