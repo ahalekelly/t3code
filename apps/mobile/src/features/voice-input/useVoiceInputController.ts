@@ -52,26 +52,6 @@ const VOICE_RECORDING_OPTIONS = {
   isMeteringEnabled: true,
 };
 
-/** Holds iOS background time so an upload finishes if the phone locks mid-transcription. */
-function withBackgroundTime(transcriber: VoiceTranscriber): VoiceTranscriber {
-  return {
-    prepare: async (options) => {
-      const prepared = await transcriber.prepare(options);
-      return {
-        locale: prepared.locale,
-        transcribe: async (uri, transcribeOptions) => {
-          const task = await nativeSpeech().beginBackgroundTask("Voice transcription");
-          try {
-            return await prepared.transcribe(uri, transcribeOptions);
-          } finally {
-            void nativeSpeech().endBackgroundTask(task);
-          }
-        },
-      };
-    },
-  };
-}
-
 async function releaseVoiceRecordingAudio(): Promise<void> {
   try {
     await setAudioModeAsync({ allowsRecording: false });
@@ -124,15 +104,6 @@ export function useVoiceInputController(input: {
   const audioLevelsRef = useRef(Array<number>(VOICE_WAVEFORM_SAMPLE_COUNT).fill(0));
   const audioLevels = useSharedValue(audioLevelsRef.current);
   const controllerRef = useRef<VoiceInputController | null>(null);
-  const previousDraftRef = useRef({ ownerKey: input.ownerKey, text: input.draftMessage });
-  const revisionRef = useRef(0);
-  if (
-    previousDraftRef.current.ownerKey !== input.ownerKey ||
-    previousDraftRef.current.text !== input.draftMessage
-  ) {
-    previousDraftRef.current = { ownerKey: input.ownerKey, text: input.draftMessage };
-    revisionRef.current += 1;
-  }
   const latestInputRef = useRef(input);
   latestInputRef.current = input;
   const voice = useVoiceSettings();
@@ -163,7 +134,7 @@ export function useVoiceInputController(input: {
         const { source, apiKey } = transcriptionConfigRef.current;
         if (source === "local") return getLocalVoiceTranscriber();
         if (apiKey === null) return MISSING_OPENAI_KEY_TRANSCRIBER;
-        return withBackgroundTime(createOpenAiVoiceTranscriber(apiKey));
+        return createOpenAiVoiceTranscriber(apiKey);
       },
       requestPermission: async () => {
         const permission = await requestRecordingPermissionsAsync();
@@ -179,7 +150,6 @@ export function useVoiceInputController(input: {
           ownerKey: current.ownerKey,
           text: current.draftMessage,
           selection: current.selection,
-          revision: revisionRef.current,
         };
       },
       commitDraft: (text, selection) => {
@@ -212,6 +182,10 @@ export function useVoiceInputController(input: {
         sendRequestedRef.current = false;
         void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
         playCue("error");
+      },
+      holdBackgroundTime: async () => {
+        const task = await nativeSpeech().beginBackgroundTask("Voice transcription");
+        return () => void nativeSpeech().endBackgroundTask(task);
       },
     });
   }
@@ -292,9 +266,27 @@ export function useVoiceInputController(input: {
       }
     };
 
-    sampleRecording();
-    const intervalId = setInterval(sampleRecording, VOICE_METERING_INTERVAL_MS);
-    return () => clearInterval(intervalId);
+    // Nobody sees the meter while the phone is locked, so sampling pauses until the app is active.
+    let intervalId: ReturnType<typeof setInterval> | null = null;
+    const resume = () => {
+      if (intervalId !== null) return;
+      sampleRecording();
+      intervalId = setInterval(sampleRecording, VOICE_METERING_INTERVAL_MS);
+    };
+    const pause = () => {
+      if (intervalId === null) return;
+      clearInterval(intervalId);
+      intervalId = null;
+    };
+    if (AppState.currentState === "active") resume();
+    const subscription = AppState.addEventListener("change", (nextState) => {
+      if (nextState === "active") resume();
+      else pause();
+    });
+    return () => {
+      subscription.remove();
+      pause();
+    };
   }, [audioLevels, controller, recorder, state.phase]);
 
   // The controller commits the draft and goes idle in the same render, so the

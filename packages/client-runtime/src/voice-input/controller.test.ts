@@ -40,7 +40,6 @@ function draft(overrides: Partial<VoiceDraftSnapshot> = {}): VoiceDraftSnapshot 
     ownerKey: "environment:thread",
     text: "hello world",
     selection: { start: 6, end: 11 },
-    revision: 1,
     ...overrides,
   };
 }
@@ -64,6 +63,7 @@ function createHarness(
     commitDraft: (text, selection) => commits.push({ text, selection }),
     onStateChange: vi.fn(),
     onRecordingInterrupted: vi.fn(),
+    holdBackgroundTime: async () => () => undefined,
     ...overrides,
   };
   return {
@@ -86,25 +86,10 @@ describe("resolveTranscriptCommit", () => {
       selection: { start: tokenStart, end: tokenStart + "$review".length },
     });
 
-    expect(resolveTranscriptCommit(captured, captured, "use the mobile skill", "en-US")).toEqual({
+    expect(resolveTranscriptCommit(captured, "use the mobile skill", "en-US")).toEqual({
       kind: "commit",
       text: "Fix 🧪 then use the mobile skill please",
       selection: { start: tokenStart + "use the mobile skill".length, end: tokenStart + 20 },
-    });
-  });
-
-  it("does not replace text after the owner, text, or revision changes", () => {
-    const captured = draft();
-    expect(
-      resolveTranscriptCommit(captured, draft({ ownerKey: "other" }), "text", "en-US"),
-    ).toEqual({
-      kind: "stale",
-    });
-    expect(resolveTranscriptCommit(captured, draft({ text: "newer" }), "text", "en-US")).toEqual({
-      kind: "stale",
-    });
-    expect(resolveTranscriptCommit(captured, draft({ revision: 2 }), "text", "en-US")).toEqual({
-      kind: "stale",
     });
   });
 
@@ -113,23 +98,23 @@ describe("resolveTranscriptCommit", () => {
       text: "Fix cache.",
       selection: { start: "Fix cache.".length, end: "Fix cache.".length },
     });
-    expect(resolveTranscriptCommit(atEnd, atEnd, "Also fix tests.", "en-US")).toMatchObject({
+    expect(resolveTranscriptCommit(atEnd, "Also fix tests.", "en-US")).toMatchObject({
       kind: "commit",
       text: "Fix cache. Also fix tests.",
     });
-    expect(resolveTranscriptCommit(atEnd, atEnd, "Also fix tests.", "en_US")).toMatchObject({
+    expect(resolveTranscriptCommit(atEnd, "Also fix tests.", "en_US")).toMatchObject({
       kind: "commit",
       text: "Fix cache. Also fix tests.",
     });
 
     const atStart = draft({ text: "Fix cache.", selection: { start: 0, end: 0 } });
-    expect(resolveTranscriptCommit(atStart, atStart, "First", "en-US")).toMatchObject({
+    expect(resolveTranscriptCommit(atStart, "First", "en-US")).toMatchObject({
       kind: "commit",
       text: "First Fix cache.",
     });
 
     const inMiddle = draft({ text: "Fix cache.", selection: { start: 4, end: 4 } });
-    expect(resolveTranscriptCommit(inMiddle, inMiddle, "also", "en-US")).toMatchObject({
+    expect(resolveTranscriptCommit(inMiddle, "also", "en-US")).toMatchObject({
       kind: "commit",
       text: "Fix also cache.",
     });
@@ -137,13 +122,13 @@ describe("resolveTranscriptCommit", () => {
 
   it("does not add English boundary spaces to CJK or selected inline text", () => {
     const cjk = draft({ text: "修正キャッシュ", selection: { start: 8, end: 8 } });
-    expect(resolveTranscriptCommit(cjk, cjk, "テストも", "ja-JP")).toMatchObject({
+    expect(resolveTranscriptCommit(cjk, "テストも", "ja-JP")).toMatchObject({
       kind: "commit",
       text: "修正キャッシュテストも",
     });
 
     const selected = draft({ text: "one $skill two", selection: { start: 4, end: 10 } });
-    expect(resolveTranscriptCommit(selected, selected, "new", "en-US")).toMatchObject({
+    expect(resolveTranscriptCommit(selected, "new", "en-US")).toMatchObject({
       kind: "commit",
       text: "one new two",
     });
@@ -368,9 +353,13 @@ describe("VoiceInputController", () => {
     expect(harness.controller.currentState.phase).toBe("idle");
   });
 
-  it("releases the microphone before transcription starts", async () => {
+  it("holds background time from before the microphone is released until the transcript lands", async () => {
     const events: string[] = [];
     const harness = createHarness({
+      holdBackgroundTime: async () => {
+        events.push("held background time");
+        return () => events.push("released background time");
+      },
       releaseRecording: async () => {
         events.push("released");
       },
@@ -385,7 +374,12 @@ describe("VoiceInputController", () => {
     await harness.controller.start();
     await harness.controller.stop();
 
-    expect(events).toEqual(["released", "transcribed"]);
+    expect(events).toEqual([
+      "held background time",
+      "released",
+      "transcribed",
+      "released background time",
+    ]);
   });
 
   it("retries audio-session release during final cleanup", async () => {
@@ -410,28 +404,37 @@ describe("VoiceInputController", () => {
     expect(harness.controller.currentState.error).toContain("finish voice recording");
   });
 
-  it("ignores a late transcript after the draft owner changes", async () => {
-    const transcription = deferred<string>();
-    const transcriptionEntered = deferred<void>();
-    const harness = createHarness({
-      getTranscriber: () => ({
-        prepare: async () =>
-          preparedTranscription(() => {
-            transcriptionEntered.resolve(undefined);
-            return transcription.promise;
-          }),
-      }),
-    });
-    await harness.controller.start();
-    const stopping = harness.controller.stop();
-    await transcriptionEntered.promise;
-    harness.setDraft(draft({ ownerKey: "environment:other-thread" }));
-    transcription.resolve("late text");
-    await stopping;
+  it.each([
+    [
+      "the draft changes",
+      draft({ text: "hello there", selection: { start: 11, end: 11 } }),
+      ["hello there late text"],
+    ],
+    ["the owner changes", draft({ ownerKey: "environment:other-thread" }), []],
+  ] as const)(
+    "inserts a late transcript at the current selection unless %s",
+    async (_case, next, commits) => {
+      const transcription = deferred<string>();
+      const transcriptionEntered = deferred<void>();
+      const harness = createHarness({
+        getTranscriber: () => ({
+          prepare: async () =>
+            preparedTranscription(() => {
+              transcriptionEntered.resolve(undefined);
+              return transcription.promise;
+            }),
+        }),
+      });
+      await harness.controller.start();
+      const stopping = harness.controller.stop();
+      await transcriptionEntered.promise;
+      harness.setDraft(next);
+      transcription.resolve("late text");
+      await stopping;
 
-    expect(harness.commits).toEqual([]);
-    expect(harness.controller.currentState.error).toContain("draft changed");
-  });
+      expect(harness.commits.map((commit) => commit.text)).toEqual(commits);
+    },
+  );
 
   it("keeps the app-wide session locked until canceled preparation settles", async () => {
     const preparation = deferred<PreparedVoiceTranscription>();
@@ -555,12 +558,16 @@ describe("VoiceInputController", () => {
   });
 
   it("keeps a recording that failed to transcribe until it is transcribed again", async () => {
-    const transcribe = vi
-      .fn<PreparedVoiceTranscription["transcribe"]>()
-      .mockRejectedValueOnce(new Error("offline"))
-      .mockResolvedValueOnce("second try");
+    const failing = vi.fn<PreparedVoiceTranscription["transcribe"]>(async () => {
+      throw new Error("missing key");
+    });
+    const working = vi.fn<PreparedVoiceTranscription["transcribe"]>(async () => "second try");
+    let selected = failing;
     const harness = createHarness({
-      getTranscriber: () => ({ prepare: async () => preparedTranscription(transcribe) }),
+      getTranscriber: () => {
+        const transcribe = selected;
+        return { prepare: async () => preparedTranscription(transcribe) };
+      },
     });
     await harness.controller.start();
     await harness.controller.stop();
@@ -578,16 +585,40 @@ describe("VoiceInputController", () => {
     expect(other.controller.currentState.phase).toBe("recording");
     await other.controller.stop();
 
-    harness.setDraft(draft({ text: "edited", selection: { start: 6, end: 6 }, revision: 2 }));
+    // Retrying picks up a transcriber fixed in the meantime.
+    selected = working;
+    harness.setDraft(draft({ text: "edited", selection: { start: 6, end: 6 } }));
     await harness.controller.transcribeAgain();
 
-    expect(transcribe.mock.calls.map(([uri]) => uri)).toEqual([
-      "file:///voice.m4a",
-      "file:///voice.m4a",
-    ]);
+    expect(failing.mock.calls.map(([uri]) => uri)).toEqual(["file:///voice.m4a"]);
+    expect(working.mock.calls.map(([uri]) => uri)).toEqual(["file:///voice.m4a"]);
     expect(harness.commits.map((commit) => commit.text)).toEqual(["edited second try"]);
     expect(harness.deleted).toEqual(["file:///voice.m4a"]);
     expect(harness.controller.currentState.phase).toBe("idle");
+  });
+
+  it("keeps the recording when transcribing again fails", async () => {
+    let prepare: VoiceTranscriber["prepare"] = async () =>
+      preparedTranscription(async () => {
+        throw new Error("offline");
+      });
+    const harness = createHarness({
+      getTranscriber: () => ({ prepare: (options) => prepare(options) }),
+    });
+    await harness.controller.start();
+    await harness.controller.stop();
+
+    prepare = async () => {
+      throw new Error("unavailable");
+    };
+    await harness.controller.transcribeAgain();
+
+    expect(harness.controller.currentState).toEqual({
+      phase: "error",
+      error: "Could not prepare voice transcription.",
+      errorAction: "transcribe",
+    });
+    expect(harness.deleted).toEqual([]);
   });
 
   it.each(["cancel", "dispose", "ownerChanged", "start"] as const)(
