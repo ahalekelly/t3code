@@ -950,6 +950,7 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
                     phase={voiceInput.state.phase}
                     presentation={voicePresentation}
                     onDismissError={voiceInput.cancel}
+                    onTranscribeAgain={voiceInput.transcribeAgain}
                   />
                 ) : (
                   <View className="min-w-0 flex-1 flex-row items-center justify-between">
