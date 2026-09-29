@@ -2,7 +2,8 @@ import { replaceTextRange } from "@t3tools/shared/composerTrigger";
 
 import type { PreparedVoiceTranscription, VoiceTranscriber } from "./transcription.ts";
 
-export const VOICE_RECORDING_LIMIT_SECONDS = 5 * 60;
+// OpenAI rejects uploads over about 23 minutes or 25 MB.
+export const VOICE_RECORDING_LIMIT_SECONDS = 20 * 60;
 
 export type VoiceInputPhase = "idle" | "preparing" | "recording" | "transcribing" | "error";
 

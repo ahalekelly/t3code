@@ -44,8 +44,11 @@ const MISSING_OPENAI_KEY_TRANSCRIBER: VoiceTranscriber = {
   },
 };
 const VOICE_METERING_INTERVAL_MS = 80;
+// Mono AAC at 64 kbps keeps speech clear at under 10 MB for the full recording limit.
 const VOICE_RECORDING_OPTIONS = {
   ...RecordingPresets.HIGH_QUALITY,
+  numberOfChannels: 1,
+  bitRate: 64_000,
   isMeteringEnabled: true,
 };
 
