@@ -49,7 +49,7 @@ function receiveSharingEnabled(): boolean {
   if (Platform.OS !== "ios") {
     return false;
   }
-  return Constants.expoConfig?.extra?.iosSharingEnabled !== false;
+  return Constants.expoConfig?.extra?.iosPersonalTeamBuild !== true;
 }
 
 const getIncomingSharePayloads = createIncomingSharePayloadReader({

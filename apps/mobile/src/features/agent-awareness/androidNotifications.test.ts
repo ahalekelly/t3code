@@ -89,7 +89,7 @@ describe("Android native notification capability", () => {
     },
   );
 
-  it("preserves the iOS personal-team restriction without loading Android code", async () => {
+  it("preserves the iOS personal build restriction without loading Android code", async () => {
     mocks.os = "ios";
     const { supportsAgentAwarenessPush } = await import("./capabilities");
     expect(supportsAgentAwarenessPush()).toBe(true);
