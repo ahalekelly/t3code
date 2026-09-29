@@ -169,10 +169,13 @@ Code blocks are announced rather than read. Removing your headphones pauses
 reading; resuming starts that paragraph again.
 
 Under **Settings → Voice → Read aloud**, choose the model (Gemini Flash by
-default, Gemini Flash-Lite, or OpenAI), voice, and pace, and describe the delivery you want under
-**Delivery**. Reading uses that provider's API key from the same screen and costs
-about 1 to 1.5 cents per minute of audio. Use a paid-tier Gemini key: Google
-trains on free-tier requests. Reading continues with the screen locked.
+default, Gemini Flash-Lite, OpenAI, ElevenLabs v4 or v4 Turbo, or MAI-Voice-2 or
+MAI-Voice-2 Flash), voice, and pace. Gemini and OpenAI also take a **Delivery**
+description. Reading uses that provider's API key from the same screen and costs
+about 1 to 7 cents per minute of audio. Use a paid-tier Gemini key: Google
+trains on free-tier requests. ElevenLabs lists the voices saved in your account.
+MAI voices need a key from an Azure Speech resource in East US. Reading
+continues with the screen locked.
 Reading another response, leaving the thread, or starting dictation stops playback.
 
 ## Commands and skills

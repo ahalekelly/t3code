@@ -91,7 +91,7 @@ struct SpeechOptionsRecord: Record {
     }
     guard let model = CloudVoice.Model(rawValue: model) else { throw SpeechError("Unknown speech model: \(model)") }
     guard !apiKey.isEmpty else { throw SpeechError("Add your \(model.provider) API key in Settings → Voice.") }
-    guard model.voices.contains(voice) else { throw SpeechError("Unknown \(model.provider) voice: \(voice)") }
+    guard !voice.isEmpty else { throw SpeechError("Choose a voice for \(model.provider) in Settings → Voice.") }
     let voice = CloudVoice(model: model, apiKey: apiKey, voice: voice, instructions: instructions)
     return SpeechSettings(voice: voice, pace: pace, title: title)
   }
