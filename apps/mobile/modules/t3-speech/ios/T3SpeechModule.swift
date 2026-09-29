@@ -74,6 +74,24 @@ public class T3SpeechModule: Module {
       guard let cue = SpeechCue(rawValue: cue) else { throw SpeechError("Unknown cue: \(cue)") }
       try MainActor.assumeIsolated { try SpeechCues.shared.announce(text, after: cue) }
     }.runOnQueue(.main)
+
+    // Keeps the app running while work that must not be cut short finishes in the
+    // background. iOS ends the task itself if it runs out of time.
+    AsyncFunction("beginBackgroundTask") { (name: String) -> Int in
+      MainActor.assumeIsolated {
+        var task = UIBackgroundTaskIdentifier.invalid
+        task = UIApplication.shared.beginBackgroundTask(withName: name) {
+          UIApplication.shared.endBackgroundTask(task)
+        }
+        return task.rawValue
+      }
+    }.runOnQueue(.main)
+
+    AsyncFunction("endBackgroundTask") { (task: Int) in
+      MainActor.assumeIsolated {
+        UIApplication.shared.endBackgroundTask(UIBackgroundTaskIdentifier(rawValue: task))
+      }
+    }.runOnQueue(.main)
   }
 }
 

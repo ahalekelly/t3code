@@ -33,6 +33,9 @@ declare class SpeechModule extends NativeModule<{
   playCue(cue: SpeechCue): Promise<void>;
   /** Plays the cue, then speaks the text in the system voice. */
   announce(text: string, cue: SpeechCue): Promise<void>;
+  /** Asks iOS for time to finish work in the background; pass the id to `endBackgroundTask`. */
+  beginBackgroundTask(name: string): Promise<number>;
+  endBackgroundTask(task: number): Promise<void>;
 }
 
 // Resolve on use: other platforms can import thread and voice-input controls.
