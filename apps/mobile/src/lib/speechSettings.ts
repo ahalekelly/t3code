@@ -1,4 +1,11 @@
-export type VoiceApiProvider = "openai" | "gemini";
+/** API key fields; Azure keys come from a Speech resource in East US, where MAI voices run. */
+export const VOICE_API_PROVIDERS = {
+  openai: { label: "OpenAI", placeholder: "sk-..." },
+  gemini: { label: "Gemini", placeholder: "AIza..." },
+  elevenlabs: { label: "ElevenLabs", placeholder: "sk_..." },
+  azure: { label: "Azure Speech", placeholder: "East US Speech resource key" },
+} as const;
+export type VoiceApiProvider = keyof typeof VOICE_API_PROVIDERS;
 
 // Gemini 3.8 TTS studio voices.
 const GEMINI_VOICES = [
@@ -34,12 +41,17 @@ const GEMINI_VOICES = [
   "Sulafat",
 ] as const;
 
-/** Read-aloud models; each lists its voices with the default first. */
+/**
+ * Read-aloud models; each lists its voices with the default first, or reads the
+ * voices saved in the ElevenLabs account. `instructions` marks models that take a
+ * free-form delivery prompt.
+ */
 export const SPEECH_MODELS = {
   "gpt-4o-mini-tts": {
     label: "OpenAI",
     provider: "openai",
     centsPerMinute: 1.5,
+    instructions: true,
     // Most natural first.
     voices: [
       "marin",
@@ -61,13 +73,43 @@ export const SPEECH_MODELS = {
     label: "Gemini Flash",
     provider: "gemini",
     centsPerMinute: 1.35,
+    instructions: true,
     voices: GEMINI_VOICES,
   },
   "gemini-3.8-flash-lite-tts": {
     label: "Gemini Flash-Lite",
     provider: "gemini",
     centsPerMinute: 0.9,
+    instructions: true,
     voices: GEMINI_VOICES,
+  },
+  eleven_v4: {
+    label: "ElevenLabs v4",
+    provider: "elevenlabs",
+    centsPerMinute: 7,
+    instructions: false,
+    voices: "account",
+  },
+  eleven_v4_turbo: {
+    label: "ElevenLabs v4 Turbo",
+    provider: "elevenlabs",
+    centsPerMinute: 3.5,
+    instructions: false,
+    voices: "account",
+  },
+  "MAI-Voice-2": {
+    label: "MAI-Voice-2",
+    provider: "azure",
+    centsPerMinute: 2,
+    instructions: false,
+    voices: ["Harper", "Olivia", "Iris", "Ethan", "Grant", "Jasper"],
+  },
+  "MAI-Voice-2-Flash": {
+    label: "MAI-Voice-2 Flash",
+    provider: "azure",
+    centsPerMinute: 1.35,
+    instructions: false,
+    voices: ["Harper", "Olivia", "Ethan"],
   },
 } as const satisfies Record<
   string,
@@ -75,7 +117,8 @@ export const SPEECH_MODELS = {
     label: string;
     provider: VoiceApiProvider;
     centsPerMinute: number;
-    voices: readonly [string, ...string[]];
+    instructions: boolean;
+    voices: readonly [string, ...string[]] | "account";
   }
 >;
 export type SpeechModel = keyof typeof SPEECH_MODELS;
@@ -85,6 +128,9 @@ export const SPEECH_PACES = [0.75, 1, 1.25, 1.5, 1.75, 2] as const;
 export type SpeechPace = (typeof SPEECH_PACES)[number];
 
 export const DEFAULT_SPEECH_INSTRUCTIONS = "Read at a brisk, clear pace.";
+
+/** A voice the model can read with; `id` is what the provider's API takes. */
+export type SpeechVoice = { readonly id: string; readonly name: string };
 
 /** What native reading needs to read a response aloud. */
 export type SpeechRequest = {

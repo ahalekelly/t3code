@@ -1,31 +1,28 @@
 import Foundation
 
-/// Streams OpenAI or Gemini speech as 24 kHz 16-bit PCM straight from the phone.
+/// Streams OpenAI, Gemini, ElevenLabs, or Azure MAI speech as 24 kHz 16-bit PCM straight from the phone.
 struct CloudVoice: Sendable {
   enum Model: String, Sendable {
     case openAi = "gpt-4o-mini-tts"
     case geminiFlash = "gemini-3.8-flash-tts"
     case geminiFlashLite = "gemini-3.8-flash-lite-tts"
+    case elevenLabs = "eleven_v4"
+    case elevenLabsTurbo = "eleven_v4_turbo"
+    case maiVoice = "MAI-Voice-2"
+    case maiVoiceFlash = "MAI-Voice-2-Flash"
 
-    var provider: String { self == .openAi ? "OpenAI" : "Gemini" }
-
-    var voices: [String] {
+    var provider: String {
       switch self {
-      case .openAi:
-        ["alloy", "ash", "ballad", "coral", "echo", "fable", "onyx", "nova", "sage", "shimmer", "verse", "marin", "cedar"]
-      case .geminiFlash, .geminiFlashLite:
-        [
-          "Zephyr", "Puck", "Charon", "Kore", "Fenrir", "Leda", "Orus", "Aoede", "Callirrhoe", "Autonoe",
-          "Enceladus", "Iapetus", "Umbriel", "Algieba", "Despina", "Erinome", "Algenib", "Rasalgethi",
-          "Laomedeia", "Achernar", "Alnilam", "Schedar", "Gacrux", "Pulcherrima", "Achird",
-          "Zubenelgenubi", "Vindemiatrix", "Sadachbia", "Sadaltager", "Sulafat",
-        ]
+      case .openAi: "OpenAI"
+      case .geminiFlash, .geminiFlashLite: "Gemini"
+      case .elevenLabs, .elevenLabsTurbo: "ElevenLabs"
+      case .maiVoice, .maiVoiceFlash: "Azure Speech"
       }
     }
   }
 
   static let sampleRate: Double = 24_000
-  /// Stopping discards at most one segment, about a cent of audio.
+  /// Stopping discards at most one segment, a few cents of audio at most.
   static let segmentLength = 600
   private static let retryDelays: [Duration] = [.seconds(1), .seconds(3), .seconds(8)]
 
@@ -54,7 +51,9 @@ struct CloudVoice: Sendable {
     guard (200...299).contains(status) else {
       var data = Data()
       for try await byte in bytes { data.append(byte) }
-      let error = (try? JSONSerialization.jsonObject(with: data) as? [String: Any])?["error"] as? [String: Any]
+      // OpenAI and Gemini send `error.message`, ElevenLabs `detail.message`; Azure sends no body.
+      let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+      let error = (json?["error"] ?? json?["detail"]) as? [String: Any]
       throw SpeechError("\(model.provider) speech failed (\(status)): \(error?["message"] as? String ?? "no details")")
     }
 
@@ -62,7 +61,7 @@ struct CloudVoice: Sendable {
     var pcm = Data()
     let piece = Int(Self.sampleRate / 4) * 2
     switch model {
-    case .openAi:
+    case .openAi, .elevenLabs, .elevenLabsTurbo, .maiVoice, .maiVoiceFlash:
       for try await byte in bytes {
         pcm.append(byte)
         if pcm.count >= piece, !(await Self.send(&pcm, to: append)) { return }
@@ -123,6 +122,30 @@ struct CloudVoice: Sendable {
         "generation_config": ["speech_config": [["voice": voice]]],
         "stream": true,
       ]
+    case .elevenLabs, .elevenLabsTurbo:
+      var components = URLComponents(string: "https://api.elevenlabs.io/v1/text-to-speech")!
+      components.path += "/\(voice)/stream"
+      components.queryItems = [URLQueryItem(name: "output_format", value: "pcm_24000")]
+      request = URLRequest(url: components.url!)
+      request.setValue(apiKey, forHTTPHeaderField: "xi-api-key")
+      body = ["text": text, "model_id": model.rawValue]
+    case .maiVoice, .maiVoiceFlash:
+      // MAI voices run only in East US and West US; the key must come from an East US resource.
+      request = URLRequest(url: URL(string: "https://eastus.tts.speech.microsoft.com/cognitiveservices/v1")!)
+      request.httpMethod = "POST"
+      request.setValue(apiKey, forHTTPHeaderField: "Ocp-Apim-Subscription-Key")
+      request.setValue("application/ssml+xml", forHTTPHeaderField: "Content-Type")
+      request.setValue("raw-24khz-16bit-mono-pcm", forHTTPHeaderField: "X-Microsoft-OutputFormat")
+      request.setValue("T3Code", forHTTPHeaderField: "User-Agent")
+      let escaped = text
+        .replacingOccurrences(of: "&", with: "&amp;")
+        .replacingOccurrences(of: "<", with: "&lt;")
+        .replacingOccurrences(of: ">", with: "&gt;")
+      request.httpBody = Data("""
+        <speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xml:lang="en-US">\
+        <voice name="en-US-\(voice):\(model.rawValue)">\(escaped)</voice></speak>
+        """.utf8)
+      return request
     }
     request.httpMethod = "POST"
     request.setValue("application/json", forHTTPHeaderField: "Content-Type")

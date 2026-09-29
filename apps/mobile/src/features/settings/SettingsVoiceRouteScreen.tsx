@@ -20,6 +20,7 @@ import {
 import {
   SPEECH_MODELS,
   SPEECH_PACES,
+  VOICE_API_PROVIDERS,
   type SpeechModel,
   type SpeechPace,
   type VoiceApiProvider,
@@ -37,6 +38,7 @@ export function SettingsVoiceRouteScreen() {
   const { preferences, speech } = voice;
   const selectedSource = voice.transcriptionSource;
   const model = SPEECH_MODELS[speech.model];
+  const speechProvider = VOICE_API_PROVIDERS[model.provider];
 
   const commitInstructions = () => {
     if (instructionsDraft === null) return;
@@ -95,7 +97,7 @@ export function SettingsVoiceRouteScreen() {
           </View>
         </SettingsSection>
         <SettingsSection title="OpenAI API key">
-          <ApiKeyField provider="openai" label="OpenAI API key" placeholder="sk-..." />
+          <ApiKeyField provider="openai" />
         </SettingsSection>
         <Text className="px-2 text-sm leading-normal text-foreground-muted">
           On-device transcription needs iOS 26 on a supported iPhone. OpenAI transcription uploads
@@ -116,10 +118,7 @@ export function SettingsVoiceRouteScreen() {
             <VoiceChoice
               label="Voice"
               value={speech.voice}
-              options={model.voices.map((voice) => ({
-                id: voice,
-                title: voice.charAt(0).toUpperCase() + voice.slice(1),
-              }))}
+              options={voice.voices.map(({ id, name }) => ({ id, title: name }))}
               onSelect={(voice) => savePreferences({ responseSpeechVoice: voice })}
             />
             <VoiceChoice
@@ -130,19 +129,26 @@ export function SettingsVoiceRouteScreen() {
                 savePreferences({ responseSpeechPace: Number(pace) as SpeechPace })
               }
             />
-            <View className="gap-2 p-4">
-              <Text className="text-lg text-foreground">Delivery</Text>
-              <TextInput
-                accessibilityLabel="Reading instructions"
-                multiline
-                onBlur={commitInstructions}
-                onChangeText={setInstructionsDraft}
-                value={instructionsDraft ?? speech.instructions}
-              />
-            </View>
+            {model.instructions ? (
+              <View className="gap-2 p-4">
+                <Text className="text-lg text-foreground">Delivery</Text>
+                <TextInput
+                  accessibilityLabel="Reading instructions"
+                  multiline
+                  onBlur={commitInstructions}
+                  onChangeText={setInstructionsDraft}
+                  value={instructionsDraft ?? speech.instructions}
+                />
+              </View>
+            ) : null}
+            {voice.voicesError ? (
+              <Text className="px-4 text-sm text-foreground-muted">{voice.voicesError}</Text>
+            ) : null}
             <Text className="px-4 pb-4 text-sm text-foreground-muted">
-              Describe how the voice should sound. Reading with {model.label} uses its API key and
-              costs about {model.centsPerMinute} cents per minute of audio.
+              {model.instructions ? "Describe how the voice should sound. " : ""}
+              {model.voices === "account" ? "Voices come from your ElevenLabs account. " : ""}
+              Reading with {model.label} uses the {speechProvider.label} API key and costs about{" "}
+              {model.centsPerMinute} cents per minute of audio.
             </Text>
             <SettingsSwitchRow
               icon="speaker.wave.2"
@@ -163,9 +169,9 @@ export function SettingsVoiceRouteScreen() {
             />
           </SettingsSection>
         ) : null}
-        {Platform.OS === "ios" ? (
-          <SettingsSection title="Gemini API key">
-            <ApiKeyField provider="gemini" label="Gemini API key" placeholder="AIza..." />
+        {Platform.OS === "ios" && model.provider !== "openai" ? (
+          <SettingsSection title={`${speechProvider.label} API key`}>
+            <ApiKeyField key={model.provider} provider={model.provider} />
           </SettingsSection>
         ) : null}
       </ScrollView>
@@ -173,15 +179,8 @@ export function SettingsVoiceRouteScreen() {
   );
 }
 
-function ApiKeyField({
-  provider,
-  label,
-  placeholder,
-}: {
-  provider: VoiceApiProvider;
-  label: string;
-  placeholder: string;
-}) {
+function ApiKeyField({ provider }: { provider: VoiceApiProvider }) {
+  const { label, placeholder } = VOICE_API_PROVIDERS[provider];
   const storedResult = useAtomValue(voiceApiKeyAtom(provider));
   const saveApiKey = useAtomSet(setVoiceApiKeyAtom(provider));
   const storedKey = AsyncResult.isSuccess(storedResult) ? storedResult.value : null;
@@ -196,7 +195,7 @@ function ApiKeyField({
   return (
     <View className="p-4">
       <TextInput
-        accessibilityLabel={label}
+        accessibilityLabel={`${label} API key`}
         autoCapitalize="none"
         autoCorrect={false}
         editable={AsyncResult.isSuccess(storedResult)}
