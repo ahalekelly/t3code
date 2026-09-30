@@ -308,15 +308,13 @@ export const make = Effect.gen(function* () {
               Stream.map((scopes) => scopes.get(focused.value)?.supervisor),
               Stream.switchMap((supervisor) =>
                 supervisor === undefined
-                  ? Stream.empty
+                  ? Stream.succeed(undefined)
                   : Stream.zipLatest(
                       SubscriptionRef.changes(supervisor.state),
                       SubscriptionRef.changes(supervisor.verifying),
                     ).pipe(
                       Stream.filter(
-                        ([state, verifying]) =>
-                          state.phase !== "connecting" &&
-                          !(state.phase === "connected" && verifying),
+                        ([state, verifying]) => state.phase !== "connecting" && !verifying,
                       ),
                     ),
               ),

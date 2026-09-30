@@ -1645,6 +1645,21 @@ describe("EnvironmentRegistry", () => {
       }),
     );
 
+    it.effect("does not hold back the others when the focused environment is unregistered", () =>
+      Effect.gen(function* () {
+        const harness = yield* makeHarness([TARGET, SECOND_TARGET]);
+
+        yield* Effect.gen(function* () {
+          const registry = yield* EnvironmentRegistry.EnvironmentRegistry;
+          yield* registry.focusEnvironment(EnvironmentId.make("environment-removed"));
+          yield* registry.start;
+
+          yield* awaitConnectionState(registry, OTHER, (state) => state.phase === "connected");
+          expect(yield* Clock.currentTimeMillis).toBe(0);
+        }).pipe(Effect.provide(harness.layer), Effect.scoped);
+      }),
+    );
+
     it.effect("probes the others at once on resume but defers their fresh connections", () =>
       Effect.gen(function* () {
         const wakeups = yield* Queue.unbounded<ConnectionWakeups.ConnectionWakeup>();

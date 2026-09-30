@@ -931,13 +931,15 @@ export const make = Effect.fn("EnvironmentSupervisor.make")(function* (
     Effect.withSpan("EnvironmentSupervisor.retryNow"),
   );
 
-  // Marks a connected session as verifying before queueing the wakeup, so a
-  // caller that wakes several supervisors in order sees each one's health
-  // check start before waking the next.
+  // Marks the supervisor as verifying before queueing the wakeup, so a caller
+  // that wakes several supervisors in order sees each one's health check or
+  // cut-short backoff start before waking the next. The flag clears when the
+  // lease is adopted, proven healthy, or its attempt ends.
   const wake = Effect.fnUntraced(function* (reason: ConnectionWakeups.ConnectionWakeup) {
+    const phase = (yield* SubscriptionRef.get(state)).phase;
     if (
       ConnectionWakeups.isApplicationActiveWakeup(reason) &&
-      (yield* SubscriptionRef.get(state)).phase === "connected"
+      (phase === "connected" || phase === "backoff")
     ) {
       yield* SubscriptionRef.set(verifying, true);
     }
