@@ -117,6 +117,33 @@ describe("ConnectionTraceRecorder", () => {
     }),
   );
 
+  it.effect("records externally timed spans as roots in the same buffer", () =>
+    Effect.gen(function* () {
+      const { recorder, tracer } = makeRecorder();
+      yield* Effect.void.pipe(
+        Effect.withSpan("effect"),
+        Effect.provideService(Tracer.Tracer, tracer),
+      );
+      recorder.recordSpan("react.commit", 1_000_000n, 9_000_000n, {
+        "profiler.id": "home",
+        actualDuration: 7.5,
+      });
+
+      const [effectSpan, commit] = drainedSpans(recorder);
+      expect(effectSpan!.name).toBe("effect");
+      expect(commit).toMatchObject({
+        name: "react.commit",
+        startTimeUnixNano: "1000000",
+        endTimeUnixNano: "9000000",
+        attributes: [
+          { key: "profiler.id", value: { stringValue: "home" } },
+          { key: "actualDuration", value: { doubleValue: 7.5 } },
+        ],
+      });
+      expect(commit!.parentSpanId).toBeUndefined();
+    }),
+  );
+
   it.live("records one JS-thread stall however many callers monitor", () =>
     Effect.gen(function* () {
       const { recorder } = makeRecorder();

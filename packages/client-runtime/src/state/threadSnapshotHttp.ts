@@ -1,17 +1,20 @@
-import type { OrchestrationThreadDetailSnapshot, ThreadId } from "@t3tools/contracts";
+import { OrchestrationThreadDetailSnapshot, type ThreadId } from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
+import * as Schema from "effect/Schema";
 import { HttpClient } from "effect/unstable/http";
 
 import { RemoteEnvironmentAuthorization } from "../authorization/service.ts";
 import type { PreparedConnection } from "../connection/model.ts";
 import { environmentEndpointUrl } from "../environment/endpoint.ts";
 import { ManagedRelayDpopSigner } from "../relay/managedRelay.ts";
-import type { RemoteEnvironmentRequestError } from "../rpc/http.ts";
+import { decodeSnapshotResponse, type RemoteEnvironmentRequestError } from "../rpc/http.ts";
 import { executeAuthenticatedEnvironmentHttpRequest } from "./environmentHttpAuth.ts";
+
+const decodeThreadSnapshot = Schema.decodeUnknownEffect(OrchestrationThreadDetailSnapshot);
 
 // Long enough for a slow but alive server to finish. On a cold open a timeout
 // makes the socket ask the same server for the same snapshot again, and older
@@ -54,8 +57,8 @@ export const fetchEnvironmentThreadSnapshot = Effect.fn(
     url: (httpBaseUrl) =>
       environmentEndpointUrl(httpBaseUrl, `/api/orchestration/threads/${input.threadId}`),
     timeoutMs: input.timeoutMs ?? DEFAULT_THREAD_SNAPSHOT_TIMEOUT_MS,
-    request: ({ client, headers }) =>
-      client.threadSnapshot({
+    request: ({ client, headers }) => {
+      const request = {
         params: { threadId: input.threadId },
         payload: {
           ...(input.reasoningMessages === true ? { reasoningMessages: "true" as const } : {}),
@@ -65,7 +68,22 @@ export const fetchEnvironmentThreadSnapshot = Effect.fn(
             : {}),
         },
         headers,
-      }),
+      };
+      return client.threadSnapshot({ ...request, responseMode: "response-only" }).pipe(
+        Effect.flatMap((response) =>
+          decodeSnapshotResponse({
+            response,
+            decode: decodeThreadSnapshot,
+            counts: ({ thread }) => ({
+              "snapshot.messages": thread.messages.length,
+              "snapshot.activities": thread.activities.length,
+            }),
+            group: "orchestration",
+            decodeOther: (replay) => replay.threadSnapshot(request),
+          }),
+        ),
+      );
+    },
   });
 });
 

@@ -15,7 +15,12 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
-import { FetchHttpClient, HttpClient, HttpClientError } from "effect/unstable/http";
+import {
+  FetchHttpClient,
+  HttpClient,
+  HttpClientError,
+  type HttpClientResponse,
+} from "effect/unstable/http";
 import * as HttpApiClient from "effect/unstable/httpapi/HttpApiClient";
 
 const isEnvironmentHttpCommonError = Schema.is(EnvironmentHttpCommonError);
@@ -112,6 +117,57 @@ export const makeEnvironmentHttpApiGroupClient = <
       baseUrl: remoteApiBaseUrl(httpBaseUrl),
     }),
   );
+
+const decodeJsonText = Schema.decodeUnknownEffect(Schema.fromJsonString(Schema.Unknown));
+
+/**
+ * Decodes a snapshot endpoint's response fetched with `responseMode: "response-only"`.
+ * A 200 body is read, parsed, and schema-decoded in the `snapshot.body`,
+ * `snapshot.parse`, and `snapshot.decode` spans, with the same validation and
+ * errors as the typed client. Any other status goes through `decodeOther`, a
+ * typed client that replays the received response for its declared error decoding.
+ */
+export const decodeSnapshotResponse = <
+  Group extends keyof typeof EnvironmentHttpApi.groups,
+  A,
+  B,
+  E,
+  R,
+>(input: {
+  readonly response: HttpClientResponse.HttpClientResponse;
+  /** `Schema.decodeUnknownEffect` of the endpoint's success schema. */
+  readonly decode: (json: unknown) => Effect.Effect<A, Schema.SchemaError>;
+  readonly counts: (value: A) => Record<string, number>;
+  readonly group: Group;
+  readonly decodeOther: (
+    client: Effect.Success<ReturnType<typeof makeEnvironmentHttpApiGroupClient<Group>>>,
+  ) => Effect.Effect<B, E, R>;
+}) =>
+  input.response.status === 200
+    ? Effect.gen(function* () {
+        const text = yield* input.response.arrayBuffer.pipe(
+          Effect.tap((body) => Effect.annotateCurrentSpan("snapshot.bytes", body.byteLength)),
+          Effect.map((body) => new TextDecoder().decode(body)),
+          Effect.withSpan("snapshot.body"),
+        );
+        const json = yield* decodeJsonText(text).pipe(Effect.withSpan("snapshot.parse"));
+        return yield* input.decode(json).pipe(
+          Effect.tap((value) => Effect.annotateCurrentSpan(input.counts(value))),
+          Effect.withSpan("snapshot.decode"),
+        );
+      })
+    : makeEnvironmentHttpApiGroupClient(input.response.request.url, input.group).pipe(
+        Effect.provideService(
+          HttpClient.HttpClient,
+          HttpClient.makeWith<
+            HttpClientError.HttpClientError,
+            never,
+            HttpClientError.HttpClientError,
+            never
+          >(Effect.as(input.response), Effect.succeed),
+        ),
+        Effect.flatMap(input.decodeOther),
+      );
 
 /** Contract-derived request URLs for authentication proofs, tracing, and structured errors. */
 export const makeEnvironmentHttpApiUrlBuilder = (httpBaseUrl: string) =>
