@@ -71,6 +71,7 @@ import {
 import { McpAppFullscreenScreen } from "./features/threads/McpAppFullscreenScreen";
 import { ConnectionsRouteScreen } from "./features/connection/ConnectionsRouteScreen";
 import { ConnectionsNewRouteScreen } from "./features/connection/ConnectionsNewRouteScreen";
+import { withRenderTrace } from "./features/observability/appTraces";
 import { AddProjectDestinationRoute } from "./features/projects/AddProjectDestinationRoute";
 import { AddProjectLocalRoute } from "./features/projects/AddProjectLocalRoute";
 import { AddProjectNewRoute } from "./features/projects/AddProjectNewRoute";
@@ -491,7 +492,7 @@ const RootStackConfig = createWorkspaceStackNavigator({
         }
       : {}),
     Home: createNativeStackScreen({
-      screen: WorkspaceRootScreen,
+      screen: withRenderTrace("home", WorkspaceRootScreen),
       linking: "",
       listeners: ({ navigation }) => ({
         transitionStart: ({ data }) => recordHomeTransitionStart(data.closing),
@@ -553,7 +554,7 @@ const RootStackConfig = createWorkspaceStackNavigator({
       options: sheetRoute({ detent: 0.75, androidFit: true }),
     }),
     Thread: createNativeStackScreen({
-      screen: ThreadRouteScreen,
+      screen: withRenderTrace("thread", ThreadRouteScreen),
       linking: { path: "threads/:environmentId?/:threadId?", alias: ["new/draft"] },
       options: pageRoute({ duoMinimize: "onScrollUp" }),
     }),
