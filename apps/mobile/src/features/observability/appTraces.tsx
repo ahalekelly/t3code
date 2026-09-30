@@ -69,9 +69,13 @@ function recordAppResume(launch: boolean) {
 /** Navigation `onReady`: traces the launch screen, then every return to the foreground. */
 export function traceAppResumes() {
   recordAppResume(true);
+  // iOS also reports `active` after brief `inactive` overlays (Control Center, Face ID), so
+  // only a return from `background` counts as a resume.
+  let previous = AppState.currentState;
   AppState.addEventListener("change", (state) => {
-    if (state === "active") {
+    if (state === "active" && previous === "background") {
       recordAppResume(false);
     }
+    previous = state;
   });
 }
