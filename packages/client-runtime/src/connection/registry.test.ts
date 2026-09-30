@@ -6,6 +6,7 @@ import {
   type OrchestrationShellSnapshot,
 } from "@t3tools/contracts";
 import { describe, expect, it } from "@effect/vitest";
+import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
@@ -13,12 +14,14 @@ import * as Exit from "effect/Exit";
 import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
+import * as Queue from "effect/Queue";
 import * as Ref from "effect/Ref";
 import * as Result from "effect/Result";
 import * as Scheduler from "effect/Scheduler";
 import * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
 import * as SubscriptionRef from "effect/SubscriptionRef";
+import * as TestClock from "effect/testing/TestClock";
 
 import * as ClientCapabilities from "../platform/capabilities.ts";
 import * as TokenStore from "../authorization/tokenStore.ts";
@@ -145,6 +148,8 @@ const makeHarness = Effect.fn("TestEnvironmentRegistry.makeHarness")(function* (
   options?: {
     readonly prepareError?: ConnectionBlockedError;
     readonly beforeSessionConnect?: (environmentId: EnvironmentId) => Effect.Effect<void>;
+    readonly probe?: (environmentId: EnvironmentId) => Effect.Effect<void>;
+    readonly wakeups?: Stream.Stream<ConnectionWakeups.ConnectionWakeup>;
     readonly beforeRegistrationRegister?: (
       registration: ConnectionRegistration,
     ) => Effect.Effect<void, Persistence.ConnectionPersistenceError>;
@@ -387,7 +392,7 @@ const makeHarness = Effect.fn("TestEnvironmentRegistry.makeHarness")(function* (
             subscribeServerConfig: () =>
               Stream.die(new Error("Config is not used by registry tests.")),
             ready: Effect.void,
-            probe: Effect.void,
+            probe: options?.probe?.(target.environmentId) ?? Effect.void,
             closed: Deferred.await(closed),
           } satisfies RpcSession.RpcSession),
           () => Ref.update(releasedSessions, (count) => count + 1),
@@ -411,7 +416,7 @@ const makeHarness = Effect.fn("TestEnvironmentRegistry.makeHarness")(function* (
         Layer.succeed(Connectivity.Connectivity, connectivity),
         Layer.succeed(
           ConnectionWakeups.ConnectionWakeups,
-          ConnectionWakeups.ConnectionWakeups.of({ changes: Stream.never }),
+          ConnectionWakeups.ConnectionWakeups.of({ changes: options?.wakeups ?? Stream.never }),
         ),
         Layer.succeed(ConnectionDriver.ConnectionDriver, driver),
         cacheLayer,
@@ -1542,4 +1547,143 @@ describe("EnvironmentRegistry", () => {
       }).pipe(Effect.provide(harness.layer));
     }),
   );
+
+  describe("focused environment", () => {
+    const FOCUSED = TARGET.environmentId;
+    const OTHER = SECOND_TARGET.environmentId;
+
+    // Steps the virtual clock until `done` completes; attempts reach their
+    // turn on their own fibers, so no single adjustment can be timed to them.
+    const stepClockUntil = <A>(done: Deferred.Deferred<A>) =>
+      Effect.gen(function* () {
+        while (!(yield* Deferred.isDone(done))) {
+          yield* TestClock.adjust("100 millis");
+        }
+        return yield* Deferred.await(done);
+      });
+
+    const recordTime = (deferred: Deferred.Deferred<number>) =>
+      Clock.currentTimeMillis.pipe(Effect.flatMap((now) => Deferred.succeed(deferred, now)));
+
+    it.effect("connects before the other environments start", () =>
+      Effect.gen(function* () {
+        const otherStartedAt = yield* Deferred.make<number>();
+        const harness = yield* makeHarness([TARGET, SECOND_TARGET], [], [], {
+          beforeSessionConnect: (environmentId) =>
+            environmentId === FOCUSED ? Effect.sleep("1 second") : recordTime(otherStartedAt),
+        });
+
+        yield* Effect.gen(function* () {
+          const registry = yield* EnvironmentRegistry.EnvironmentRegistry;
+          yield* registry.focusEnvironment(FOCUSED);
+          yield* registry.start;
+
+          const startedAt = yield* stepClockUntil(otherStartedAt);
+          expect(startedAt).toBeGreaterThanOrEqual(1_000);
+          expect(startedAt).toBeLessThan(2_000);
+          yield* awaitConnectionState(registry, OTHER, (state) => state.phase === "connected");
+        }).pipe(Effect.provide(harness.layer), Effect.scoped);
+      }),
+    );
+
+    it.effect("lets the others connect after the head start when it hangs", () =>
+      Effect.gen(function* () {
+        const otherStartedAt = yield* Deferred.make<number>();
+        const harness = yield* makeHarness([TARGET, SECOND_TARGET], [], [], {
+          beforeSessionConnect: (environmentId) =>
+            environmentId === FOCUSED ? Effect.never : recordTime(otherStartedAt),
+        });
+
+        yield* Effect.gen(function* () {
+          const registry = yield* EnvironmentRegistry.EnvironmentRegistry;
+          yield* registry.focusEnvironment(FOCUSED);
+          yield* registry.start;
+
+          expect(yield* stepClockUntil(otherStartedAt)).toBeGreaterThanOrEqual(2_000);
+          yield* awaitConnectionState(registry, OTHER, (state) => state.phase === "connected");
+          expect((yield* registry.state(FOCUSED)).phase).toBe("connecting");
+        }).pipe(Effect.provide(harness.layer), Effect.scoped);
+      }),
+    );
+
+    it.effect("does not hold back a retry the user requested", () =>
+      Effect.gen(function* () {
+        const harness = yield* makeHarness([TARGET, SECOND_TARGET], [], [], {
+          beforeSessionConnect: (environmentId) =>
+            environmentId === FOCUSED ? Effect.never : Effect.void,
+        });
+
+        yield* Effect.gen(function* () {
+          const registry = yield* EnvironmentRegistry.EnvironmentRegistry;
+          yield* registry.focusEnvironment(FOCUSED);
+          yield* registry.start;
+          yield* registry.retryNow(OTHER);
+
+          yield* awaitConnectionState(registry, OTHER, (state) => state.phase === "connected");
+          expect(yield* Clock.currentTimeMillis).toBe(0);
+        }).pipe(Effect.provide(harness.layer), Effect.scoped);
+      }),
+    );
+
+    it.effect("stops holding back the others once focus is released", () =>
+      Effect.gen(function* () {
+        const harness = yield* makeHarness([TARGET, SECOND_TARGET], [], [], {
+          beforeSessionConnect: (environmentId) =>
+            environmentId === FOCUSED ? Effect.never : Effect.void,
+        });
+
+        yield* Effect.gen(function* () {
+          const registry = yield* EnvironmentRegistry.EnvironmentRegistry;
+          const focus = yield* Scope.make();
+          yield* registry.focusEnvironment(FOCUSED).pipe(Scope.provide(focus));
+          yield* registry.start;
+          yield* Scope.close(focus, Exit.void);
+
+          yield* awaitConnectionState(registry, OTHER, (state) => state.phase === "connected");
+          expect(yield* Clock.currentTimeMillis).toBe(0);
+        }).pipe(Effect.provide(harness.layer), Effect.scoped);
+      }),
+    );
+
+    it.effect("probes the others at once on resume but defers their fresh connections", () =>
+      Effect.gen(function* () {
+        const wakeups = yield* Queue.unbounded<ConnectionWakeups.ConnectionWakeup>();
+        const connects = yield* Ref.make(new Map<EnvironmentId, number>());
+        const otherProbedAt = yield* Deferred.make<number>();
+        const otherFreshAt = yield* Deferred.make<number>();
+        const harness = yield* makeHarness([TARGET, SECOND_TARGET], [], [], {
+          wakeups: Stream.fromQueue(wakeups),
+          probe: (environmentId) =>
+            environmentId === FOCUSED
+              ? Effect.never
+              : recordTime(otherProbedAt).pipe(Effect.andThen(Effect.never)),
+          beforeSessionConnect: (environmentId) =>
+            Effect.gen(function* () {
+              const count = yield* Ref.modify(connects, (current) => {
+                const next = (current.get(environmentId) ?? 0) + 1;
+                return [next, new Map(current).set(environmentId, next)];
+              });
+              if (count === 1) return;
+              yield* environmentId === FOCUSED
+                ? Effect.sleep("1 second")
+                : recordTime(otherFreshAt);
+            }),
+        });
+
+        yield* Effect.gen(function* () {
+          const registry = yield* EnvironmentRegistry.EnvironmentRegistry;
+          yield* registry.start;
+          yield* awaitConnectionState(registry, FOCUSED, (state) => state.phase === "connected");
+          yield* awaitConnectionState(registry, OTHER, (state) => state.phase === "connected");
+          yield* registry.focusEnvironment(FOCUSED);
+          yield* Queue.offer(wakeups, "application-active-reconnect");
+
+          const freshAt = yield* stepClockUntil(otherFreshAt);
+          expect(yield* Deferred.await(otherProbedAt)).toBeLessThan(1_000);
+          expect(freshAt).toBeGreaterThanOrEqual(1_000);
+          expect(freshAt).toBeLessThan(2_000);
+        }).pipe(Effect.provide(harness.layer), Effect.scoped);
+      }),
+    );
+  });
 });

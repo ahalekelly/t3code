@@ -18,6 +18,8 @@ import {
 } from "@react-navigation/native";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import * as Option from "effect/Option";
+import { Atom } from "effect/unstable/reactivity";
+import { useAtomMount } from "@effect/atom-react";
 import {
   CommandId,
   MessageId,
@@ -78,6 +80,7 @@ import { useSelectedThreadRequests } from "../../state/use-selected-thread-reque
 import { useSelectedThreadWorktree } from "../../state/use-selected-thread-worktree";
 import { useThreadComposerState } from "../../state/use-thread-composer-state";
 import { threadEnvironment } from "../../state/threads";
+import { environmentCatalog } from "../../connection/catalog";
 import { projectThreadContentPresentation } from "./threadContentPresentation";
 import { useAppearancePreferences } from "../settings/appearance/AppearancePreferencesProvider";
 import {
@@ -248,6 +251,8 @@ function ThreadUnavailableScreen(props: {
   );
 }
 
+const NO_FOCUSED_ENVIRONMENT = Atom.make(null);
+
 export function ThreadRouteScreen(props: ThreadRouteScreenProps) {
   const { state: workspaceState } = useWorkspaceState();
   const { connectionState } = useRemoteConnectionStatus();
@@ -256,6 +261,10 @@ export function ThreadRouteScreen(props: ThreadRouteScreenProps) {
   const environmentIdRaw = firstRouteParam(params.environmentId);
   const threadIdRaw = firstRouteParam(params.threadId);
   const environmentId = environmentIdRaw ? EnvironmentId.make(environmentIdRaw) : null;
+  // The open thread's environment reconnects ahead of the others.
+  useAtomMount(
+    environmentId === null ? NO_FOCUSED_ENVIRONMENT : environmentCatalog.focusAtom(environmentId),
+  );
   const routeEnvironmentRuntime = useRemoteEnvironmentRuntime(environmentId);
   const routeEnvironmentShellState = useEnvironmentShellState(environmentId);
   const { onReconnectEnvironment } = useRemoteConnections();

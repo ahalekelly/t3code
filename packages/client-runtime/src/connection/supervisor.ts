@@ -96,6 +96,11 @@ type ConnectedEvent =
 
 export interface EnvironmentSupervisorOptions {
   readonly initiallyDesired?: boolean;
+  /**
+   * Awaited before every connection attempt the user did not request, so the
+   * registry can let the environment on screen connect first.
+   */
+  readonly awaitTurn?: Effect.Effect<void>;
 }
 
 function retryDelayMs(failureCount: number): number {
@@ -190,16 +195,23 @@ export class EnvironmentSupervisor extends Context.Service<
   }
 >()("@t3tools/client-runtime/connection/supervisor/EnvironmentSupervisor") {}
 
+/** The supervisor plus the controls only its owning registry uses. */
+export type ManagedEnvironmentSupervisor = EnvironmentSupervisor["Service"] & {
+  /**
+   * True from a foreground wakeup until the connected session proves alive or
+   * is replaced; the phase stays "connected" meanwhile.
+   */
+  readonly verifying: SubscriptionRef.SubscriptionRef<boolean>;
+  readonly wake: (reason: ConnectionWakeups.ConnectionWakeup) => Effect.Effect<void>;
+};
+
 export const make = Effect.fn("EnvironmentSupervisor.make")(function* (
   entry: ConnectionCatalogEntry,
   options?: EnvironmentSupervisorOptions,
 ): Effect.fn.Return<
-  EnvironmentSupervisor["Service"],
+  ManagedEnvironmentSupervisor,
   never,
-  | Connectivity.Connectivity
-  | ConnectionDriver.ConnectionDriver
-  | Scope.Scope
-  | ConnectionWakeups.ConnectionWakeups
+  Connectivity.Connectivity | ConnectionDriver.ConnectionDriver | Scope.Scope
 > {
   const target = entry.target;
   const setupTimeoutDetail = `${target.label} did not respond during connection setup.${
@@ -209,7 +221,7 @@ export const make = Effect.fn("EnvironmentSupervisor.make")(function* (
 
   const connectivity = yield* Connectivity.Connectivity;
   const driver = yield* ConnectionDriver.ConnectionDriver;
-  const wakeups = yield* ConnectionWakeups.ConnectionWakeups;
+  const awaitTurn = options?.awaitTurn ?? Effect.void;
   const supervisorScope = yield* Effect.scope;
   const initialIntent: SupervisorIntent = {
     desired: options?.initiallyDesired ?? false,
@@ -218,6 +230,10 @@ export const make = Effect.fn("EnvironmentSupervisor.make")(function* (
   const intent = yield* Ref.make(initialIntent);
   const signals = yield* Queue.unbounded<SupervisorSignal>();
   const resetRetryState = yield* Ref.make(false);
+  // Set by `connect` and `retryNow` until an attempt settles. It outlives an
+  // interrupted attempt because the request's own signal may restart the
+  // attempt it already started.
+  const userRequested = yield* Ref.make(false);
   const state = yield* SubscriptionRef.make<SupervisorConnectionState>(
     !initialIntent.desired
       ? availableState(initialIntent, 0)
@@ -227,6 +243,7 @@ export const make = Effect.fn("EnvironmentSupervisor.make")(function* (
   );
   const session = yield* SubscriptionRef.make<Option.Option<RpcSession.RpcSession>>(Option.none());
   const prepared = yield* SubscriptionRef.make<Option.Option<PreparedConnection>>(Option.none());
+  const verifying = yield* SubscriptionRef.make(false);
   const activeLease = yield* Ref.make(Option.none<ActiveLease>());
 
   const releaseLease = (lease: ActiveLease) => Scope.close(lease.scope, Exit.void);
@@ -235,6 +252,7 @@ export const make = Effect.fn("EnvironmentSupervisor.make")(function* (
     const current = yield* Ref.getAndSet(activeLease, Option.none());
     yield* SubscriptionRef.set(session, Option.none());
     yield* SubscriptionRef.set(prepared, Option.none());
+    yield* SubscriptionRef.set(verifying, false);
     if (Option.isSome(current)) {
       yield* releaseLease(current.value);
     }
@@ -257,6 +275,7 @@ export const make = Effect.fn("EnvironmentSupervisor.make")(function* (
     const previous = yield* Ref.getAndSet(activeLease, Option.some(next));
     yield* SubscriptionRef.set(prepared, Option.some(next.lease.prepared));
     yield* SubscriptionRef.set(session, Option.some(next.lease.session));
+    yield* SubscriptionRef.set(verifying, false);
     if (Option.isSome(previous)) {
       yield* releaseLease(previous.value);
     }
@@ -454,15 +473,20 @@ export const make = Effect.fn("EnvironmentSupervisor.make")(function* (
       );
 
     const startFresh = () =>
-      openLease(1, generation + 1, Option.none(), true, (progress) =>
-        Effect.suspend(() => {
-          freshProgress = progress;
-          return Option.match(deadSessionError, {
-            onNone: () => Effect.void,
-            onSome: (error) => reportProgress(1, generation + 1, error, progress),
-          });
-        }),
-      ).pipe(Effect.forkChild);
+      awaitTurn.pipe(
+        Effect.andThen(
+          openLease(1, generation + 1, Option.none(), true, (progress) =>
+            Effect.suspend(() => {
+              freshProgress = progress;
+              return Option.match(deadSessionError, {
+                onNone: () => Effect.void,
+                onSome: (error) => reportProgress(1, generation + 1, error, progress),
+              });
+            }),
+          ),
+        ),
+        Effect.forkChild,
+      );
 
     const finish = Effect.fnUntraced(function* (
       outcome:
@@ -561,6 +585,7 @@ export const make = Effect.fn("EnvironmentSupervisor.make")(function* (
               break;
             }
             // The session answered: keep it and drop any pending replacement.
+            yield* SubscriptionRef.set(verifying, false);
             if (Option.isSome(fresh)) {
               yield* abandonLease(fresh.value);
               fresh = Option.none();
@@ -663,8 +688,11 @@ export const make = Effect.fn("EnvironmentSupervisor.make")(function* (
   ) {
     yield* SubscriptionRef.set(prepared, Option.none());
     const nextGeneration = generation + 1;
-    const opening = yield* openLease(attempt, nextGeneration, pendingRetry, false, (progress) =>
+    const open = openLease(attempt, nextGeneration, pendingRetry, false, (progress) =>
       reportProgress(attempt, nextGeneration, lastFailure, progress),
+    );
+    const opening = yield* (
+      (yield* Ref.get(userRequested)) ? open : Effect.andThen(awaitTurn, open)
     ).pipe(Effect.forkChild);
     const establishment = yield* Effect.raceFirst(
       Fiber.await(opening).pipe(Effect.map((exit) => ({ _tag: "Completed" as const, exit }))),
@@ -672,6 +700,9 @@ export const make = Effect.fn("EnvironmentSupervisor.make")(function* (
         Effect.map((resetRetry) => ({ _tag: "Interrupted" as const, resetRetry })),
       ),
     );
+    if (establishment._tag === "Completed") {
+      yield* Ref.set(userRequested, false);
+    }
 
     if (establishment._tag === "Interrupted") {
       yield* abandonLease(opening);
@@ -875,16 +906,13 @@ export const make = Effect.fn("EnvironmentSupervisor.make")(function* (
     ),
     Effect.forkScoped,
   );
-  yield* wakeups.changes.pipe(
-    Stream.runForEach((reason) => signal({ _tag: "Wakeup", reason })),
-    Effect.forkScoped,
-  );
   yield* run().pipe(Effect.forkScoped);
 
   const connect = Ref.update(intent, (current) => ({
     ...current,
     desired: true,
   })).pipe(
+    Effect.andThen(Ref.set(userRequested, true)),
     Effect.andThen(signal({ _tag: "ConnectRequested" })),
     Effect.withSpan("EnvironmentSupervisor.connect"),
   );
@@ -898,19 +926,35 @@ export const make = Effect.fn("EnvironmentSupervisor.make")(function* (
   );
 
   const retryNow = Ref.set(resetRetryState, true).pipe(
+    Effect.andThen(Ref.set(userRequested, true)),
     Effect.andThen(signal({ _tag: "RetryRequested" })),
     Effect.withSpan("EnvironmentSupervisor.retryNow"),
   );
 
+  // Marks a connected session as verifying before queueing the wakeup, so a
+  // caller that wakes several supervisors in order sees each one's health
+  // check start before waking the next.
+  const wake = Effect.fnUntraced(function* (reason: ConnectionWakeups.ConnectionWakeup) {
+    if (
+      ConnectionWakeups.isApplicationActiveWakeup(reason) &&
+      (yield* SubscriptionRef.get(state)).phase === "connected"
+    ) {
+      yield* SubscriptionRef.set(verifying, true);
+    }
+    yield* signal({ _tag: "Wakeup", reason });
+  });
+
   yield* Effect.addFinalizer(() => Queue.shutdown(signals).pipe(Effect.andThen(clearLease)));
 
-  return EnvironmentSupervisor.of({
+  return {
     target,
     state,
     session,
     prepared,
+    verifying,
     connect,
     disconnect,
     retryNow,
-  });
+    wake,
+  } satisfies ManagedEnvironmentSupervisor;
 });

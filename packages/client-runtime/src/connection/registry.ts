@@ -42,6 +42,10 @@ import {
 
 const isSshConnectionProfile = Schema.is(SshConnectionProfile);
 
+// How long the focused environment may hold back the others' background
+// connection attempts, so an unreachable one cannot starve them.
+const FOCUSED_ENVIRONMENT_HEAD_START = "2 seconds";
+
 export class EnvironmentNotRegisteredError extends Schema.TaggedError<EnvironmentNotRegisteredError>()(
   "EnvironmentNotRegisteredError",
   {
@@ -96,6 +100,16 @@ export class EnvironmentRegistry extends Context.Service<
     >;
     readonly retryNow: (environmentId: EnvironmentId) => Effect.Effect<void>;
     /**
+     * Marks the environment the user is looking at for the lifetime of the
+     * scope. While it is connecting or checking its session after a wakeup,
+     * the other environments hold their background connection attempts, for at
+     * most FOCUSED_ENVIRONMENT_HEAD_START. User-requested connects and retries
+     * never wait.
+     */
+    readonly focusEnvironment: (
+      environmentId: EnvironmentId,
+    ) => Effect.Effect<void, never, Scope.Scope>;
+    /**
      * Switches a saved environment on or off. Off drops the socket, stops the
      * retry ladder, and persists so the next launch stays off. Registration,
      * credentials, and cache are untouched.
@@ -144,7 +158,7 @@ export class EnvironmentRegistry extends Context.Service<
 
 interface EnvironmentServiceScope {
   readonly entry: ConnectionCatalogEntry;
-  readonly supervisor: EnvironmentSupervisor.EnvironmentSupervisor["Service"];
+  readonly supervisor: EnvironmentSupervisor.ManagedEnvironmentSupervisor;
   readonly scope: Scope.Closeable;
 }
 
@@ -202,6 +216,7 @@ export const make = Effect.gen(function* () {
   const leaseLocks = yield* Ref.make<ReadonlyMap<EnvironmentId, LeaseLock>>(new Map());
   const leaseLocksGuard = yield* Semaphore.make(1);
   const started = yield* Ref.make(false);
+  const focusedEnvironment = yield* SubscriptionRef.make(Option.none<EnvironmentId>());
 
   const withLeaseLock = <A, E, R>(
     environmentId: EnvironmentId,
@@ -275,6 +290,43 @@ export const make = Effect.gen(function* () {
     yield* Scope.close(lease.scope, Exit.void);
   });
 
+  const focusEnvironment = (environmentId: EnvironmentId) =>
+    Effect.acquireRelease(SubscriptionRef.set(focusedEnvironment, Option.some(environmentId)), () =>
+      SubscriptionRef.update(focusedEnvironment, (current) =>
+        Option.getOrNull(current) === environmentId ? Option.none() : current,
+      ),
+    );
+
+  // Resolves once no other environment is focused, or the focused one is
+  // neither connecting nor verifying its session, or the head start runs out.
+  const awaitTurn = (environmentId: EnvironmentId) =>
+    SubscriptionRef.changes(focusedEnvironment).pipe(
+      Stream.switchMap((focused) =>
+        Option.isNone(focused) || focused.value === environmentId
+          ? Stream.succeed(undefined)
+          : SubscriptionRef.changes(serviceScopes).pipe(
+              Stream.map((scopes) => scopes.get(focused.value)?.supervisor),
+              Stream.switchMap((supervisor) =>
+                supervisor === undefined
+                  ? Stream.empty
+                  : Stream.zipLatest(
+                      SubscriptionRef.changes(supervisor.state),
+                      SubscriptionRef.changes(supervisor.verifying),
+                    ).pipe(
+                      Stream.filter(
+                        ([state, verifying]) =>
+                          state.phase !== "connecting" &&
+                          !(state.phase === "connected" && verifying),
+                      ),
+                    ),
+              ),
+            ),
+      ),
+      Stream.runHead,
+      Effect.timeoutOption(FOCUSED_ENVIRONMENT_HEAD_START),
+      Effect.asVoid,
+    );
+
   const createServiceScope = Effect.fn("EnvironmentRegistry.createServiceScope")(
     (entry: ConnectionCatalogEntry) =>
       Effect.uninterruptible(
@@ -282,17 +334,14 @@ export const make = Effect.gen(function* () {
           const environmentId = entry.target.environmentId;
           const scope = yield* Scope.fork(registryScope);
           const supervisor = yield* EnvironmentSupervisor.make(entry, {
-            initiallyDesired: false,
+            initiallyDesired: entry.enabled,
+            awaitTurn: awaitTurn(environmentId),
           }).pipe(
             Effect.provideService(Connectivity.Connectivity, connectivity),
             Effect.provideService(ConnectionDriver.ConnectionDriver, driver),
-            Effect.provideService(ConnectionWakeups.ConnectionWakeups, wakeups),
             Scope.provide(scope),
             Effect.onError(() => Scope.close(scope, Exit.void)),
           );
-          if (entry.enabled) {
-            yield* supervisor.connect;
-          }
           yield* SubscriptionRef.update(serviceScopes, (current) => {
             const next = new Map(current);
             next.set(environmentId, { entry, supervisor, scope });
@@ -835,6 +884,29 @@ export const make = Effect.gen(function* () {
     Stream.runForEach((status) => SubscriptionRef.set(networkStatus, status)),
     Effect.forkScoped,
   );
+  // The focused supervisor hears each wakeup first, so it is already verifying
+  // its session when the others' wakeups reach `awaitTurn`.
+  yield* wakeups.changes.pipe(
+    Stream.runForEach((reason) =>
+      Effect.gen(function* () {
+        const focused = Option.getOrNull(yield* SubscriptionRef.get(focusedEnvironment));
+        const supervisors = [...(yield* SubscriptionRef.get(serviceScopes)).values()].map(
+          (service) => service.supervisor,
+        );
+        const isFocused = (supervisor: EnvironmentSupervisor.ManagedEnvironmentSupervisor) =>
+          supervisor.target.environmentId === focused;
+        yield* Effect.forEach(
+          [
+            ...supervisors.filter(isFocused),
+            ...supervisors.filter((supervisor) => !isFocused(supervisor)),
+          ],
+          (supervisor) => supervisor.wake(reason),
+          { discard: true },
+        );
+      }),
+    ),
+    Effect.forkScoped,
+  );
 
   const setCompatibility = Effect.fn("EnvironmentRegistry.setCompatibility")(function* (
     environmentId: EnvironmentId,
@@ -880,6 +952,7 @@ export const make = Effect.gen(function* () {
     remove,
     removeRelayEnvironments,
     retryNow,
+    focusEnvironment,
     setEnabled,
     setCompatibility,
     state,
