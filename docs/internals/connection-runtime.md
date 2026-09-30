@@ -31,6 +31,16 @@ and cached data. Explicit removal closes the scope and clears credentials,
 projections, and platform-owned state such as drafts. Cloud-account changes apply
 to relay registrations; they must not discard directly paired environments.
 
+All environments share the client's one JS thread, so a mobile thread route
+focuses its environment and the others' background attempts wait until it is
+connected and its session verified, for at most two seconds. Their resume probes
+still start at once, since an answer drops the fresh lease they would otherwise
+open. User-requested connects and retries skip the wait. The registry delivers
+wakeups itself, focused supervisor first: each supervisor marks its session as
+verifying while it receives the wakeup, so the focused one is already busy when
+the others check. Separate wakeup subscriptions would let the others race past a
+focused session that still looks healthy.
+
 ## HTTP authorization
 
 RPC sessions authenticate at socket upgrade, while HTTP requests need current
