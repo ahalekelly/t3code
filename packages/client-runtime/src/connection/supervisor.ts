@@ -126,6 +126,11 @@ export interface EnvironmentSupervisorOptions {
     readonly activeRoute: ConnectionRoute;
     readonly reported: ReadonlyArray<ReportedEndpoint>;
   }) => Effect.Effect<Option.Option<ConnectionCatalogEntry>>;
+  /**
+   * Awaited before every connection attempt the user did not request, so the
+   * registry can let the environment on screen connect first.
+   */
+  readonly awaitTurn?: Effect.Effect<void>;
 }
 
 function retryDelayMs(failureCount: number, random: number): number {
@@ -236,16 +241,23 @@ export class EnvironmentSupervisor extends Context.Service<
   }
 >()("@t3tools/client-runtime/connection/supervisor/EnvironmentSupervisor") {}
 
+/** The supervisor plus the controls only its owning registry uses. */
+export type ManagedEnvironmentSupervisor = EnvironmentSupervisor["Service"] & {
+  /**
+   * True from a foreground wakeup until the next connection state change or
+   * the live session answers its probe. The phase stays "connected" meanwhile.
+   */
+  readonly verifying: SubscriptionRef.SubscriptionRef<boolean>;
+  readonly wake: (reason: ConnectionWakeups.ConnectionWakeup) => Effect.Effect<void>;
+};
+
 export const make = Effect.fn("EnvironmentSupervisor.make")(function* (
   entry: ConnectionCatalogEntry,
   options?: EnvironmentSupervisorOptions,
 ): Effect.fn.Return<
-  EnvironmentSupervisor["Service"],
+  ManagedEnvironmentSupervisor,
   never,
-  | Connectivity.Connectivity
-  | ConnectionDriver.ConnectionDriver
-  | Scope.Scope
-  | ConnectionWakeups.ConnectionWakeups
+  Connectivity.Connectivity | ConnectionDriver.ConnectionDriver | Scope.Scope
 > {
   const target = entry.target;
   const usesRelay = connectionRoutes(entry).some(
@@ -258,7 +270,7 @@ export const make = Effect.fn("EnvironmentSupervisor.make")(function* (
 
   const connectivity = yield* Connectivity.Connectivity;
   const driver = yield* ConnectionDriver.ConnectionDriver;
-  const wakeups = yield* ConnectionWakeups.ConnectionWakeups;
+  const awaitTurn = options?.awaitTurn ?? Effect.void;
   const initialIntent: SupervisorIntent = {
     desired: options?.initiallyDesired ?? false,
     network: yield* connectivity.status,
@@ -270,6 +282,11 @@ export const make = Effect.fn("EnvironmentSupervisor.make")(function* (
   // Whether the latest probe answers a long resume. If it goes unanswered, the
   // reconnect runs even while the network reports offline.
   const longResumeProbe = yield* Ref.make(false);
+  // Set by `connect` and `retryNow` until an attempt settles. It outlives an
+  // interrupted attempt because the request's own signal may restart the
+  // attempt it already started.
+  const userRequested = yield* Ref.make(false);
+  const verifying = yield* SubscriptionRef.make(false);
   const state = yield* SubscriptionRef.make<SupervisorConnectionState>(
     !initialIntent.desired
       ? availableState(initialIntent, 0)
@@ -370,6 +387,7 @@ export const make = Effect.fn("EnvironmentSupervisor.make")(function* (
     next: SupervisorConnectionState,
   ) {
     yield* SubscriptionRef.set(state, next);
+    yield* SubscriptionRef.set(verifying, false);
   });
 
   const signal = Effect.fn("EnvironmentSupervisor.signal")(function* (next: SupervisorSignal) {
@@ -682,6 +700,7 @@ export const make = Effect.fn("EnvironmentSupervisor.make")(function* (
           }
           if (Exit.isSuccess(probeEvent.exit)) {
             yield* Ref.set(probeUnanswered, false);
+            yield* SubscriptionRef.set(verifying, false);
           }
           yield* probeEvent.exit;
           break;
@@ -715,7 +734,7 @@ export const make = Effect.fn("EnvironmentSupervisor.make")(function* (
     const switchingTo = yield* Ref.get(preferredRouteId);
     yield* SubscriptionRef.set(prepared, Option.none());
     const synchronizedRoutes = yield* Ref.make(0);
-    const establishment = yield* Effect.raceAllFirst([
+    const establish = Effect.raceAllFirst([
       exitUnlessInterrupted(
         establishTracedConnection(
           attempt,
@@ -728,12 +747,6 @@ export const make = Effect.fn("EnvironmentSupervisor.make")(function* (
         Effect.map((exit): EstablishmentEvent => ({
           _tag: "Completed",
           exit,
-        })),
-      ),
-      waitForEstablishmentInterrupt().pipe(
-        Effect.map((resetRetry): EstablishmentEvent => ({
-          _tag: "Interrupted",
-          resetRetry,
         })),
       ),
       // Each route may use the full setup time before the next is tried, and
@@ -755,6 +768,16 @@ export const make = Effect.fn("EnvironmentSupervisor.make")(function* (
         }
       }),
     ]);
+    // The setup time starts once this environment's turn comes.
+    const establishment = yield* Effect.raceFirst(
+      (yield* Ref.get(userRequested)) ? establish : Effect.andThen(awaitTurn, establish),
+      waitForEstablishmentInterrupt().pipe(
+        Effect.map((resetRetry): EstablishmentEvent => ({
+          _tag: "Interrupted",
+          resetRetry,
+        })),
+      ),
+    );
 
     if (establishment._tag === "Interrupted") {
       return {
@@ -764,6 +787,7 @@ export const make = Effect.fn("EnvironmentSupervisor.make")(function* (
         resetRetry: establishment.resetRetry,
       } satisfies AttemptOutcome;
     }
+    yield* Ref.set(userRequested, false);
     if (establishment._tag === "TimedOut") {
       return {
         _tag: "Failure",
@@ -1044,10 +1068,6 @@ export const make = Effect.fn("EnvironmentSupervisor.make")(function* (
     ),
     Effect.forkScoped,
   );
-  yield* wakeups.changes.pipe(
-    Stream.runForEach((reason) => signal({ _tag: "Wakeup", reason })),
-    Effect.forkScoped,
-  );
   yield* Queue.take(betterRouteChecks).pipe(
     Effect.flatMap(checkBetterRoutes),
     Effect.forever,
@@ -1059,6 +1079,7 @@ export const make = Effect.fn("EnvironmentSupervisor.make")(function* (
     ...current,
     desired: true,
   })).pipe(
+    Effect.andThen(Ref.set(userRequested, true)),
     Effect.andThen(signal({ _tag: "ConnectRequested" })),
     Effect.withSpan("EnvironmentSupervisor.connect"),
   );
@@ -1072,19 +1093,35 @@ export const make = Effect.fn("EnvironmentSupervisor.make")(function* (
   );
 
   const retryNow = Ref.set(resetRetryState, true).pipe(
+    Effect.andThen(Ref.set(userRequested, true)),
     Effect.andThen(signal({ _tag: "RetryRequested" })),
     Effect.withSpan("EnvironmentSupervisor.retryNow"),
   );
 
+  // Marks a connected session as verifying before queueing the wakeup, so a
+  // caller that wakes several supervisors in order sees each one's health
+  // check start before waking the next.
+  const wake = Effect.fnUntraced(function* (reason: ConnectionWakeups.ConnectionWakeup) {
+    if (
+      ConnectionWakeups.isApplicationActiveWakeup(reason) &&
+      (yield* SubscriptionRef.get(state)).phase === "connected"
+    ) {
+      yield* SubscriptionRef.set(verifying, true);
+    }
+    yield* signal({ _tag: "Wakeup", reason });
+  });
+
   yield* Effect.addFinalizer(() => Queue.shutdown(signals).pipe(Effect.andThen(clearLease)));
 
-  return EnvironmentSupervisor.of({
+  return {
     target,
     state,
     session,
     prepared,
+    verifying,
     connect,
     disconnect,
     retryNow,
-  });
+    wake,
+  } satisfies ManagedEnvironmentSupervisor;
 });
