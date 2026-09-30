@@ -1,6 +1,6 @@
 import * as Linking from "expo-linking";
 import * as SplashScreen from "expo-splash-screen";
-import { useEffect } from "react";
+import { Profiler, useEffect } from "react";
 import { StatusBar, View } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { KeyboardProvider } from "react-native-keyboard-controller";
@@ -17,6 +17,11 @@ import {
   AppearancePreferencesProvider,
   useAppearancePreferences,
 } from "./features/settings/appearance/AppearancePreferencesProvider";
+import {
+  navigationRef,
+  recordReactCommit,
+  traceAppResumes,
+} from "./features/observability/appTraces";
 import { RootStack } from "./Stack";
 import { appAtomRegistry } from "./state/atom-registry";
 import { OverlayPortalHost } from "./components/OverlayPortal";
@@ -63,7 +68,9 @@ export default function App() {
     <RegistryContext.Provider value={appAtomRegistry}>
       <CloudAuthProvider>
         <AppearancePreferencesProvider>
-          <AppContent />
+          <Profiler id="app" onRender={recordReactCommit}>
+            <AppContent />
+          </Profiler>
         </AppearancePreferencesProvider>
       </CloudAuthProvider>
     </RegistryContext.Provider>
@@ -92,7 +99,12 @@ function AppContent() {
                 the system is in dark mode. */}
             <View style={{ flex: 1 }}>
               <IncomingShareProvider>
-                <Navigation linking={appLinking} theme={navigationTheme} />
+                <Navigation
+                  ref={navigationRef}
+                  linking={appLinking}
+                  theme={navigationTheme}
+                  onReady={traceAppResumes}
+                />
               </IncomingShareProvider>
               <ConfirmDialogHost />
               <ThreadArrangementHost />
