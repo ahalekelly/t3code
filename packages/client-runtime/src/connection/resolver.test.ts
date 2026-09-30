@@ -2,6 +2,7 @@ import {
   EnvironmentId,
   ORCHESTRATION_PROTOCOL_VERSION,
   type DesktopSshEnvironmentTarget,
+  type ExecutionEnvironmentDescriptor,
 } from "@t3tools/contracts";
 import { RelayClientTracer } from "@t3tools/shared/relayTracing";
 import { describe, expect, it } from "@effect/vitest";
@@ -40,6 +41,14 @@ import {
 } from "./githubRoutingPermissions.ts";
 
 const ENVIRONMENT_ID = EnvironmentId.make("environment-1");
+const DESCRIPTOR = {
+  environmentId: ENVIRONMENT_ID,
+  label: "Compatible environment",
+  platform: { os: "linux", arch: "x64" },
+  serverVersion: "0.0.0-test",
+  orchestrationProtocolVersion: ORCHESTRATION_PROTOCOL_VERSION,
+  capabilities: { repositoryIdentity: true },
+} satisfies ExecutionEnvironmentDescriptor;
 const ENDPOINT = {
   httpBaseUrl: "https://environment.example.test",
   wsBaseUrl: "wss://environment.example.test",
@@ -81,6 +90,7 @@ const makeDependencies = Effect.fn("TestConnectionResolver.makeDependencies")((o
   readonly primaryBearerToken?: string;
   readonly prepareSsh?: ClientCapabilities.SshEnvironmentGateway["Service"]["prepare"];
   readonly descriptorProtocolVersion?: number | null | undefined;
+  readonly descriptorFetches?: { count: number };
 }) => {
   const profiles = new Map(
     (options?.profiles ?? []).map((profile) => [profile.connectionId, profile]),
@@ -106,6 +116,7 @@ const makeDependencies = Effect.fn("TestConnectionResolver.makeDependencies")((o
           environmentId: input.expectedEnvironmentId,
           label: "Authorized bearer environment",
           httpBaseUrl: input.httpBaseUrl,
+          descriptor: DESCRIPTOR,
           socketUrl: "wss://authorized.example.test/ws?wsTicket=bearer",
           httpAuthorization: {
             _tag: "Bearer" as const,
@@ -119,6 +130,7 @@ const makeDependencies = Effect.fn("TestConnectionResolver.makeDependencies")((o
           environmentId: input.expectedEnvironmentId,
           label: "Authorized relay environment",
           httpBaseUrl: ENDPOINT.httpBaseUrl,
+          descriptor: DESCRIPTOR,
           socketUrl: "wss://authorized.example.test/ws?wsTicket=dpop",
           httpAuthorization: {
             _tag: "Dpop" as const,
@@ -146,8 +158,9 @@ const makeDependencies = Effect.fn("TestConnectionResolver.makeDependencies")((o
   });
 
   const dependencies = Layer.mergeAll(
-    remoteHttpClientLayer((() =>
-      Promise.resolve(
+    remoteHttpClientLayer((() => {
+      if (options?.descriptorFetches) options.descriptorFetches.count += 1;
+      return Promise.resolve(
         Response.json({
           environmentId: ENVIRONMENT_ID,
           label: "Compatible environment",
@@ -160,7 +173,8 @@ const makeDependencies = Effect.fn("TestConnectionResolver.makeDependencies")((o
               : { orchestrationProtocolVersion: options.descriptorProtocolVersion }),
           capabilities: { repositoryIdentity: true },
         }),
-      )) satisfies typeof fetch),
+      );
+    }) satisfies typeof fetch),
     Layer.succeed(
       ConnectionProfileStore.ConnectionProfileStore,
       options?.profileStore ?? profileStore,
@@ -244,6 +258,7 @@ describe("ConnectionResolver", () => {
               environmentId: input.expectedEnvironmentId,
               label: "Primary",
               httpBaseUrl: input.httpBaseUrl,
+              descriptor: DESCRIPTOR,
               socketUrl: "ws://127.0.0.1:3777/ws?wsTicket=desktop",
               httpAuthorization: {
                 _tag: "Bearer" as const,
@@ -284,7 +299,9 @@ describe("ConnectionResolver", () => {
         httpBaseUrl: ENDPOINT.httpBaseUrl,
         wsBaseUrl: ENDPOINT.wsBaseUrl,
       });
+      const descriptorFetches = { count: 0 };
       const brokerLayer = yield* makeDependencies({
+        descriptorFetches,
         credentials: [["saved-1", new BearerConnectionCredential({ token: "secret-bearer" })]],
         authorizeBearer: (input) =>
           Ref.update(bearerInputs, (values) => [
@@ -295,6 +312,7 @@ describe("ConnectionResolver", () => {
               environmentId: input.expectedEnvironmentId,
               label: "Saved",
               httpBaseUrl: input.httpBaseUrl,
+              descriptor: DESCRIPTOR,
               socketUrl: "wss://environment.example.test/ws?wsTicket=ticket",
               httpAuthorization: {
                 _tag: "Bearer" as const,
@@ -309,6 +327,8 @@ describe("ConnectionResolver", () => {
         (yield* broker.prepare(catalogEntry(target, Option.some(profile)))).socketUrl,
       ).toContain("wsTicket=ticket");
       expect(yield* Ref.get(bearerInputs)).toEqual([{ token: "secret-bearer", method: "direct" }]);
+      // The descriptor comes from authorization; the resolver makes no request of its own.
+      expect(descriptorFetches.count).toBe(0);
     }),
   );
 
@@ -350,6 +370,7 @@ describe("ConnectionResolver", () => {
             environmentId: input.expectedEnvironmentId,
             label: "Cloud",
             httpBaseUrl: ENDPOINT.httpBaseUrl,
+            descriptor: DESCRIPTOR,
             socketUrl: "wss://environment.example.test/ws?wsTicket=dpop",
             httpAuthorization: {
               _tag: "Dpop" as const,
@@ -408,6 +429,7 @@ describe("ConnectionResolver", () => {
               environmentId: input.expectedEnvironmentId,
               label: "SSH",
               httpBaseUrl: input.httpBaseUrl,
+              descriptor: DESCRIPTOR,
               socketUrl: "wss://environment.example.test/ws?wsTicket=bearer",
               httpAuthorization: {
                 _tag: "Bearer" as const,
@@ -493,6 +515,7 @@ describe("ConnectionResolver", () => {
                 environmentId: input.expectedEnvironmentId,
                 label: "SSH",
                 httpBaseUrl: input.httpBaseUrl,
+                descriptor: DESCRIPTOR,
                 socketUrl: "ws://127.0.0.1:4010/ws?wsTicket=ssh",
                 httpAuthorization: { _tag: "Bearer" as const, token: input.bearerToken },
               };

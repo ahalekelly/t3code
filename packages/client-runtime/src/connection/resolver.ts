@@ -72,20 +72,28 @@ const makePrimaryBroker = Effect.fn("clientRuntime.connection.broker.makePrimary
   const auth = yield* ClientCapabilities.PrimaryEnvironmentAuth;
   const presentation = yield* ClientCapabilities.ClientPresentation;
   const remote = yield* RemoteEnvironmentAuthorization.RemoteEnvironmentAuthorization;
+  const httpClient = yield* HttpClient.HttpClient;
 
   return Effect.fn("clientRuntime.connection.broker.primary")(function* (
     target: PrimaryConnectionTarget,
   ) {
     const bearerToken = yield* auth.bearerToken;
     if (Option.isNone(bearerToken)) {
+      const descriptor = yield* fetchRemoteEnvironmentDescriptor({
+        httpBaseUrl: target.httpBaseUrl,
+      }).pipe(
+        Effect.mapError(mapRemoteEnvironmentError),
+        Effect.provideService(HttpClient.HttpClient, httpClient),
+      );
       return {
         environmentId: target.environmentId,
         label: target.label,
+        descriptor,
         httpBaseUrl: target.httpBaseUrl,
         socketUrl: primarySocketUrl(target, presentation.metadata),
         httpAuthorization: null,
         target,
-      } satisfies PreparedConnection;
+      };
     }
 
     const authorized = yield* remote.authorizeBearer({
@@ -95,10 +103,7 @@ const makePrimaryBroker = Effect.fn("clientRuntime.connection.broker.makePrimary
       bearerToken: bearerToken.value,
       connectionMethod: "direct",
     });
-    return {
-      ...authorized,
-      target,
-    } satisfies PreparedConnection;
+    return { ...authorized, target };
   });
 });
 
@@ -143,14 +148,7 @@ const makeBearerBroker = Effect.fn("clientRuntime.connection.broker.makeBearer")
       bearerToken: credential.token,
       connectionMethod: "direct",
     });
-    return {
-      environmentId: authorized.environmentId,
-      label: authorized.label,
-      httpBaseUrl: authorized.httpBaseUrl,
-      socketUrl: authorized.socketUrl,
-      httpAuthorization: authorized.httpAuthorization,
-      target,
-    } satisfies PreparedConnection;
+    return { ...authorized, target };
   });
 });
 
@@ -162,14 +160,7 @@ const makeRelayBroker = Effect.fn("clientRuntime.connection.broker.makeRelay")(f
       const authorized = yield* remote.authorizeDpop({
         expectedEnvironmentId: target.environmentId,
       });
-      return {
-        environmentId: authorized.environmentId,
-        label: authorized.label,
-        httpBaseUrl: authorized.httpBaseUrl,
-        socketUrl: authorized.socketUrl,
-        httpAuthorization: authorized.httpAuthorization,
-        target,
-      } satisfies PreparedConnection;
+      return { ...authorized, target };
     },
     Effect.withSpan("clientRuntime.connection.broker.relay"),
     withRelayClientTracing,
@@ -226,14 +217,7 @@ const makeSshBroker = Effect.fn("clientRuntime.connection.broker.makeSsh")(funct
       bearerToken: prepared.bearerToken,
       connectionMethod: "ssh",
     });
-    return {
-      environmentId: authorized.environmentId,
-      label: authorized.label,
-      httpBaseUrl: authorized.httpBaseUrl,
-      socketUrl: authorized.socketUrl,
-      httpAuthorization: authorized.httpAuthorization,
-      target,
-    } satisfies PreparedConnection;
+    return { ...authorized, target };
   });
 });
 
@@ -243,7 +227,6 @@ export const make = Effect.gen(function* () {
   const bearer = yield* makeBearerBroker();
   const relay = yield* makeRelayBroker();
   const ssh = yield* makeSshBroker();
-  const httpClient = yield* HttpClient.HttpClient;
 
   const prepare = Effect.fn("clientRuntime.connection.broker.prepare")(function* (
     entry: ConnectionCatalogEntry,
@@ -253,7 +236,7 @@ export const make = Effect.gen(function* () {
       "connection.environment.id": target.environmentId,
       "connection.target.kind": target._tag,
     });
-    const prepared = yield* (() => {
+    const { descriptor, ...prepared } = yield* (() => {
       switch (target._tag) {
         case "PrimaryConnectionTarget":
           return primary(target);
@@ -265,12 +248,6 @@ export const make = Effect.gen(function* () {
           return ssh({ ...entry, target });
       }
     })();
-    const descriptor = yield* fetchRemoteEnvironmentDescriptor({
-      httpBaseUrl: prepared.httpBaseUrl,
-    }).pipe(
-      Effect.mapError(mapRemoteEnvironmentError),
-      Effect.provideService(HttpClient.HttpClient, httpClient),
-    );
     if (descriptor.environmentId !== target.environmentId) {
       return yield* environmentMismatchError({
         expected: target.environmentId,
