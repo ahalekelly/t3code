@@ -35,8 +35,9 @@ export function resolveTracingConfig(): TracingConfig | null {
  * Every span the app ends is buffered by the connection trace recorder, which
  * posts them to the environment after each connect. The relay tracer (hosted
  * OTLP export, when configured) is wrapped too so its spans are recorded as well.
+ * The recorder is returned for spans timed outside Effect, such as React commits.
  */
-export function makeTracingLayer(config: TracingConfig | null, resource: TracingResource) {
+export function makeTracing(config: TracingConfig | null, resource: TracingResource) {
   const recorder = makeConnectionTraceRecorder({
     serviceName: "t3code-mobile",
     serviceVersion: resource.serviceVersion,
@@ -51,7 +52,7 @@ export function makeTracingLayer(config: TracingConfig | null, resource: Tracing
     runtime: "react-native",
     client: `mobile-${resource.appVariant}`,
   });
-  return Layer.mergeAll(
+  const layer = Layer.mergeAll(
     Layer.succeed(ConnectionTraceRecorder, recorder),
     Layer.succeed(
       Tracer.Tracer,
@@ -64,12 +65,16 @@ export function makeTracingLayer(config: TracingConfig | null, resource: Tracing
       }),
     ).pipe(Layer.provide(relayTracerLayer)),
   );
+  return { recorder, layer };
 }
 
-export const tracingLayer = makeTracingLayer(resolveTracingConfig(), {
-  serviceVersion: Constants.expoConfig?.version,
-  appVariant:
-    typeof Constants.expoConfig?.extra?.appVariant === "string"
-      ? Constants.expoConfig.extra.appVariant
-      : "unknown",
-});
+export const { recorder: connectionTraceRecorder, layer: tracingLayer } = makeTracing(
+  resolveTracingConfig(),
+  {
+    serviceVersion: Constants.expoConfig?.version,
+    appVariant:
+      typeof Constants.expoConfig?.extra?.appVariant === "string"
+        ? Constants.expoConfig.extra.appVariant
+        : "unknown",
+  },
+);

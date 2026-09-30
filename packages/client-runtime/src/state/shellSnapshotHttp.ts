@@ -1,16 +1,20 @@
-import type { OrchestrationShellSnapshot } from "@t3tools/contracts";
+import { OrchestrationShellSnapshot } from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
+import * as Schema from "effect/Schema";
 import { HttpClient } from "effect/unstable/http";
 
 import { RemoteEnvironmentAuthorization } from "../authorization/service.ts";
 import type { PreparedConnection } from "../connection/model.ts";
 import { environmentEndpointUrl } from "../environment/endpoint.ts";
 import { ManagedRelayDpopSigner } from "../relay/managedRelay.ts";
+import { decodeSnapshotResponse } from "../rpc/http.ts";
 import { executeAuthenticatedEnvironmentHttpRequest } from "./environmentHttpAuth.ts";
+
+const decodeShellSnapshot = Schema.decodeUnknownEffect(OrchestrationShellSnapshot);
 
 // Long enough for a slow but alive server to finish. On timeout the socket asks
 // the same server for the same full snapshot, so a short deadline only throws
@@ -40,7 +44,21 @@ export const fetchEnvironmentShellSnapshot = Effect.fn(
     method: "GET",
     url: (httpBaseUrl) => environmentEndpointUrl(httpBaseUrl, "/api/orchestration/shell"),
     timeoutMs: input.timeoutMs ?? DEFAULT_SHELL_SNAPSHOT_TIMEOUT_MS,
-    request: ({ client, headers }) => client.shellSnapshot({ headers }),
+    request: ({ client, headers }) =>
+      client.shellSnapshot({ headers, responseMode: "response-only" }).pipe(
+        Effect.flatMap((response) =>
+          decodeSnapshotResponse({
+            response,
+            decode: decodeShellSnapshot,
+            counts: (snapshot) => ({
+              "snapshot.projects": snapshot.projects.length,
+              "snapshot.threads": snapshot.threads.length,
+            }),
+            group: "orchestration",
+            decodeOther: (replay) => replay.shellSnapshot({ headers }),
+          }),
+        ),
+      ),
   });
 });
 
