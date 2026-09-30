@@ -19,7 +19,7 @@ vi.mock("expo-constants", () => ({
 }));
 
 const layerTracingTo = (fetchFn: typeof fetch) =>
-  Tracing.layerFromConfig(
+  Tracing.makeTracing(
     {
       tracesUrl: "https://api.axiom.test/v1/traces",
       tracesDataset: "mobile-traces",
@@ -30,7 +30,7 @@ const layerTracingTo = (fetchFn: typeof fetch) =>
       serviceInstanceId: "test-instance",
       serviceVersion: "1.2.3",
     },
-  ).pipe(Layer.provide(layerRemoteHttpClient(fetchFn)));
+  ).layer.pipe(Layer.provide(layerRemoteHttpClient(fetchFn)));
 
 it.effect.each([false, true])("gates relay sends and preserves typed failures (%s)", (enabled) => {
   setConnectionTracesEnabled(enabled);

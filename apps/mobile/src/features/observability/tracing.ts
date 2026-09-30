@@ -40,7 +40,7 @@ export function resolveTracingConfig(): TracingConfig | null {
   return { tracesUrl, tracesDataset, tracesToken };
 }
 
-export function layerFromConfig(config: TracingConfig | null, resource: TracingResource) {
+export function makeTracing(config: TracingConfig | null, resource: TracingResource) {
   const channel =
     typeof __DEV__ !== "undefined" && __DEV__
       ? "dev"
@@ -65,7 +65,7 @@ export function layerFromConfig(config: TracingConfig | null, resource: TracingR
     },
     { isEnabled: connectionTracesEnabled },
   );
-  return Layer.mergeAll(
+  const layer = Layer.mergeAll(
     Layer.succeed(ConnectionTraceRecorder, recorder),
     Layer.succeed(
       Tracer.Tracer,
@@ -78,9 +78,10 @@ export function layerFromConfig(config: TracingConfig | null, resource: TracingR
       }),
     ).pipe(Layer.provide(layerRelayTracer)),
   );
+  return { recorder, layer };
 }
 
-export const layer = layerFromConfig(resolveTracingConfig(), {
+export const { recorder: connectionTraceRecorder, layer } = makeTracing(resolveTracingConfig(), {
   serviceVersion: Constants.expoConfig?.version,
   serviceInstanceId: Constants.sessionId,
   appVariant:
