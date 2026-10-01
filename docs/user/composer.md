@@ -164,7 +164,7 @@ default.
 
 Microsoft's MAI-Transcribe-2 and MAI voices take Azure Speech keys from resources
 in West US 2. Add a free F0 key, a paid S0 key, or both: T3 Code uses the F0 key
-until Azure refuses it, such as when its monthly quota runs out, then the S0 key.
+until its monthly quota runs out, then the S0 key until the quota refills.
 
 ## Reading responses aloud
 

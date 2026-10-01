@@ -51,8 +51,22 @@ const PROVIDERS = {
 } satisfies Record<CloudTranscriptionSource, unknown>;
 
 /**
+ * Keys whose quota ran out, mapped to when it refills; skipped until then. Azure's free
+ * tier answers 403 once its monthly quota is spent and 429 while over its rate limit.
+ */
+const spentKeys = new Map<string, number>();
+
+/** Azure's 403 says when the quota refills in `Retry-After` seconds; without it, assume the next month in UTC. */
+function quotaRefill(headers: Record<string, string>, now: Date): number {
+  const retryAfter = Object.entries(headers).find(([name]) => name.toLowerCase() === "retry-after");
+  const seconds = Number(retryAfter?.[1]);
+  if (retryAfter && Number.isFinite(seconds)) return now.getTime() + seconds * 1000;
+  return Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1);
+}
+
+/**
  * Uploads the recording straight from the device; no T3 environment is involved.
- * A 403 retries with the next key, so Azure's free key serves until its quota runs out.
+ * A refused key retries with the next one, so Azure's free key serves until its quota runs out.
  */
 export function createCloudVoiceTranscriber(
   source: CloudTranscriptionSource,
@@ -79,8 +93,12 @@ async function transcribe(
 ): Promise<string> {
   const provider = PROVIDERS[source];
   const label = VOICE_API_PROVIDERS[source].label;
+  const now = new Date();
+  const keys = apiKeys.filter(
+    (key, index) => index === apiKeys.length - 1 || (spentKeys.get(key) ?? 0) <= now.getTime(),
+  );
   let response: UploadResult | undefined;
-  for (const apiKey of apiKeys) {
+  for (const [position, apiKey] of keys.entries()) {
     throwIfVoiceTranscriptionAborted(signal);
     try {
       response = await new File(uri).upload(provider.url, {
@@ -102,7 +120,8 @@ async function transcribe(
       );
     }
     throwIfVoiceTranscriptionAborted(signal);
-    if (response.status !== 403) break;
+    if (![403, 429].includes(response.status) || position === keys.length - 1) break;
+    if (response.status === 403) spentKeys.set(apiKey, quotaRefill(response.headers, now));
   }
   if (response === undefined) throw new Error("Cloud transcription needs at least one API key.");
 

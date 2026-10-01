@@ -103,6 +103,31 @@ describe("createCloudVoiceTranscriber", () => {
     ]);
   });
 
+  it("skips a free key whose quota ran out until Azure says it refills", async () => {
+    vi.useFakeTimers({ now: new Date("2026-10-20T12:00:00Z") });
+    try {
+      mocks.upload
+        .mockResolvedValueOnce({ status: 403, body: "{}", headers: { "Retry-After": "3600" } })
+        .mockResolvedValue(response(200, { combinedPhrases: [{ text: "Hej." }] }));
+      const transcriber = createCloudVoiceTranscriber("azure", ["spent", "paid"]);
+      const { signal } = new AbortController();
+      const transcribeOnce = async () =>
+        (await transcriber.prepare({ signal })).transcribe("file:///voice.m4a", { signal });
+      const keysUsed = () =>
+        mocks.upload.mock.calls.map(([, options]) => options.headers?.["Ocp-Apim-Subscription-Key"]);
+
+      await transcribeOnce();
+      await transcribeOnce();
+      expect(keysUsed()).toEqual(["spent", "paid", "paid"]);
+
+      vi.setSystemTime(new Date("2026-10-20T13:00:01Z"));
+      await transcribeOnce();
+      expect(keysUsed()).toEqual(["spent", "paid", "paid", "spent"]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("reads silence from Azure as an empty transcript", async () => {
     mocks.upload.mockResolvedValue(response(200, { combinedPhrases: [], phrases: [] }));
 
