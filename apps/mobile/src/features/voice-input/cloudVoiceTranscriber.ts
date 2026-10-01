@@ -28,9 +28,9 @@ const PROVIDERS = {
     readText: (body: Record<string, unknown>) => body.text,
   },
   // Azure Speech fast transcription; MAI-Transcribe-2 detects the language itself.
-  // MAI-Transcribe runs in East US, where the MAI voices' key comes from too.
+  // West US 2 serves MAI-Transcribe and the MAI voices, so one key covers both.
   azure: {
-    url: "https://eastus.api.cognitive.microsoft.com/speechtotext/transcriptions:transcribe?api-version=2025-10-15",
+    url: "https://westus2.api.cognitive.microsoft.com/speechtotext/transcriptions:transcribe?api-version=2025-10-15",
     fieldName: "audio",
     headers: (apiKey: string) => ({ "Ocp-Apim-Subscription-Key": apiKey }),
     parameters: () => ({

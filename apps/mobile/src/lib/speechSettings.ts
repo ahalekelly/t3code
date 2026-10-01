@@ -1,9 +1,9 @@
-/** API key fields; Azure keys come from a Speech resource in East US, where MAI voices run. */
+/** API key fields; Azure keys come from a Speech resource in West US 2, where MAI voices and transcription run. */
 export const VOICE_API_PROVIDERS = {
   openai: { label: "OpenAI", placeholder: "sk-..." },
   gemini: { label: "Gemini", placeholder: "AIza..." },
   elevenlabs: { label: "ElevenLabs", placeholder: "sk_..." },
-  azure: { label: "Azure Speech", placeholder: "East US Speech resource key" },
+  azure: { label: "Azure Speech", placeholder: "West US 2 Speech resource key" },
 } as const;
 export type VoiceApiProvider = keyof typeof VOICE_API_PROVIDERS;
 
