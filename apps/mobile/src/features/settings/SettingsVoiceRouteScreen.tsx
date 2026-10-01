@@ -176,7 +176,7 @@ export function SettingsVoiceRouteScreen() {
         </SettingsSection>
         <Text className="px-2 text-sm leading-normal text-foreground-muted">
           Keys stay in this device's keychain. Azure keys come from Speech resources in West US 2;
-          the free F0 key is used until Azure rejects it, then the S0 key.
+          the free F0 key is used until its monthly quota runs out, then the S0 key until it refills.
         </Text>
       </ScrollView>
     </View>

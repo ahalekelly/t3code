@@ -1,4 +1,5 @@
 import Foundation
+import os
 
 /// Streams OpenAI, Gemini, ElevenLabs, or Azure MAI speech as 24 kHz 16-bit PCM straight from the phone.
 struct CloudVoice: Sendable {
@@ -96,14 +97,39 @@ struct CloudVoice: Sendable {
     _ = await Self.send(&pcm, to: append)
   }
 
-  /// Opens the response with the first key that isn't refused with a 403.
+  /// Keys whose quota ran out, skipped until it refills. Azure's free tier answers 403
+  /// once its monthly quota is spent and 429 while over its rate limit.
+  private static let spentKeys = OSAllocatedUnfairLock(initialState: [String: Date]())
+
+  /// Opens the response with the first key that isn't refused, skipping keys whose quota is spent.
   private func open(_ text: String) async throws -> (URLSession.AsyncBytes, Int) {
-    for (index, apiKey) in apiKeys.enumerated() {
+    let now = Date()
+    let spent = Self.spentKeys.withLock { $0 }
+    let keys = apiKeys.enumerated().filter { index, key in
+      index == apiKeys.count - 1 || spent[key].map { $0 <= now } ?? true
+    }
+    for (position, (_, apiKey)) in keys.enumerated() {
       let (bytes, response) = try await URLSession.shared.bytes(for: request(text, apiKey: apiKey))
-      let status = (response as? HTTPURLResponse)?.statusCode ?? 0
-      if status != 403 || index == apiKeys.count - 1 { return (bytes, status) }
+      let http = response as? HTTPURLResponse
+      let status = http?.statusCode ?? 0
+      guard [403, 429].contains(status), position < keys.count - 1 else { return (bytes, status) }
+      speechLog.notice("\(provider.label, privacy: .public) key refused with \(status), trying the next key")
+      if status == 403 {
+        let refill = Self.quotaRefill(retryAfter: http?.value(forHTTPHeaderField: "Retry-After"), now: now)
+        Self.spentKeys.withLock { $0[apiKey] = refill }
+      }
     }
     throw SpeechError("Add your \(provider.label) API key in Settings → Voice.")
+  }
+
+  /// Azure's 403 says when the quota refills in `Retry-After` seconds; without it, assume
+  /// the next month in UTC.
+  private static func quotaRefill(retryAfter: String?, now: Date) -> Date {
+    if let seconds = retryAfter.flatMap(Double.init) { return now.addingTimeInterval(seconds) }
+    var calendar = Calendar(identifier: .gregorian)
+    calendar.timeZone = .gmt
+    let month = calendar.date(from: calendar.dateComponents([.year, .month], from: now))!
+    return calendar.date(byAdding: .month, value: 1, to: month)!
   }
 
   private func request(_ text: String, apiKey: String) throws -> URLRequest {
