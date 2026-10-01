@@ -56,12 +56,19 @@ const PROVIDERS = {
  */
 const spentKeys = new Map<string, number>();
 
-/** Azure's 403 says when the quota refills in `Retry-After` seconds; without it, assume the next month in UTC. */
+/**
+ * Azure's 403 says when the quota refills in `Retry-After` seconds. Without it, wait for the
+ * next 2nd at midnight UTC, a day past the month's start in any time zone, so an early retry
+ * can't find the quota still spent and skip a whole month.
+ */
 function quotaRefill(headers: Record<string, string>, now: Date): number {
   const retryAfter = Object.entries(headers).find(([name]) => name.toLowerCase() === "retry-after");
   const seconds = Number(retryAfter?.[1]);
   if (retryAfter && Number.isFinite(seconds)) return now.getTime() + seconds * 1000;
-  return Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1);
+  const thisMonth = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 2);
+  return thisMonth > now.getTime()
+    ? thisMonth
+    : Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 2);
 }
 
 /**
