@@ -27,6 +27,7 @@ export function useVoiceSettings() {
   const model = preferences.responseSpeechModel ?? DEFAULT_SPEECH_MODEL;
   const { provider, voices: modelVoices } = SPEECH_MODELS[model];
   const openAiKeyResult = useAtomValue(voiceApiKeyAtom("openai"));
+  const azureKeyResult = useAtomValue(voiceApiKeyAtom("azure"));
   const speechKeyResult = useAtomValue(voiceApiKeyAtom(provider));
   const speechKey = AsyncResult.isSuccess(speechKeyResult) ? speechKeyResult.value : null;
   const accountVoicesResult = useAtomValue(
@@ -34,6 +35,16 @@ export function useVoiceSettings() {
   );
   return useMemo(() => {
     const openAiKey = AsyncResult.isSuccess(openAiKeyResult) ? openAiKeyResult.value : null;
+    const transcriptionSource = resolveVoiceTranscriptionSource(
+      preferences.voiceTranscriptionSource,
+      openAiKey !== null,
+    );
+    const transcriptionKey =
+      transcriptionSource === "openai"
+        ? openAiKey
+        : transcriptionSource === "azure" && AsyncResult.isSuccess(azureKeyResult)
+          ? azureKeyResult.value
+          : null;
     const voices: readonly SpeechVoice[] =
       modelVoices !== "account"
         ? modelVoices.map((id) => ({ id, name: id.charAt(0).toUpperCase() + id.slice(1) }))
@@ -42,6 +53,7 @@ export function useVoiceSettings() {
           : [];
     const voice = preferences.responseSpeechVoice;
     const speech: SpeechRequest = {
+      provider,
       model,
       // A voice saved for another model falls back to this model's default.
       voice: voices.find(({ id }) => id === voice)?.id ?? voices[0]?.id ?? "",
@@ -53,26 +65,27 @@ export function useVoiceSettings() {
       loaded:
         AsyncResult.isSuccess(preferencesResult) &&
         AsyncResult.isSuccess(openAiKeyResult) &&
+        AsyncResult.isSuccess(azureKeyResult) &&
         AsyncResult.isSuccess(speechKeyResult) &&
         !AsyncResult.isInitial(accountVoicesResult),
       preferences,
-      apiKey: openAiKey,
+      transcriptionSource,
+      /** The selected cloud source's key; null on device or without a stored key. */
+      transcriptionKey,
       speech,
       voices,
       voicesError: AsyncResult.isFailure(accountVoicesResult)
         ? Option.getOrNull(Cause.findErrorOption(accountVoicesResult.cause))
         : null,
-      transcriptionSource: resolveVoiceTranscriptionSource(
-        preferences.voiceTranscriptionSource,
-        openAiKey !== null,
-      ),
       readRepliesAloud: preferences.readVoiceRepliesAloud ?? true,
       readThinkingUpdates: preferences.readThinkingUpdatesAloud ?? false,
     };
   }, [
     accountVoicesResult,
+    azureKeyResult,
     model,
     modelVoices,
+    provider,
     openAiKeyResult,
     preferences,
     preferencesResult,

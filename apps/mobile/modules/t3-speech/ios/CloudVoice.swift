@@ -2,21 +2,16 @@ import Foundation
 
 /// Streams OpenAI, Gemini, ElevenLabs, or Azure MAI speech as 24 kHz 16-bit PCM straight from the phone.
 struct CloudVoice: Sendable {
-  enum Model: String, Sendable {
-    case openAi = "gpt-4o-mini-tts"
-    case geminiFlash = "gemini-3.8-flash-tts"
-    case geminiFlashLite = "gemini-3.8-flash-lite-tts"
-    case elevenLabs = "eleven_v4"
-    case elevenLabsTurbo = "eleven_v4_turbo"
-    case maiVoice = "MAI-Voice-2"
-    case maiVoiceFlash = "MAI-Voice-2-Flash"
+  /// Matches `VOICE_API_PROVIDERS` in speechSettings.ts, which also lists each provider's models.
+  enum Provider: String, Sendable {
+    case openai, gemini, elevenlabs, azure
 
-    var provider: String {
+    var label: String {
       switch self {
-      case .openAi: "OpenAI"
-      case .geminiFlash, .geminiFlashLite: "Gemini"
-      case .elevenLabs, .elevenLabsTurbo: "ElevenLabs"
-      case .maiVoice, .maiVoiceFlash: "Azure Speech"
+      case .openai: "OpenAI"
+      case .gemini: "Gemini"
+      case .elevenlabs: "ElevenLabs"
+      case .azure: "Azure Speech"
       }
     }
   }
@@ -26,7 +21,8 @@ struct CloudVoice: Sendable {
   static let segmentLength = 600
   private static let retryDelays: [Duration] = [.seconds(1), .seconds(3), .seconds(8)]
 
-  let model: Model
+  let provider: Provider
+  let model: String
   let apiKey: String
   let voice: String
   let instructions: String
@@ -39,7 +35,7 @@ struct CloudVoice: Sendable {
         try await stream(text, append: append)
         return
       } catch let error as URLError where attempt < Self.retryDelays.count && error.code != .cancelled {
-        speechLog.error("\(model.provider, privacy: .public) speech attempt \(attempt + 1) failed, retrying: \(error.localizedDescription, privacy: .public)")
+        speechLog.error("\(provider.label, privacy: .public) speech attempt \(attempt + 1) failed, retrying: \(error.localizedDescription, privacy: .public)")
         continue
       }
     }
@@ -54,19 +50,19 @@ struct CloudVoice: Sendable {
       // OpenAI and Gemini send `error.message`, ElevenLabs `detail.message`; Azure sends no body.
       let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
       let error = (json?["error"] ?? json?["detail"]) as? [String: Any]
-      throw SpeechError("\(model.provider) speech failed (\(status)): \(error?["message"] as? String ?? "no details")")
+      throw SpeechError("\(provider.label) speech failed (\(status)): \(error?["message"] as? String ?? "no details")")
     }
 
     // Pass samples on in quarter-second pieces.
     var pcm = Data()
     let piece = Int(Self.sampleRate / 4) * 2
-    switch model {
-    case .openAi, .elevenLabs, .elevenLabsTurbo, .maiVoice, .maiVoiceFlash:
+    switch provider {
+    case .openai, .elevenlabs, .azure:
       for try await byte in bytes {
         pcm.append(byte)
         if pcm.count >= piece, !(await Self.send(&pcm, to: append)) { return }
       }
-    case .geminiFlash, .geminiFlashLite:
+    case .gemini:
       // Server-sent events carry base64 audio in `step.delta` events, and sometimes
       // the first chunk in `step.start`.
       var completed = false
@@ -103,34 +99,34 @@ struct CloudVoice: Sendable {
   private func request(_ text: String) throws -> URLRequest {
     var request: URLRequest
     let body: [String: Any]
-    switch model {
-    case .openAi:
+    switch provider {
+    case .openai:
       request = URLRequest(url: URL(string: "https://api.openai.com/v1/audio/speech")!)
       request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
-      var openAi = ["model": model.rawValue, "input": text, "voice": voice, "response_format": "pcm"]
+      var openAi = ["model": model, "input": text, "voice": voice, "response_format": "pcm"]
       if !instructions.isEmpty { openAi["instructions"] = instructions }
       body = openAi
-    case .geminiFlash, .geminiFlashLite:
+    case .gemini:
       request = URLRequest(url: URL(string: "https://generativelanguage.googleapis.com/v1beta/interactions")!)
       request.setValue(apiKey, forHTTPHeaderField: "x-goog-api-key")
       var content: [String: Any] = ["type": "text", "text": text]
       if !instructions.isEmpty { content["annotations"] = [["type": "speech_metadata", "style": instructions]] }
       body = [
-        "model": model.rawValue,
+        "model": model,
         "input": [["type": "user_input", "content": [content]]],
         "response_format": ["type": "audio", "mime_type": "audio/l16", "sample_rate": Int(Self.sampleRate)],
         "generation_config": ["speech_config": [["voice": voice]]],
         "stream": true,
       ]
-    case .elevenLabs, .elevenLabsTurbo:
+    case .elevenlabs:
       var components = URLComponents(string: "https://api.elevenlabs.io/v1/text-to-speech")!
       components.path += "/\(voice)/stream"
       components.queryItems = [URLQueryItem(name: "output_format", value: "pcm_24000")]
       request = URLRequest(url: components.url!)
       request.setValue(apiKey, forHTTPHeaderField: "xi-api-key")
-      body = ["text": text, "model_id": model.rawValue]
-    case .maiVoice, .maiVoiceFlash:
-      // MAI voices run only in East US and West US; the key must come from an East US resource.
+      body = ["text": text, "model_id": model]
+    case .azure:
+      // The key must come from an East US resource, which serves MAI voices.
       request = URLRequest(url: URL(string: "https://eastus.tts.speech.microsoft.com/cognitiveservices/v1")!)
       request.httpMethod = "POST"
       request.setValue(apiKey, forHTTPHeaderField: "Ocp-Apim-Subscription-Key")
@@ -143,7 +139,7 @@ struct CloudVoice: Sendable {
         .replacingOccurrences(of: ">", with: "&gt;")
       request.httpBody = Data("""
         <speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xml:lang="en-US">\
-        <voice name="en-US-\(voice):\(model.rawValue)">\(escaped)</voice></speak>
+        <voice name="en-US-\(voice):\(model)">\(escaped)</voice></speak>
         """.utf8)
       return request
     }

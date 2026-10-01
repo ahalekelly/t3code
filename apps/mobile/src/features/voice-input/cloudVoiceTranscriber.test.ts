@@ -15,7 +15,7 @@ vi.mock("expo-file-system", () => ({
   UploadType: { BINARY_CONTENT: 0, MULTIPART: 1 },
 }));
 
-import { createOpenAiVoiceTranscriber } from "./openAiVoiceTranscriber";
+import { createCloudVoiceTranscriber } from "./cloudVoiceTranscriber";
 
 function response(status: number, body: unknown): UploadResult {
   return { status, body: JSON.stringify(body), headers: {} };
@@ -29,8 +29,8 @@ function deferred<T>() {
   return { promise, resolve };
 }
 
-async function transcribe(signal: AbortSignal) {
-  const transcriber = createOpenAiVoiceTranscriber("sk-test");
+async function transcribe(signal: AbortSignal, source: "openai" | "azure" = "openai") {
+  const transcriber = createCloudVoiceTranscriber(source, "sk-test");
   const prepared = await transcriber.prepare({ signal });
   return prepared.transcribe("file:///voice.m4a", { signal });
 }
@@ -47,7 +47,7 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe("createOpenAiVoiceTranscriber", () => {
+describe("createCloudVoiceTranscriber", () => {
   it("uploads the recording with the key, GPT Transcribe, and device language", async () => {
     mocks.upload.mockResolvedValue(response(200, { text: "Hej världen." }));
 
@@ -63,6 +63,35 @@ describe("createOpenAiVoiceTranscriber", () => {
         parameters: { model: "gpt-transcribe", language: "sv", response_format: "json" },
       }),
     );
+  });
+
+  it("uploads to Azure with MAI-Transcribe-2 and reads the combined transcript", async () => {
+    mocks.upload.mockResolvedValue(
+      response(200, { combinedPhrases: [{ text: "Hej världen." }], phrases: [] }),
+    );
+
+    await expect(transcribe(new AbortController().signal, "azure")).resolves.toBe("Hej världen.");
+    const [url, options] = mocks.upload.mock.calls[0]!;
+    expect(url).toBe(
+      "https://eastus.api.cognitive.microsoft.com/speechtotext/transcriptions:transcribe?api-version=2025-10-15",
+    );
+    expect(options).toMatchObject({
+      fieldName: "audio",
+      headers: { "Ocp-Apim-Subscription-Key": "sk-test" },
+    });
+    expect(JSON.parse(options.parameters!.definition!)).toEqual({
+      enhancedMode: {
+        enabled: true,
+        model: "MAI-Transcribe-2",
+        modelOptions: { transcribeStyle: "clean" },
+      },
+    });
+  });
+
+  it("reads silence from Azure as an empty transcript", async () => {
+    mocks.upload.mockResolvedValue(response(200, { combinedPhrases: [], phrases: [] }));
+
+    await expect(transcribe(new AbortController().signal, "azure")).resolves.toBe("");
   });
 
   it("reports OpenAI's own error message when the request is rejected", async () => {

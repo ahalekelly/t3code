@@ -44,6 +44,7 @@ import type { SpeechRequest } from "./speechSettings";
 const first = { scope: "environment:thread", messageId: "first" };
 const second = { scope: "environment:thread", messageId: "second" };
 const request: SpeechRequest = {
+  provider: "openai",
   model: "gpt-4o-mini-tts",
   voice: "marin",
   pace: 1,

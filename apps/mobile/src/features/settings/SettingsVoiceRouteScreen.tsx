@@ -97,14 +97,11 @@ export function SettingsVoiceRouteScreen() {
             </ControlPillMenu>
           </View>
         </SettingsSection>
-        <SettingsSection title="OpenAI API key">
-          <ApiKeyField provider="openai" />
-        </SettingsSection>
-        <Text className="px-2 text-sm leading-normal text-foreground-muted">
-          On-device transcription needs iOS 26 on a supported iPhone. OpenAI transcription uploads
-          each recording with the API key above, which stays in this device's keychain. With a key,
-          transcription defaults to OpenAI.
-        </Text>
+        {selectedSource !== "local" ? (
+          <SettingsSection title={`${VOICE_API_PROVIDERS[selectedSource].label} API key`}>
+            <ApiKeyField key={selectedSource} provider={selectedSource} />
+          </SettingsSection>
+        ) : null}
         {Platform.OS === "ios" ? (
           <SettingsSection title="Read aloud">
             <VoiceChoice
@@ -170,7 +167,7 @@ export function SettingsVoiceRouteScreen() {
             />
           </SettingsSection>
         ) : null}
-        {Platform.OS === "ios" && model.provider !== "openai" ? (
+        {Platform.OS === "ios" && model.provider !== selectedSource ? (
           <SettingsSection title={`${speechProvider.label} API key`}>
             <ApiKeyField key={model.provider} provider={model.provider} />
           </SettingsSection>
