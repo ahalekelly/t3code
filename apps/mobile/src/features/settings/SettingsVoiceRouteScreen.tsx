@@ -188,32 +188,47 @@ function ApiKeyField({ slot }: { slot: VoiceApiKey }) {
   const storedResult = useAtomValue(voiceApiKeyAtom(slot));
   const saveApiKey = useAtomSet(setVoiceApiKeyAtom(slot));
   const storedKey = AsyncResult.isSuccess(storedResult) ? storedResult.value : null;
-  // Non-null while the field is focused for editing.
-  const [draft, setDraft] = useState<string | null>(null);
+  // A new key typed or pasted from scratch; the stored key is never edited in place.
+  const [draft, setDraft] = useState("");
 
   const commitDraft = () => {
-    if (draft === null) return;
-    setDraft(null);
-    if (draft.trim() !== (storedKey ?? "")) saveApiKey(draft);
+    if (draft.trim() !== "" && draft.trim() !== storedKey) saveApiKey(draft);
+    setDraft("");
   };
 
   return (
     <View className="gap-2 p-4">
       <Text className="text-lg text-foreground">{label}</Text>
-      <TextInput
-        accessibilityLabel={`${label} API key`}
-        autoCapitalize="none"
-        autoCorrect={false}
-        editable={AsyncResult.isSuccess(storedResult)}
-        onBlur={commitDraft}
-        onChangeText={setDraft}
-        onFocus={() => setDraft(storedKey ?? "")}
-        onSubmitEditing={commitDraft}
-        placeholder={placeholder}
-        returnKeyType="done"
-        secureTextEntry={draft !== null}
-        value={draft ?? (storedKey ? maskApiKey(storedKey) : "")}
-      />
+      <View className="flex-row items-center gap-3">
+        <TextInput
+          accessibilityLabel={`${label} API key`}
+          autoCapitalize="none"
+          autoCorrect={false}
+          className="flex-1"
+          editable={AsyncResult.isSuccess(storedResult)}
+          onBlur={commitDraft}
+          onChangeText={setDraft}
+          onSubmitEditing={commitDraft}
+          placeholder={storedKey ? maskApiKey(storedKey) : placeholder}
+          returnKeyType="done"
+          value={draft}
+        />
+        {storedKey ? (
+          <Pressable
+            accessibilityLabel={`Remove ${label} API key`}
+            accessibilityRole="button"
+            hitSlop={8}
+            onPress={() => saveApiKey("")}
+          >
+            <SymbolView
+              name="xmark.circle.fill"
+              size={18}
+              tintColorClassName="accent-icon"
+              type="monochrome"
+            />
+          </Pressable>
+        ) : null}
+      </View>
     </View>
   );
 }
