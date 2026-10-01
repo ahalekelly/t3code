@@ -2,7 +2,7 @@ import { useAtomSet, useAtomValue } from "@effect/atom-react";
 import { useNavigation } from "@react-navigation/native";
 import { AsyncResult } from "effect/unstable/reactivity";
 import { useState } from "react";
-import { Platform, Pressable, View } from "react-native";
+import { Alert, Platform, Pressable, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { AndroidScreenHeader } from "../../components/AndroidScreenHeader";
@@ -10,6 +10,8 @@ import { ScreenScrollView as ScrollView } from "../../components/ScreenScrollVie
 import { AppText as Text, AppTextInput as TextInput } from "../../components/AppText";
 import { SymbolView } from "../../components/AppSymbol";
 import { ControlPillMenu } from "../../components/ControlPill";
+import { showConfirmDialog } from "../../components/ConfirmDialogHost";
+import { copyTextWithHaptic } from "../../lib/copyTextWithHaptic";
 import { NativeStackScreenOptions } from "../../native/StackHeader";
 import { updateMobilePreferencesAtom } from "../../state/preferences";
 import { useVoiceSettings } from "../../state/voiceSettings";
@@ -214,23 +216,51 @@ function ApiKeyField({ slot }: { slot: VoiceApiKey }) {
           value={draft}
         />
         {storedKey ? (
-          <Pressable
-            accessibilityLabel={`Remove ${label} API key`}
-            accessibilityRole="button"
-            hitSlop={8}
-            onPress={() => saveApiKey("")}
-          >
-            <SymbolView
-              name="xmark.circle.fill"
-              size={18}
-              tintColorClassName="accent-icon"
-              type="monochrome"
-            />
-          </Pressable>
+          <>
+            <Pressable
+              accessibilityLabel={`Copy ${label} API key`}
+              accessibilityRole="button"
+              hitSlop={8}
+              onPress={() => copyTextWithHaptic(storedKey, { target: `${label} API key` })}
+            >
+              <SymbolView
+                name="doc.on.doc"
+                size={18}
+                tintColorClassName="accent-icon"
+                type="monochrome"
+              />
+            </Pressable>
+            <Pressable
+              accessibilityLabel={`Remove ${label} API key`}
+              accessibilityRole="button"
+              hitSlop={8}
+              onPress={() => confirmRemoveApiKey(label, () => saveApiKey(""))}
+            >
+              <SymbolView
+                name="xmark.circle.fill"
+                size={18}
+                tintColorClassName="accent-icon"
+                type="monochrome"
+              />
+            </Pressable>
+          </>
         ) : null}
       </View>
     </View>
   );
+}
+
+function confirmRemoveApiKey(label: string, onConfirm: () => void) {
+  const title = `Remove ${label} API key?`;
+  const message = "Copy it first if you don't have it saved elsewhere.";
+  if (process.env.EXPO_OS === "ios") {
+    Alert.alert(title, message, [
+      { text: "Cancel", style: "cancel" },
+      { text: "Remove", style: "destructive", onPress: onConfirm },
+    ]);
+    return;
+  }
+  showConfirmDialog({ title, message, confirmText: "Remove", destructive: true, onConfirm });
 }
 
 /** Shows enough of a stored key to tell keys apart without revealing it. */
