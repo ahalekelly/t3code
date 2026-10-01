@@ -91,7 +91,7 @@ struct SpeechOptionsRecord: Record {
   @Field(.required) var voice: String = ""
   @Field(.required) var pace: Float = 1
   @Field(.required) var instructions: String = ""
-  @Field(.required) var apiKey: String = ""
+  @Field(.required) var apiKeys: [String] = []
   @Field(.required) var title: String = ""
 
   func validated() throws -> SpeechSettings {
@@ -99,9 +99,9 @@ struct SpeechOptionsRecord: Record {
       throw SpeechError("Pace must be between 0.75× and 2×.")
     }
     guard let provider = CloudVoice.Provider(rawValue: provider) else { throw SpeechError("Unknown speech provider: \(provider)") }
-    guard !apiKey.isEmpty else { throw SpeechError("Add your \(provider.label) API key in Settings → Voice.") }
+    guard !apiKeys.isEmpty else { throw SpeechError("Add your \(provider.label) API key in Settings → Voice.") }
     guard !voice.isEmpty else { throw SpeechError("Choose a voice for \(provider.label) in Settings → Voice.") }
-    let voice = CloudVoice(provider: provider, model: model, apiKey: apiKey, voice: voice, instructions: instructions)
+    let voice = CloudVoice(provider: provider, model: model, apiKeys: apiKeys, voice: voice, instructions: instructions)
     return SpeechSettings(voice: voice, pace: pace, title: title)
   }
 }

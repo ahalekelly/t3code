@@ -23,7 +23,8 @@ struct CloudVoice: Sendable {
 
   let provider: Provider
   let model: String
-  let apiKey: String
+  /// Tried in order: a 403 moves on to the next key, so Azure's free key serves until its quota runs out.
+  let apiKeys: [String]
   let voice: String
   let instructions: String
 
@@ -42,8 +43,7 @@ struct CloudVoice: Sendable {
   }
 
   private func stream(_ text: String, append: @escaping @Sendable (Data) async -> Bool) async throws {
-    let (bytes, response) = try await URLSession.shared.bytes(for: request(text))
-    let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+    let (bytes, status) = try await open(text)
     guard (200...299).contains(status) else {
       var data = Data()
       for try await byte in bytes { data.append(byte) }
@@ -96,7 +96,17 @@ struct CloudVoice: Sendable {
     _ = await Self.send(&pcm, to: append)
   }
 
-  private func request(_ text: String) throws -> URLRequest {
+  /// Opens the response with the first key that isn't refused with a 403.
+  private func open(_ text: String) async throws -> (URLSession.AsyncBytes, Int) {
+    for (index, apiKey) in apiKeys.enumerated() {
+      let (bytes, response) = try await URLSession.shared.bytes(for: request(text, apiKey: apiKey))
+      let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+      if status != 403 || index == apiKeys.count - 1 { return (bytes, status) }
+    }
+    throw SpeechError("Add your \(provider.label) API key in Settings → Voice.")
+  }
+
+  private func request(_ text: String, apiKey: String) throws -> URLRequest {
     var request: URLRequest
     let body: [String: Any]
     switch provider {

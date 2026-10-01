@@ -21,10 +21,11 @@ import {
 import {
   SPEECH_MODELS,
   SPEECH_PACES,
+  VOICE_API_KEYS,
   VOICE_API_PROVIDERS,
   type SpeechModel,
   type SpeechPace,
-  type VoiceApiProvider,
+  type VoiceApiKey,
 } from "../../lib/speechSettings";
 import { SettingsSwitchRow } from "./components/SettingsSwitchRow";
 import { SettingsSection } from "./components/SettingsSection";
@@ -97,11 +98,6 @@ export function SettingsVoiceRouteScreen() {
             </ControlPillMenu>
           </View>
         </SettingsSection>
-        {selectedSource !== "local" ? (
-          <SettingsSection title={`${VOICE_API_PROVIDERS[selectedSource].label} API key`}>
-            <ApiKeyField key={selectedSource} provider={selectedSource} />
-          </SettingsSection>
-        ) : null}
         {Platform.OS === "ios" ? (
           <SettingsSection title="Read aloud">
             <VoiceChoice
@@ -167,20 +163,30 @@ export function SettingsVoiceRouteScreen() {
             />
           </SettingsSection>
         ) : null}
-        {Platform.OS === "ios" && model.provider !== selectedSource ? (
-          <SettingsSection title={`${speechProvider.label} API key`}>
-            <ApiKeyField key={model.provider} provider={model.provider} />
-          </SettingsSection>
-        ) : null}
+        <SettingsSection title="API keys">
+          {(Object.keys(VOICE_API_KEYS) as VoiceApiKey[])
+            // Android only transcribes; reading aloud is iOS-only.
+            .filter(
+              (key) =>
+                Platform.OS === "ios" || VOICE_API_KEYS[key].provider in VOICE_TRANSCRIPTION_SOURCE_LABELS,
+            )
+            .map((key) => (
+              <ApiKeyField key={key} slot={key} />
+            ))}
+        </SettingsSection>
+        <Text className="px-2 text-sm leading-normal text-foreground-muted">
+          Keys stay in this device's keychain. Azure keys come from Speech resources in West US 2;
+          the free F0 key is used until Azure rejects it, then the S0 key.
+        </Text>
       </ScrollView>
     </View>
   );
 }
 
-function ApiKeyField({ provider }: { provider: VoiceApiProvider }) {
-  const { label, placeholder } = VOICE_API_PROVIDERS[provider];
-  const storedResult = useAtomValue(voiceApiKeyAtom(provider));
-  const saveApiKey = useAtomSet(setVoiceApiKeyAtom(provider));
+function ApiKeyField({ slot }: { slot: VoiceApiKey }) {
+  const { label, placeholder } = VOICE_API_KEYS[slot];
+  const storedResult = useAtomValue(voiceApiKeyAtom(slot));
+  const saveApiKey = useAtomSet(setVoiceApiKeyAtom(slot));
   const storedKey = AsyncResult.isSuccess(storedResult) ? storedResult.value : null;
   const [draft, setDraft] = useState<string | null>(null);
 
@@ -191,7 +197,8 @@ function ApiKeyField({ provider }: { provider: VoiceApiProvider }) {
   };
 
   return (
-    <View className="p-4">
+    <View className="gap-2 p-4">
+      <Text className="text-lg text-foreground">{label}</Text>
       <TextInput
         accessibilityLabel={`${label} API key`}
         autoCapitalize="none"

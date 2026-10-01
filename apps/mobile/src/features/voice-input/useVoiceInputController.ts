@@ -118,7 +118,7 @@ export function useVoiceInputController(input: {
   const readRepliesAloudRef = useRef(readRepliesAloud);
   readRepliesAloudRef.current = readRepliesAloud;
   const transcriptionSource = voice.transcriptionSource;
-  const transcriptionConfig = { source: transcriptionSource, apiKey: voice.transcriptionKey };
+  const transcriptionConfig = { source: transcriptionSource, apiKeys: voice.transcriptionKeys };
   const transcriptionConfigRef = useRef(transcriptionConfig);
   transcriptionConfigRef.current = transcriptionConfig;
 
@@ -137,10 +137,10 @@ export function useVoiceInputController(input: {
     controllerRef.current = new VoiceInputController({
       recorder,
       getTranscriber: () => {
-        const { source, apiKey } = transcriptionConfigRef.current;
+        const { source, apiKeys } = transcriptionConfigRef.current;
         if (source === "local") return getLocalVoiceTranscriber();
-        if (apiKey === null) return missingKeyTranscriber(source);
-        return createCloudVoiceTranscriber(source, apiKey);
+        if (apiKeys.length === 0) return missingKeyTranscriber(source);
+        return createCloudVoiceTranscriber(source, apiKeys);
       },
       requestPermission: async () => {
         const permission = await requestRecordingPermissionsAsync();
@@ -340,7 +340,7 @@ export function useVoiceInputController(input: {
     isAvailable:
       (transcriptionSource === "local"
         ? getLocalVoiceTranscriber() !== null
-        : voice.transcriptionKey !== null) || getNativeShowcaseScene() !== null,
+        : voice.transcriptionKeys.length > 0) || getNativeShowcaseScene() !== null,
     state,
     audioLevels,
     elapsedSeconds,
