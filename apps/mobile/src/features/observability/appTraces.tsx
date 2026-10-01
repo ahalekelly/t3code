@@ -15,6 +15,13 @@ const toEpochNanos = (performanceMs: number) =>
 /**
  * Records a `react.commit` span per Profiler commit. React calls this only with
  * the profiling renderer, which metro.config.js selects for every build.
+ *
+ * Durations are wall-clock time. iOS throttles a backgrounded app and then
+ * suspends it, so a commit that runs or resumes outside `active` can report
+ * seconds of time the JS thread spent descheduled; only `app.state: "active"`
+ * commits measure render cost. AppState events reach JS only after the current
+ * task, so the first commit after leaving the app can still read `active`; the
+ * `client.app.background` span marks that boundary.
  */
 export const recordReactCommit: ProfilerOnRenderCallback = (
   id,
@@ -31,7 +38,7 @@ export const recordReactCommit: ProfilerOnRenderCallback = (
     "react.commit",
     toEpochNanos(startTime),
     toEpochNanos(commitTime),
-    { "profiler.id": id, phase, actualDuration, baseDuration },
+    { "profiler.id": id, phase, actualDuration, baseDuration, "app.state": AppState.currentState },
   );
 };
 
@@ -66,13 +73,17 @@ function recordAppResume(launch: boolean) {
   });
 }
 
-/** Navigation `onReady`: traces the launch screen, then every return to the foreground. */
-export function traceAppResumes() {
+/** Navigation `onReady`: traces the launch screen, every move to the background, and every return. */
+export function traceAppLifecycle() {
   recordAppResume(true);
   // iOS also reports `active` after brief `inactive` overlays (Control Center, Face ID), so
   // only a return from `background` counts as a resume.
   let previous = AppState.currentState;
   AppState.addEventListener("change", (state) => {
+    if (state === "background") {
+      const now = toEpochNanos(performance.now());
+      connectionTraceRecorder.recordSpan("client.app.background", now, now, {});
+    }
     if (state === "active" && previous === "background") {
       recordAppResume(false);
     }
