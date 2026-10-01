@@ -188,6 +188,7 @@ function ApiKeyField({ slot }: { slot: VoiceApiKey }) {
   const storedResult = useAtomValue(voiceApiKeyAtom(slot));
   const saveApiKey = useAtomSet(setVoiceApiKeyAtom(slot));
   const storedKey = AsyncResult.isSuccess(storedResult) ? storedResult.value : null;
+  // Non-null while the field is focused for editing.
   const [draft, setDraft] = useState<string | null>(null);
 
   const commitDraft = () => {
@@ -206,14 +207,20 @@ function ApiKeyField({ slot }: { slot: VoiceApiKey }) {
         editable={AsyncResult.isSuccess(storedResult)}
         onBlur={commitDraft}
         onChangeText={setDraft}
+        onFocus={() => setDraft(storedKey ?? "")}
         onSubmitEditing={commitDraft}
         placeholder={placeholder}
         returnKeyType="done"
-        secureTextEntry
-        value={draft ?? storedKey ?? ""}
+        secureTextEntry={draft !== null}
+        value={draft ?? (storedKey ? maskApiKey(storedKey) : "")}
       />
     </View>
   );
+}
+
+/** Shows enough of a stored key to tell keys apart without revealing it. */
+function maskApiKey(key: string): string {
+  return key.length > 12 ? `${key.slice(0, 4)}...${key.slice(-4)}` : "...";
 }
 
 function VoiceChoice({
