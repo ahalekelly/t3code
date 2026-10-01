@@ -122,14 +122,17 @@ struct CloudVoice: Sendable {
     throw SpeechError("Add your \(provider.label) API key in Settings → Voice.")
   }
 
-  /// Azure's 403 says when the quota refills in `Retry-After` seconds; without it, assume
-  /// the next month in UTC.
+  /// Azure's 403 says when the quota refills in `Retry-After` seconds. Without it, wait for
+  /// the next 2nd at midnight UTC, a day past the month's start in any time zone, so an early
+  /// retry can't find the quota still spent and skip a whole month.
   private static func quotaRefill(retryAfter: String?, now: Date) -> Date {
     if let seconds = retryAfter.flatMap(Double.init) { return now.addingTimeInterval(seconds) }
     var calendar = Calendar(identifier: .gregorian)
     calendar.timeZone = .gmt
-    let month = calendar.date(from: calendar.dateComponents([.year, .month], from: now))!
-    return calendar.date(byAdding: .month, value: 1, to: month)!
+    var second = calendar.dateComponents([.year, .month], from: now)
+    second.day = 2
+    let thisMonth = calendar.date(from: second)!
+    return thisMonth > now ? thisMonth : calendar.date(byAdding: .month, value: 1, to: thisMonth)!
   }
 
   private func request(_ text: String, apiKey: String) throws -> URLRequest {
