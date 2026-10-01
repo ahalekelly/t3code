@@ -2044,8 +2044,8 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
         ),
     );
 
-    const runProjectorForEvent = Effect.fn("runProjectorForEvent")(function* (
-      projector: ProjectorDefinition,
+    const runProjectorsForEvent = Effect.fn("runProjectorsForEvent")(function* (
+      lagging: ReadonlyArray<ProjectorDefinition>,
       event: OrchestrationEvent,
     ) {
       const attachmentSideEffects: AttachmentSideEffects = {
@@ -2055,32 +2055,21 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
 
       yield* sql.withTransaction(
         Effect.gen(function* () {
-          yield* projector.apply(event, attachmentSideEffects);
-          yield* projectionStateRepository.upsert({
-            projector: projector.name,
-            lastAppliedSequence: event.sequence,
-            updatedAt: event.occurredAt,
-          });
+          yield* Effect.forEach(
+            lagging,
+            (projector) => projector.apply(event, attachmentSideEffects),
+            { concurrency: 1, discard: true },
+          );
+          yield* projectionStateRepository.upsertMany(
+            lagging.map((projector) => ({
+              projector: projector.name,
+              lastAppliedSequence: event.sequence,
+              updatedAt: event.occurredAt,
+            })),
+          );
         }),
       );
     });
-
-    const bootstrapProjector = (projector: ProjectorDefinition) =>
-      projectionStateRepository
-        .getByProjector({
-          projector: projector.name,
-        })
-        .pipe(
-          Effect.flatMap((stateRow) =>
-            Stream.runForEach(
-              eventStore.readFromSequence(
-                Option.isSome(stateRow) ? stateRow.value.lastAppliedSequence : 0,
-                Number.MAX_SAFE_INTEGER,
-              ),
-              (event) => runProjectorForEvent(projector, event),
-            ),
-          ),
-        );
 
     const projectEventDeferred: OrchestrationProjectionPipelineShape["projectEventDeferred"] =
       Effect.fn("projectEventDeferred")(
@@ -2096,7 +2085,6 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
                 (projector) => projector.apply(event, attachmentSideEffects),
                 { concurrency: 1, discard: true },
               );
-              // Runtime projectors commit together. Bootstrap still advances each cursor separately.
               yield* projectionStateRepository.upsertMany(
                 projectors.map((projector) => ({
                   projector: projector.name,
@@ -2136,10 +2124,12 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
       const states = yield* projectionStateRepository.listAll();
       const byProjector = new Map(states.map((state) => [state.projector, state]));
       const cleanupState = byProjector.get(cleanupProjector);
-      const cleanupStart = Math.min(
-        cleanupState?.lastAppliedSequence ?? 0,
-        ...projectors.map((projector) => byProjector.get(projector.name)?.lastAppliedSequence ?? 0),
-      );
+      const projectorCursors = projectors.map((projector) => ({
+        projector,
+        cursor: byProjector.get(projector.name)?.lastAppliedSequence ?? 0,
+      }));
+      const replayStart = Math.min(...projectorCursors.map(({ cursor }) => cursor));
+      const cleanupStart = Math.min(cleanupState?.lastAppliedSequence ?? 0, replayStart);
       // Persist this boundary before replay: a reset projector can encounter an old
       // revert, then fail after other projectors have committed past that event.
       yield* projectionStateRepository.upsert({
@@ -2147,7 +2137,18 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
         lastAppliedSequence: cleanupStart,
         updatedAt: cleanupState?.updatedAt ?? "1970-01-01T00:00:00.000Z",
       });
-      yield* Effect.forEach(projectors, bootstrapProjector, { concurrency: 1, discard: true });
+      // Replay in event order across every lagging projector, the order live projection
+      // uses. The revert handlers read the turns projection, so a projector rebuilt ahead
+      // of the turns projector would prune every message and activity of the kept turns.
+      yield* Stream.runForEach(
+        eventStore.readFromSequence(replayStart, Number.MAX_SAFE_INTEGER),
+        (event) => {
+          const lagging = projectorCursors
+            .filter(({ cursor }) => cursor < event.sequence)
+            .map(({ projector }) => projector);
+          return lagging.length === 0 ? Effect.void : runProjectorsForEvent(lagging, event);
+        },
+      );
 
       // Cleanup has its own cursor so retries never have to replay committed text.
       // All message and activity references are current before any files are removed.

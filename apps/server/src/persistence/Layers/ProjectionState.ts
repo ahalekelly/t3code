@@ -9,7 +9,6 @@ import { toPersistenceSqlError } from "../Errors.ts";
 import {
   ProjectionStateRepository,
   type ProjectionStateRepositoryShape,
-  GetProjectionStateInput,
   ProjectionState,
 } from "../Services/ProjectionState.ts";
 
@@ -57,20 +56,6 @@ const makeProjectionStateRepository = Effect.gen(function* () {
           `,
   });
 
-  const getProjectionStateRow = SqlSchema.findOneOption({
-    Request: GetProjectionStateInput,
-    Result: ProjectionState,
-    execute: ({ projector }) =>
-      sql`
-        SELECT
-          projector,
-          last_applied_sequence AS "lastAppliedSequence",
-          updated_at AS "updatedAt"
-        FROM projection_state
-        WHERE projector = ${projector}
-      `,
-  });
-
   const listProjectionStateRows = SqlSchema.findAll({
     Request: Schema.Void,
     Result: ProjectionState,
@@ -95,11 +80,6 @@ const makeProjectionStateRepository = Effect.gen(function* () {
       Effect.mapError(toPersistenceSqlError("ProjectionStateRepository.upsertMany:query")),
     );
 
-  const getByProjector: ProjectionStateRepositoryShape["getByProjector"] = (input) =>
-    getProjectionStateRow(input).pipe(
-      Effect.mapError(toPersistenceSqlError("ProjectionStateRepository.getByProjector:query")),
-    );
-
   const listAll: ProjectionStateRepositoryShape["listAll"] = () =>
     listProjectionStateRows(undefined).pipe(
       Effect.mapError(toPersistenceSqlError("ProjectionStateRepository.listAll:query")),
@@ -108,7 +88,6 @@ const makeProjectionStateRepository = Effect.gen(function* () {
   return {
     upsert,
     upsertMany,
-    getByProjector,
     listAll,
   } satisfies ProjectionStateRepositoryShape;
 });

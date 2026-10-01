@@ -1869,6 +1869,154 @@ it.layer(
   );
 });
 
+it.layer(Layer.fresh(makeProjectionPipelinePrefixedTestLayer("t3-projection-revert-rebuild-")))(
+  "OrchestrationProjectionPipeline",
+  (it) => {
+    it.effect("rebuilds reverted thread history in event order across projectors", () =>
+      Effect.gen(function* () {
+        const projectionPipeline = yield* OrchestrationProjectionPipeline;
+        const eventStore = yield* OrchestrationEventStore;
+        const sql = yield* SqlClient.SqlClient;
+        const now = "2026-01-01T00:00:00.000Z";
+        const threadId = ThreadId.make("thread-revert-rebuild");
+        let eventCount = 0;
+        let lastSequence = 0;
+        const envelope = () => {
+          eventCount += 1;
+          return {
+            eventId: EventId.make(`evt-revert-rebuild-${eventCount}`),
+            aggregateKind: "thread" as const,
+            aggregateId: threadId,
+            occurredAt: now,
+            commandId: CommandId.make(`cmd-revert-rebuild-${eventCount}`),
+            causationEventId: null,
+            correlationId: CorrelationId.make(`cmd-revert-rebuild-${eventCount}`),
+            metadata: {},
+          };
+        };
+        const appendAndProject = (event: Parameters<typeof eventStore.append>[0]) =>
+          eventStore.append(event).pipe(
+            Effect.flatMap((savedEvent) => {
+              lastSequence = savedEvent.sequence;
+              return projectionPipeline.projectEvent(savedEvent);
+            }),
+          );
+
+        yield* appendAndProject({
+          ...envelope(),
+          type: "thread.created",
+          payload: {
+            threadId,
+            projectId: ProjectId.make("project-revert-rebuild"),
+            title: "Thread Revert Rebuild",
+            modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5-codex" },
+            runtimeMode: "full-access",
+            branch: null,
+            worktreePath: null,
+            createdAt: now,
+            updatedAt: now,
+          },
+        });
+        for (const turn of [1, 2]) {
+          const turnId = TurnId.make(`turn-${turn}`);
+          for (const role of ["user", "assistant"] as const) {
+            yield* appendAndProject({
+              ...envelope(),
+              type: "thread.message-sent",
+              payload: {
+                threadId,
+                messageId: MessageId.make(`message-${role}-${turn}`),
+                role,
+                text: `${role} ${turn}`,
+                turnId: role === "user" ? null : turnId,
+                streaming: false,
+                createdAt: now,
+                updatedAt: now,
+              },
+            });
+          }
+          yield* appendAndProject({
+            ...envelope(),
+            type: "thread.activity-appended",
+            payload: {
+              threadId,
+              activity: {
+                id: EventId.make(`activity-${turn}`),
+                tone: "tool",
+                kind: "tool.updated",
+                summary: `Tool ${turn}`,
+                payload: {},
+                turnId,
+                createdAt: now,
+              },
+            },
+          });
+          yield* appendAndProject({
+            ...envelope(),
+            type: "thread.turn-diff-completed",
+            payload: {
+              threadId,
+              turnId,
+              checkpointTurnCount: turn,
+              checkpointRef: CheckpointRef.make(
+                `refs/t3/checkpoints/thread-revert-rebuild/${turn}`,
+              ),
+              status: "ready",
+              files: [],
+              assistantMessageId: MessageId.make(`message-assistant-${turn}`),
+              completedAt: now,
+            },
+          });
+        }
+        yield* appendAndProject({
+          ...envelope(),
+          type: "thread.reverted",
+          payload: { threadId, turnCount: 1 },
+        });
+
+        const readHistory = Effect.gen(function* () {
+          const messages = yield* sql<{ readonly messageId: string }>`
+            SELECT message_id AS "messageId" FROM projection_thread_messages
+            WHERE thread_id = ${threadId} ORDER BY message_id
+          `;
+          const activities = yield* sql<{ readonly activityId: string }>`
+            SELECT activity_id AS "activityId" FROM projection_thread_activities
+            WHERE thread_id = ${threadId} ORDER BY activity_id
+          `;
+          const turns = yield* sql<{ readonly turnId: string }>`
+            SELECT turn_id AS "turnId" FROM projection_turns
+            WHERE thread_id = ${threadId} AND turn_id IS NOT NULL ORDER BY turn_id
+          `;
+          return {
+            messages: messages.map((row) => row.messageId),
+            activities: activities.map((row) => row.activityId),
+            turns: turns.map((row) => row.turnId),
+          };
+        });
+        const expectedHistory = {
+          messages: ["message-assistant-1", "message-user-1"],
+          activities: ["activity-1"],
+          turns: ["turn-1"],
+        };
+        assert.deepEqual(yield* readHistory, expectedHistory);
+
+        // Rebuild every projection from the event log.
+        yield* sql`DELETE FROM projection_thread_messages WHERE thread_id = ${threadId}`;
+        yield* sql`DELETE FROM projection_thread_activities WHERE thread_id = ${threadId}`;
+        yield* sql`DELETE FROM projection_turns WHERE thread_id = ${threadId}`;
+        yield* sql`UPDATE projection_state SET last_applied_sequence = 0`;
+        yield* projectionPipeline.bootstrap;
+
+        assert.deepEqual(yield* readHistory, expectedHistory);
+        const cursors = yield* sql<{ readonly lastAppliedSequence: number }>`
+          SELECT DISTINCT last_applied_sequence AS "lastAppliedSequence" FROM projection_state
+        `;
+        assert.deepEqual(cursors, [{ lastAppliedSequence: lastSequence }]);
+      }),
+    );
+  },
+);
+
 it.layer(Layer.fresh(makeProjectionPipelinePrefixedTestLayer("t3-projection-attachments-revert-")))(
   "OrchestrationProjectionPipeline",
   (it) => {
@@ -2340,10 +2488,11 @@ it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
         WHEN NEW.projector = 'projection.threads'
         BEGIN SELECT RAISE(FAIL, 'forced later projector failure'); END`;
       yield* projectionPipeline.bootstrap.pipe(Effect.flip);
-      const committedMessage = yield* sql<{ readonly text: string }>`
+      // Every lagging projector commits an event together, so the failure rolls back the delta.
+      const rolledBackMessage = yield* sql<{ readonly text: string }>`
         SELECT text FROM projection_thread_messages WHERE message_id = 'message-a'
       `;
-      assert.deepEqual(committedMessage, [{ text: "hello world" }]);
+      assert.deepEqual(rolledBackMessage, [{ text: "hello" }]);
       yield* sql`DROP TRIGGER fail_later_stream_projector`;
       yield* projectionPipeline.bootstrap;
       yield* projectionPipeline.bootstrap;

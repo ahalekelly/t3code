@@ -7,7 +7,6 @@
  * @module ProjectionStateRepository
  */
 import { IsoDateTime, NonNegativeInt } from "@t3tools/contracts";
-import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import * as Context from "effect/Context";
 import type * as Effect from "effect/Effect";
@@ -20,11 +19,6 @@ export const ProjectionState = Schema.Struct({
   updatedAt: IsoDateTime,
 });
 export type ProjectionState = typeof ProjectionState.Type;
-
-export const GetProjectionStateInput = Schema.Struct({
-  projector: Schema.String,
-});
-export type GetProjectionStateInput = typeof GetProjectionStateInput.Type;
 
 /**
  * ProjectionStateRepositoryShape - Service API for projector state records.
@@ -41,13 +35,6 @@ export interface ProjectionStateRepositoryShape {
   readonly upsertMany: (
     rows: ReadonlyArray<ProjectionState>,
   ) => Effect.Effect<void, ProjectionRepositoryError>;
-
-  /**
-   * Read projection cursor state for a projector key.
-   */
-  readonly getByProjector: (
-    input: GetProjectionStateInput,
-  ) => Effect.Effect<Option.Option<ProjectionState>, ProjectionRepositoryError>;
 
   /**
    * List all projector cursor rows.
