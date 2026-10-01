@@ -1,11 +1,23 @@
-/** API key fields; Azure keys come from a Speech resource in West US 2, where MAI voices and transcription run. */
 export const VOICE_API_PROVIDERS = {
-  openai: { label: "OpenAI", placeholder: "sk-..." },
-  gemini: { label: "Gemini", placeholder: "AIza..." },
-  elevenlabs: { label: "ElevenLabs", placeholder: "sk_..." },
-  azure: { label: "Azure Speech", placeholder: "West US 2 Speech resource key" },
+  openai: { label: "OpenAI" },
+  gemini: { label: "Gemini" },
+  elevenlabs: { label: "ElevenLabs" },
+  azure: { label: "Azure Speech" },
 } as const;
 export type VoiceApiProvider = keyof typeof VOICE_API_PROVIDERS;
+
+/**
+ * Stored API keys, in field order. Azure keys come from Speech resources in West US 2,
+ * where MAI voices and transcription run.
+ */
+export const VOICE_API_KEYS = {
+  openai: { provider: "openai", label: "OpenAI", placeholder: "sk-..." },
+  gemini: { provider: "gemini", label: "Gemini", placeholder: "AIza..." },
+  elevenlabs: { provider: "elevenlabs", label: "ElevenLabs", placeholder: "sk_..." },
+  azureFree: { provider: "azure", label: "Azure Speech free (F0)", placeholder: "West US 2 F0 key" },
+  azure: { provider: "azure", label: "Azure Speech (S0)", placeholder: "West US 2 S0 key" },
+} as const satisfies Record<string, { provider: VoiceApiProvider; label: string; placeholder: string }>;
+export type VoiceApiKey = keyof typeof VOICE_API_KEYS;
 
 // Gemini 3.8 TTS studio voices.
 const GEMINI_VOICES = [
@@ -142,5 +154,9 @@ export type SpeechRequest = {
   readonly voice: string;
   readonly pace: SpeechPace;
   readonly instructions: string;
-  readonly apiKey: string;
+  /**
+   * The provider's stored keys in field order. A 403 moves on to the next key, so
+   * Azure's free key serves until its monthly quota runs out.
+   */
+  readonly apiKeys: readonly string[];
 };

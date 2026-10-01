@@ -13,7 +13,7 @@ import {
   type SpeechVoice,
 } from "../lib/speechSettings";
 import { mobilePreferencesAtom } from "./preferences";
-import { elevenLabsVoicesAtom, voiceApiKeyAtom } from "./voiceApiKeys";
+import { elevenLabsVoicesAtom, providerApiKeysAtom } from "./voiceApiKeys";
 
 const noAccountVoicesAtom = Atom.make(AsyncResult.success<SpeechVoice[]>([]));
 
@@ -26,25 +26,28 @@ export function useVoiceSettings() {
   );
   const model = preferences.responseSpeechModel ?? DEFAULT_SPEECH_MODEL;
   const { provider, voices: modelVoices } = SPEECH_MODELS[model];
-  const openAiKeyResult = useAtomValue(voiceApiKeyAtom("openai"));
-  const azureKeyResult = useAtomValue(voiceApiKeyAtom("azure"));
-  const speechKeyResult = useAtomValue(voiceApiKeyAtom(provider));
-  const speechKey = AsyncResult.isSuccess(speechKeyResult) ? speechKeyResult.value : null;
+  const openAiKeysResult = useAtomValue(providerApiKeysAtom("openai"));
+  const azureKeysResult = useAtomValue(providerApiKeysAtom("azure"));
+  const speechKeysResult = useAtomValue(providerApiKeysAtom(provider));
+  const elevenLabsKey = AsyncResult.isSuccess(speechKeysResult) ? speechKeysResult.value[0] : null;
   const accountVoicesResult = useAtomValue(
-    modelVoices === "account" && speechKey ? elevenLabsVoicesAtom(speechKey) : noAccountVoicesAtom,
+    modelVoices === "account" && elevenLabsKey
+      ? elevenLabsVoicesAtom(elevenLabsKey)
+      : noAccountVoicesAtom,
   );
   return useMemo(() => {
-    const openAiKey = AsyncResult.isSuccess(openAiKeyResult) ? openAiKeyResult.value : null;
+    const openAiKeys = AsyncResult.isSuccess(openAiKeysResult) ? openAiKeysResult.value : [];
+    const azureKeys = AsyncResult.isSuccess(azureKeysResult) ? azureKeysResult.value : [];
     const transcriptionSource = resolveVoiceTranscriptionSource(
       preferences.voiceTranscriptionSource,
-      openAiKey !== null,
+      openAiKeys.length > 0,
     );
-    const transcriptionKey =
+    const transcriptionKeys =
       transcriptionSource === "openai"
-        ? openAiKey
-        : transcriptionSource === "azure" && AsyncResult.isSuccess(azureKeyResult)
-          ? azureKeyResult.value
-          : null;
+        ? openAiKeys
+        : transcriptionSource === "azure"
+          ? azureKeys
+          : [];
     const voices: readonly SpeechVoice[] =
       modelVoices !== "account"
         ? modelVoices.map((id) => ({ id, name: id.charAt(0).toUpperCase() + id.slice(1) }))
@@ -59,19 +62,19 @@ export function useVoiceSettings() {
       voice: voices.find(({ id }) => id === voice)?.id ?? voices[0]?.id ?? "",
       pace: preferences.responseSpeechPace ?? 1,
       instructions: preferences.responseSpeechInstructions ?? DEFAULT_SPEECH_INSTRUCTIONS,
-      apiKey: speechKey ?? "",
+      apiKeys: AsyncResult.isSuccess(speechKeysResult) ? speechKeysResult.value : [],
     };
     return {
       loaded:
         AsyncResult.isSuccess(preferencesResult) &&
-        AsyncResult.isSuccess(openAiKeyResult) &&
-        AsyncResult.isSuccess(azureKeyResult) &&
-        AsyncResult.isSuccess(speechKeyResult) &&
+        AsyncResult.isSuccess(openAiKeysResult) &&
+        AsyncResult.isSuccess(azureKeysResult) &&
+        AsyncResult.isSuccess(speechKeysResult) &&
         !AsyncResult.isInitial(accountVoicesResult),
       preferences,
       transcriptionSource,
-      /** The selected cloud source's key; null on device or without a stored key. */
-      transcriptionKey,
+      /** The selected cloud source's stored keys; empty on device. */
+      transcriptionKeys,
       speech,
       voices,
       voicesError: AsyncResult.isFailure(accountVoicesResult)
@@ -82,14 +85,13 @@ export function useVoiceSettings() {
     };
   }, [
     accountVoicesResult,
-    azureKeyResult,
+    azureKeysResult,
     model,
     modelVoices,
     provider,
-    openAiKeyResult,
+    openAiKeysResult,
     preferences,
     preferencesResult,
-    speechKey,
-    speechKeyResult,
+    speechKeysResult,
   ]);
 }

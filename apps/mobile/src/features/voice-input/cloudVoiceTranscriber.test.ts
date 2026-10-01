@@ -30,7 +30,7 @@ function deferred<T>() {
 }
 
 async function transcribe(signal: AbortSignal, source: "openai" | "azure" = "openai") {
-  const transcriber = createCloudVoiceTranscriber(source, "sk-test");
+  const transcriber = createCloudVoiceTranscriber(source, ["sk-test"]);
   const prepared = await transcriber.prepare({ signal });
   return prepared.transcribe("file:///voice.m4a", { signal });
 }
@@ -86,6 +86,21 @@ describe("createCloudVoiceTranscriber", () => {
         modelOptions: { transcribeStyle: "clean" },
       },
     });
+  });
+
+  it("retries with the next key when Azure's free key answers 403", async () => {
+    mocks.upload
+      .mockResolvedValueOnce(response(403, { error: { message: "Out of call volume quota." } }))
+      .mockResolvedValueOnce(response(200, { combinedPhrases: [{ text: "Hej." }] }));
+    const transcriber = createCloudVoiceTranscriber("azure", ["free", "paid"]);
+    const { signal } = new AbortController();
+    const prepared = await transcriber.prepare({ signal });
+
+    await expect(prepared.transcribe("file:///voice.m4a", { signal })).resolves.toBe("Hej.");
+    expect(mocks.upload.mock.calls.map(([, options]) => options.headers)).toEqual([
+      { "Ocp-Apim-Subscription-Key": "free" },
+      { "Ocp-Apim-Subscription-Key": "paid" },
+    ]);
   });
 
   it("reads silence from Azure as an empty transcript", async () => {

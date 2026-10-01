@@ -49,7 +49,7 @@ const request: SpeechRequest = {
   voice: "marin",
   pace: 1,
   instructions: "Read clearly.",
-  apiKey: "sk-test",
+  apiKeys: ["sk-test"],
 };
 const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
 

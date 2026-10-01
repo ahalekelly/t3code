@@ -50,10 +50,13 @@ const PROVIDERS = {
   },
 } satisfies Record<CloudTranscriptionSource, unknown>;
 
-/** Uploads the recording straight from the device; no T3 environment is involved. */
+/**
+ * Uploads the recording straight from the device; no T3 environment is involved.
+ * A 403 retries with the next key, so Azure's free key serves until its quota runs out.
+ */
 export function createCloudVoiceTranscriber(
   source: CloudTranscriptionSource,
-  apiKey: string,
+  apiKeys: readonly string[],
 ): VoiceTranscriber {
   return {
     prepare: async ({ signal }: VoiceTranscriptionOptions): Promise<PreparedVoiceTranscription> => {
@@ -61,7 +64,7 @@ export function createCloudVoiceTranscriber(
       const locale = Intl.DateTimeFormat().resolvedOptions().locale;
       return {
         locale,
-        transcribe: (uri, options) => transcribe(source, uri, locale, apiKey, options),
+        transcribe: (uri, options) => transcribe(source, uri, locale, apiKeys, options),
       };
     },
   };
@@ -71,33 +74,37 @@ async function transcribe(
   source: CloudTranscriptionSource,
   uri: string,
   locale: string,
-  apiKey: string,
+  apiKeys: readonly string[],
   { signal }: VoiceTranscriptionOptions,
 ): Promise<string> {
   const provider = PROVIDERS[source];
   const label = VOICE_API_PROVIDERS[source].label;
-  throwIfVoiceTranscriptionAborted(signal);
-  let response: UploadResult;
-  try {
-    response = await new File(uri).upload(provider.url, {
-      httpMethod: "POST",
-      uploadType: UploadType.MULTIPART,
-      fieldName: provider.fieldName,
-      mimeType: RECORDING_MIME_TYPE,
-      headers: provider.headers(apiKey),
-      parameters: provider.parameters(locale),
-      signal,
-    });
-  } catch (error) {
+  let response: UploadResult | undefined;
+  for (const apiKey of apiKeys) {
     throwIfVoiceTranscriptionAborted(signal);
-    if (error instanceof VoiceTranscriptionError) throw error;
-    throw new VoiceTranscriptionError(
-      "transcription-failed",
-      `The recording could not be uploaded to ${label}.`,
-      { cause: error },
-    );
+    try {
+      response = await new File(uri).upload(provider.url, {
+        httpMethod: "POST",
+        uploadType: UploadType.MULTIPART,
+        fieldName: provider.fieldName,
+        mimeType: RECORDING_MIME_TYPE,
+        headers: provider.headers(apiKey),
+        parameters: provider.parameters(locale),
+        signal,
+      });
+    } catch (error) {
+      throwIfVoiceTranscriptionAborted(signal);
+      if (error instanceof VoiceTranscriptionError) throw error;
+      throw new VoiceTranscriptionError(
+        "transcription-failed",
+        `The recording could not be uploaded to ${label}.`,
+        { cause: error },
+      );
+    }
+    throwIfVoiceTranscriptionAborted(signal);
+    if (response.status !== 403) break;
   }
-  throwIfVoiceTranscriptionAborted(signal);
+  if (response === undefined) throw new Error("Cloud transcription needs at least one API key.");
 
   const body = readJsonBody(response.body);
   if (response.status < 200 || response.status >= 300) {

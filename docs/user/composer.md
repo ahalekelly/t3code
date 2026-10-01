@@ -158,9 +158,13 @@ words.
 **Settings → Voice** chooses where transcription runs: on this device, which needs
 iOS 26 or later on a supported iPhone, with OpenAI's GPT Transcribe, or with
 Microsoft's MAI-Transcribe-2. Cloud transcription uploads each recording straight
-from your phone using the API key stored on the same screen; keys stay in your
-device keychain. MAI-Transcribe-2 uses an Azure Speech key from West US 2. With an
-OpenAI key stored, OpenAI is the default.
+from your phone using the provider's key under **API keys** on the same screen;
+keys stay in your device keychain. With an OpenAI key stored, OpenAI is the
+default.
+
+Microsoft's MAI-Transcribe-2 and MAI voices take Azure Speech keys from resources
+in West US 2. Add a free F0 key, a paid S0 key, or both: T3 Code uses the F0 key
+until Azure refuses it, such as when its monthly quota runs out, then the S0 key.
 
 ## Reading responses aloud
 
@@ -175,11 +179,10 @@ reading; resuming starts that paragraph again.
 Under **Settings → Voice → Read aloud**, choose the model (Gemini Flash by
 default, Gemini Flash-Lite, OpenAI, ElevenLabs v4 or v4 Turbo, or MAI-Voice-2.1 or
 MAI-Voice-2.1 Flash), voice, and pace. Gemini and OpenAI also take a **Delivery**
-description. Reading uses that provider's API key from the same screen and costs
+description. Reading uses that provider's key from the same screen and costs
 about 1 to 7 cents per minute of audio. Use a paid-tier Gemini key: Google
 trains on free-tier requests. ElevenLabs lists the voices saved in your account.
-MAI voices need a key from an Azure Speech resource in West US 2. Reading
-continues with the screen locked.
+Reading continues with the screen locked.
 Reading another response, leaving the thread, or starting dictation stops playback.
 
 ## Commands and skills
