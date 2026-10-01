@@ -21,7 +21,7 @@ import {
 import {
   navigationRef,
   recordReactCommit,
-  traceAppResumes,
+  traceAppLifecycle,
 } from "./features/observability/appTraces";
 import { RootStack } from "./Stack";
 import { appAtomRegistry } from "./state/atom-registry";
@@ -117,7 +117,7 @@ function AppContent() {
                       ref={navigationRef}
                       linking={appLinking}
                       theme={navigationTheme}
-                      onReady={traceAppResumes}
+                      onReady={traceAppLifecycle}
                     />
                   </IncomingShareProvider>
                   <Dialog.Host />
