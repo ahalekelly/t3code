@@ -151,7 +151,8 @@ export const decodeSnapshotResponse = <
           Effect.withSpan("snapshot.body"),
         );
         const json = yield* decodeJsonText(text).pipe(Effect.withSpan("snapshot.parse"));
-        return yield* input.decode(json).pipe(
+        // Schema decode effects parse eagerly when created, so suspend to time the parse.
+        return yield* Effect.suspend(() => input.decode(json)).pipe(
           Effect.tap((value) => Effect.annotateCurrentSpan(input.counts(value))),
           Effect.withSpan("snapshot.decode"),
         );
