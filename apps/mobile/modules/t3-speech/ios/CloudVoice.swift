@@ -143,7 +143,9 @@ struct CloudVoice: Sendable {
       request.setValue("application/ssml+xml", forHTTPHeaderField: "Content-Type")
       request.setValue("raw-24khz-16bit-mono-pcm", forHTTPHeaderField: "X-Microsoft-OutputFormat")
       request.setValue("T3Code", forHTTPHeaderField: "User-Agent")
-      let escaped = text
+      // MAI reads square brackets as delivery tags: a bracket starting a sentence gets
+      // a 400, and others can stall the stream. Braces drop words. Parentheses read as written.
+      let escaped = String(text.map { "[{".contains($0) ? "(" : "]}".contains($0) ? ")" : $0 })
         .replacingOccurrences(of: "&", with: "&amp;")
         .replacingOccurrences(of: "<", with: "&lt;")
         .replacingOccurrences(of: ">", with: "&gt;")
