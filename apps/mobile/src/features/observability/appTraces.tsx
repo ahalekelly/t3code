@@ -9,6 +9,12 @@ const MIN_TRACED_COMMIT_MS = 4;
 const toEpochNanos = (performanceMs: number) =>
   BigInt(Math.round((Date.now() - performance.now() + performanceMs) * 1_000_000));
 
+/**
+ * Durations are wall-clock time, so a commit that runs or resumes outside `active` can include
+ * seconds the suspended JS thread spent descheduled; only `app.state: "active"` commits measure
+ * render cost. AppState events reach JS only after the current task, so the first commit after
+ * leaving the app can still read `active`; the `client.app.background` span marks that boundary.
+ */
 export const recordReactCommit: ProfilerOnRenderCallback = (
   id,
   phase,
@@ -24,7 +30,7 @@ export const recordReactCommit: ProfilerOnRenderCallback = (
     "react.commit",
     toEpochNanos(startTime),
     toEpochNanos(commitTime),
-    { "profiler.id": id, phase, actualDuration, baseDuration },
+    { "profiler.id": id, phase, actualDuration, baseDuration, "app.state": AppState.currentState },
   );
 };
 
@@ -55,12 +61,16 @@ function recordAppResume(launch: boolean) {
   });
 }
 
-export function traceAppResumes() {
+export function traceAppLifecycle() {
   recordAppResume(true);
   // iOS also reports `active` after brief `inactive` overlays (Control Center, Face ID), so
   // only a return from `background` counts as a resume.
   let previous = AppState.currentState;
   AppState.addEventListener("change", (state) => {
+    if (state === "background") {
+      const now = toEpochNanos(performance.now());
+      connectionTraceRecorder.recordSpan("client.app.background", now, now, {});
+    }
     if (state === "active" && previous === "background") {
       recordAppResume(false);
     }
