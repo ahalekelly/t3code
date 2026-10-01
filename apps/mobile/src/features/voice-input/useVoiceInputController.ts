@@ -7,6 +7,7 @@ import {
   type RecordingStatus,
 } from "expo-audio";
 import { File } from "expo-file-system";
+import * as Haptics from "expo-haptics";
 import { activateKeepAwakeAsync, deactivateKeepAwake } from "expo-keep-awake";
 import { useFocusEffect } from "@react-navigation/native";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
@@ -14,6 +15,7 @@ import { Alert, AppState, Platform } from "react-native";
 import { useSharedValue } from "react-native-reanimated";
 import { autoReadResponse } from "../../lib/autoReadResponse";
 import type { SpokenResponse } from "../../lib/autoReadResponse";
+import { nativeSpeech } from "../../lib/nativeSpeech";
 import { announce, playCue, responseSpeech } from "../../lib/responseSpeech";
 
 import type { ComposerEditorSelection } from "../../components/ComposerEditor";
@@ -42,8 +44,11 @@ const MISSING_OPENAI_KEY_TRANSCRIBER: VoiceTranscriber = {
   },
 };
 const VOICE_METERING_INTERVAL_MS = 80;
+// Mono AAC at 64 kbps keeps speech clear at under 10 MB for the full recording limit.
 const VOICE_RECORDING_OPTIONS = {
   ...RecordingPresets.HIGH_QUALITY,
+  numberOfChannels: 1,
+  bitRate: 64_000,
   isMeteringEnabled: true,
 };
 
@@ -66,6 +71,8 @@ async function configureVoiceRecordingAudio(): Promise<void> {
       interruptionMode: "doNotMix",
       playsInSilentMode: true,
       shouldPlayInBackground: false,
+      // Keeps recording when the phone locks. Android cannot record.
+      allowsBackgroundRecording: Platform.OS === "ios",
     });
     await setIsAudioActiveAsync(true);
   } catch (error) {
@@ -97,15 +104,6 @@ export function useVoiceInputController(input: {
   const audioLevelsRef = useRef(Array<number>(VOICE_WAVEFORM_SAMPLE_COUNT).fill(0));
   const audioLevels = useSharedValue(audioLevelsRef.current);
   const controllerRef = useRef<VoiceInputController | null>(null);
-  const previousDraftRef = useRef({ ownerKey: input.ownerKey, text: input.draftMessage });
-  const revisionRef = useRef(0);
-  if (
-    previousDraftRef.current.ownerKey !== input.ownerKey ||
-    previousDraftRef.current.text !== input.draftMessage
-  ) {
-    previousDraftRef.current = { ownerKey: input.ownerKey, text: input.draftMessage };
-    revisionRef.current += 1;
-  }
   const latestInputRef = useRef(input);
   latestInputRef.current = input;
   const voice = useVoiceSettings();
@@ -124,6 +122,7 @@ export function useVoiceInputController(input: {
       hasError: status.hasError || status.mediaServicesDidReset === true,
       error: status.error,
       url: status.url,
+      interrupted: status.interrupted === true,
     });
   }, []);
   const recorder = useAudioRecorder(VOICE_RECORDING_OPTIONS, handleRecorderStatus);
@@ -151,7 +150,6 @@ export function useVoiceInputController(input: {
           ownerKey: current.ownerKey,
           text: current.draftMessage,
           selection: current.selection,
-          revision: revisionRef.current,
         };
       },
       commitDraft: (text, selection) => {
@@ -179,6 +177,16 @@ export function useVoiceInputController(input: {
         }
         setState(next);
       },
+      onRecordingInterrupted: () => {
+        // What was captured lands in the draft for review instead of being sent.
+        sendRequestedRef.current = false;
+        void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+        playCue("error");
+      },
+      holdBackgroundTime: async () => {
+        const task = await nativeSpeech().beginBackgroundTask("Voice transcription");
+        return () => void nativeSpeech().endBackgroundTask(task);
+      },
     });
   }
 
@@ -202,8 +210,7 @@ export function useVoiceInputController(input: {
   useEffect(() => {
     const subscription = AppState.addEventListener("change", (nextState) => {
       // iOS reports `inactive` while its permission dialog is open. Only the
-      // real background state cancels preparation; recorder status handles
-      // calls and route interruptions during capture.
+      // real background state cancels preparation; recording continues.
       if (nextState === "background") controller.appMovedToBackground();
     });
     return () => subscription.remove();
@@ -259,9 +266,27 @@ export function useVoiceInputController(input: {
       }
     };
 
-    sampleRecording();
-    const intervalId = setInterval(sampleRecording, VOICE_METERING_INTERVAL_MS);
-    return () => clearInterval(intervalId);
+    // Nobody sees the meter while the phone is locked, so sampling pauses until the app is active.
+    let intervalId: ReturnType<typeof setInterval> | null = null;
+    const resume = () => {
+      if (intervalId !== null) return;
+      sampleRecording();
+      intervalId = setInterval(sampleRecording, VOICE_METERING_INTERVAL_MS);
+    };
+    const pause = () => {
+      if (intervalId === null) return;
+      clearInterval(intervalId);
+      intervalId = null;
+    };
+    if (AppState.currentState === "active") resume();
+    const subscription = AppState.addEventListener("change", (nextState) => {
+      if (nextState === "active") resume();
+      else pause();
+    });
+    return () => {
+      subscription.remove();
+      pause();
+    };
   }, [audioLevels, controller, recorder, state.phase]);
 
   // The controller commits the draft and goes idle in the same render, so the
@@ -295,8 +320,12 @@ export function useVoiceInputController(input: {
   const stop = useCallback(() => controller.stop(), [controller]);
   const cancel = useCallback(() => controller.cancel(), [controller]);
   const stopAndSend = useCallback(() => {
+    if (controller.currentState.phase !== "recording") return;
     sendRequestedRef.current = true;
     return controller.stop();
+  }, [controller]);
+  const transcribeAgain = useCallback(() => {
+    void controller.transcribeAgain();
   }, [controller]);
 
   return {
@@ -315,6 +344,7 @@ export function useVoiceInputController(input: {
     start,
     stop,
     stopAndSend,
+    transcribeAgain,
     cancel,
   };
 }

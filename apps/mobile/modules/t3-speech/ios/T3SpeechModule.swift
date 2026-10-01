@@ -74,6 +74,14 @@ public class T3SpeechModule: Module {
       guard let cue = SpeechCue(rawValue: cue) else { throw SpeechError("Unknown cue: \(cue)") }
       try MainActor.assumeIsolated { try SpeechCues.shared.announce(text, after: cue) }
     }.runOnQueue(.main)
+
+    AsyncFunction("beginBackgroundTask") { (name: String) -> Int in
+      MainActor.assumeIsolated { BackgroundTasks.begin(name) }
+    }.runOnQueue(.main)
+
+    AsyncFunction("endBackgroundTask") { (task: Int) in
+      MainActor.assumeIsolated { BackgroundTasks.end(task) }
+    }.runOnQueue(.main)
   }
 }
 

@@ -1,10 +1,15 @@
 import type { ComponentProps } from "react";
-import { Platform, ScrollView } from "react-native";
+import { Platform } from "react-native";
+import { KeyboardAwareScrollView } from "react-native-keyboard-controller";
 
-/** Keeps forms and settings readable inside a wide pane while its surface fills the screen. */
-export function ScreenScrollView(props: ComponentProps<typeof ScrollView>) {
+/**
+ * Scroll view for forms and settings screens. Keeps the focused input above the keyboard,
+ * and keeps content readable inside a wide pane while its surface fills the screen.
+ */
+export function ScreenScrollView(props: ComponentProps<typeof KeyboardAwareScrollView>) {
   return (
-    <ScrollView
+    <KeyboardAwareScrollView
+      bottomOffset={16}
       {...props}
       contentContainerStyle={[
         props.contentContainerStyle,

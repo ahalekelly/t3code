@@ -281,6 +281,7 @@ export function ComposerDictationStatus(props: {
   readonly phase: VoiceInputPhase;
   readonly presentation: VoiceComposerPresentation;
   readonly onDismissError: () => void;
+  readonly onTranscribeAgain: () => void;
 }) {
   const recordingVisibility = useSharedValue(props.phase === "recording" ? 1 : 0);
   useLayoutEffect(() => {
@@ -303,6 +304,22 @@ export function ComposerDictationStatus(props: {
           <Text className="min-w-0 flex-1 text-sm text-danger-foreground" numberOfLines={2}>
             {props.presentation.statusLabel}
           </Text>
+          {props.presentation.canTranscribeAgain ? (
+            <Pressable
+              accessibilityLabel="Transcribe the recording again"
+              accessibilityRole="button"
+              className="size-7 items-center justify-center active:opacity-70"
+              hitSlop={8}
+              onPress={props.onTranscribeAgain}
+            >
+              <SymbolView
+                name="arrow.clockwise"
+                size={14}
+                tintColorClassName="accent-icon"
+                type="monochrome"
+              />
+            </Pressable>
+          ) : null}
           <Pressable
             accessibilityLabel="Dismiss voice input error"
             accessibilityRole="button"

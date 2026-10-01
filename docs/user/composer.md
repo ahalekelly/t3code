@@ -143,12 +143,15 @@ reading while it is still being written.
 
 With on-device transcription, the first use may download Apple's speech model and
 needs a network connection; later transcription works offline for that language.
-Recordings can be up to five minutes long. Canceling, leaving the screen, or an
-audio interruption discards the recording and preserves your existing draft. While
-recording, the screen stays awake; it can sleep normally once recording stops.
+Recordings can be up to 20 minutes long and keep going when you lock the phone. A
+call, Siri, or an alarm ends the recording with a tone, and what was captured is
+added to the draft without sending. If transcription fails, the recording is kept
+so you can transcribe it again. Canceling or leaving the screen discards the
+recording and preserves your existing draft. While recording, the screen stays
+awake; it can sleep normally once recording stops.
 
-T3 Code deletes the temporary audio after transcription or cancellation; only the
-message text is sent when you submit. Messages containing dictated text end with a
+T3 Code deletes the temporary audio once its text is added to the draft or you
+discard it; only the message text is sent when you submit. Messages containing dictated text end with a
 short note marking them as a voice transcription, so the agent expects misheard
 words.
 

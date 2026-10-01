@@ -1671,6 +1671,7 @@ export function NewTaskDraftScreen(props: {
                   phase={voiceInput.state.phase}
                   presentation={voicePresentation}
                   onDismissError={voiceInput.cancel}
+                  onTranscribeAgain={voiceInput.transcribeAgain}
                 />
               ) : (
                 <>
