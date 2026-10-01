@@ -184,7 +184,7 @@ private final class SpeechSession: @unchecked Sendable {
       return true
     }
     guard opened else { return false }
-    speechLog.notice("start \(self.voice.model.rawValue, privacy: .public) voice \(self.voice.voice, privacy: .public) pace \(self.settings.pace)")
+    speechLog.notice("start \(self.voice.model, privacy: .public) voice \(self.voice.voice, privacy: .public) pace \(self.settings.pace)")
     return try await withTaskCancellationHandler {
       while let (index, text, generation) = await takeBlock() {
         markStart(of: index, generation: generation)

@@ -156,10 +156,11 @@ short note marking them as a voice transcription, so the agent expects misheard
 words.
 
 **Settings → Voice** chooses where transcription runs: on this device, which needs
-iOS 26 or later on a supported iPhone, or with OpenAI's GPT Transcribe, which
-uploads each recording straight from your phone using the API key stored on the
-same screen. The key stays in your device keychain. With a key stored, OpenAI is
-the default.
+iOS 26 or later on a supported iPhone, with OpenAI's GPT Transcribe, or with
+Microsoft's MAI-Transcribe-2. Cloud transcription uploads each recording straight
+from your phone using the API key stored on the same screen; keys stay in your
+device keychain. MAI-Transcribe-2 uses an Azure Speech key from East US. With an
+OpenAI key stored, OpenAI is the default.
 
 ## Reading responses aloud
 
@@ -172,8 +173,8 @@ Code blocks are announced rather than read. Removing your headphones pauses
 reading; resuming starts that paragraph again.
 
 Under **Settings → Voice → Read aloud**, choose the model (Gemini Flash by
-default, Gemini Flash-Lite, OpenAI, ElevenLabs v4 or v4 Turbo, or MAI-Voice-2 or
-MAI-Voice-2 Flash), voice, and pace. Gemini and OpenAI also take a **Delivery**
+default, Gemini Flash-Lite, OpenAI, ElevenLabs v4 or v4 Turbo, or MAI-Voice-2.1 or
+MAI-Voice-2.1 Flash), voice, and pace. Gemini and OpenAI also take a **Delivery**
 description. Reading uses that provider's API key from the same screen and costs
 about 1 to 7 cents per minute of audio. Use a paid-tier Gemini key: Google
 trains on free-tier requests. ElevenLabs lists the voices saved in your account.

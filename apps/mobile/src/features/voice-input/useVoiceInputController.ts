@@ -20,10 +20,12 @@ import { announce, playCue, responseSpeech } from "../../lib/responseSpeech";
 
 import type { ComposerEditorSelection } from "../../components/ComposerEditor";
 import { getLocalVoiceTranscriber } from "../../native/voiceTranscription";
+import { VOICE_API_PROVIDERS } from "../../lib/speechSettings";
+import type { CloudTranscriptionSource } from "../../lib/voiceTranscriptionSources";
 import { getNativeShowcaseScene } from "../showcase/nativeShowcaseScene";
 import { useVoiceSettings } from "../../state/voiceSettings";
 import { withDictationDisclaimer } from "./dictationDisclaimer";
-import { createOpenAiVoiceTranscriber } from "./openAiVoiceTranscriber";
+import { createCloudVoiceTranscriber } from "./cloudVoiceTranscriber";
 import {
   VoiceInputController,
   VoiceTranscriptionError,
@@ -37,12 +39,17 @@ import {
 import { normalizeVoiceInputDecibels, VOICE_WAVEFORM_SAMPLE_COUNT } from "./voiceInputMetering";
 
 const INITIAL_STATE: VoiceInputState = { phase: "idle", error: null, errorAction: null };
-/** Selecting an OpenAI source without a key is a setup mistake, not a reason to fall back. */
-const MISSING_OPENAI_KEY_TRANSCRIBER: VoiceTranscriber = {
-  prepare: async () => {
-    throw new VoiceTranscriptionError("unavailable", "Add an OpenAI API key in Settings → Voice.");
-  },
-};
+/** Selecting a cloud source without its key is a setup mistake, not a reason to fall back. */
+function missingKeyTranscriber(source: CloudTranscriptionSource): VoiceTranscriber {
+  return {
+    prepare: async () => {
+      throw new VoiceTranscriptionError(
+        "unavailable",
+        `Add your ${VOICE_API_PROVIDERS[source].label} API key in Settings → Voice.`,
+      );
+    },
+  };
+}
 const VOICE_METERING_INTERVAL_MS = 80;
 // Mono AAC at 64 kbps keeps speech clear at under 10 MB for the full recording limit.
 const VOICE_RECORDING_OPTIONS = {
@@ -107,12 +114,11 @@ export function useVoiceInputController(input: {
   const latestInputRef = useRef(input);
   latestInputRef.current = input;
   const voice = useVoiceSettings();
-  const openAiApiKey = voice.apiKey;
   const readRepliesAloud = Platform.OS === "ios" && (!voice.loaded || voice.readRepliesAloud);
   const readRepliesAloudRef = useRef(readRepliesAloud);
   readRepliesAloudRef.current = readRepliesAloud;
   const transcriptionSource = voice.transcriptionSource;
-  const transcriptionConfig = { source: transcriptionSource, apiKey: openAiApiKey };
+  const transcriptionConfig = { source: transcriptionSource, apiKey: voice.transcriptionKey };
   const transcriptionConfigRef = useRef(transcriptionConfig);
   transcriptionConfigRef.current = transcriptionConfig;
 
@@ -133,8 +139,8 @@ export function useVoiceInputController(input: {
       getTranscriber: () => {
         const { source, apiKey } = transcriptionConfigRef.current;
         if (source === "local") return getLocalVoiceTranscriber();
-        if (apiKey === null) return MISSING_OPENAI_KEY_TRANSCRIBER;
-        return createOpenAiVoiceTranscriber(apiKey);
+        if (apiKey === null) return missingKeyTranscriber(source);
+        return createCloudVoiceTranscriber(source, apiKey);
       },
       requestPermission: async () => {
         const permission = await requestRecordingPermissionsAsync();
@@ -334,7 +340,7 @@ export function useVoiceInputController(input: {
     isAvailable:
       (transcriptionSource === "local"
         ? getLocalVoiceTranscriber() !== null
-        : openAiApiKey !== null) || getNativeShowcaseScene() !== null,
+        : voice.transcriptionKey !== null) || getNativeShowcaseScene() !== null,
     state,
     audioLevels,
     elapsedSeconds,

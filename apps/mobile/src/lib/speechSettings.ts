@@ -41,6 +41,9 @@ const GEMINI_VOICES = [
   "Sulafat",
 ] as const;
 
+// US English MAI voices; native reading adds the en-US prefix.
+const MAI_VOICES = ["Harper", "Olivia", "Iris", "Ethan", "Grant", "Jasper", "Sage"] as const;
+
 /**
  * Read-aloud models; each lists its voices with the default first, or reads the
  * voices saved in the ElevenLabs account. `instructions` marks models that take a
@@ -97,19 +100,19 @@ export const SPEECH_MODELS = {
     instructions: false,
     voices: "account",
   },
-  "MAI-Voice-2": {
-    label: "MAI-Voice-2",
+  "MAI-Voice-2.1": {
+    label: "MAI-Voice-2.1",
     provider: "azure",
     centsPerMinute: 2,
     instructions: false,
-    voices: ["Harper", "Olivia", "Iris", "Ethan", "Grant", "Jasper"],
+    voices: MAI_VOICES,
   },
-  "MAI-Voice-2-Flash": {
-    label: "MAI-Voice-2 Flash",
+  "MAI-Voice-2.1-Flash": {
+    label: "MAI-Voice-2.1 Flash",
     provider: "azure",
     centsPerMinute: 1.35,
     instructions: false,
-    voices: ["Harper", "Olivia", "Ethan"],
+    voices: MAI_VOICES,
   },
 } as const satisfies Record<
   string,
@@ -134,6 +137,7 @@ export type SpeechVoice = { readonly id: string; readonly name: string };
 
 /** What native reading needs to read a response aloud. */
 export type SpeechRequest = {
+  readonly provider: VoiceApiProvider;
   readonly model: SpeechModel;
   readonly voice: string;
   readonly pace: SpeechPace;
