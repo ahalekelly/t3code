@@ -73,7 +73,7 @@ describe("createCloudVoiceTranscriber", () => {
     await expect(transcribe(new AbortController().signal, "azure")).resolves.toBe("Hej världen.");
     const [url, options] = mocks.upload.mock.calls[0]!;
     expect(url).toBe(
-      "https://eastus.api.cognitive.microsoft.com/speechtotext/transcriptions:transcribe?api-version=2025-10-15",
+      "https://westus2.api.cognitive.microsoft.com/speechtotext/transcriptions:transcribe?api-version=2025-10-15",
     );
     expect(options).toMatchObject({
       fieldName: "audio",

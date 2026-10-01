@@ -126,8 +126,8 @@ struct CloudVoice: Sendable {
       request.setValue(apiKey, forHTTPHeaderField: "xi-api-key")
       body = ["text": text, "model_id": model]
     case .azure:
-      // The key must come from an East US resource, which serves MAI voices.
-      request = URLRequest(url: URL(string: "https://eastus.tts.speech.microsoft.com/cognitiveservices/v1")!)
+      // The key must come from a West US 2 resource, which serves MAI voices and MAI-Transcribe.
+      request = URLRequest(url: URL(string: "https://westus2.tts.speech.microsoft.com/cognitiveservices/v1")!)
       request.httpMethod = "POST"
       request.setValue(apiKey, forHTTPHeaderField: "Ocp-Apim-Subscription-Key")
       request.setValue("application/ssml+xml", forHTTPHeaderField: "Content-Type")
