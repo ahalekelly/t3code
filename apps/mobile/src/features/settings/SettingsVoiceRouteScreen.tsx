@@ -212,6 +212,8 @@ function ApiKeyField({ slot }: { slot: VoiceApiKey }) {
           onChangeText={setDraft}
           onSubmitEditing={commitDraft}
           placeholder={storedKey ? maskApiKey(storedKey) : placeholder}
+          // The masked stored key reads as the field's value; typing replaces it.
+          placeholderTextColorClassName={storedKey ? "accent-foreground" : "accent-placeholder"}
           returnKeyType="done"
           value={draft}
         />
