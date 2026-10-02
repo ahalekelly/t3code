@@ -140,7 +140,13 @@ export function useVoiceInputController(input: {
   // Creating the app's first native recorder blocks the JS thread for about
   // 100 ms, so it waits for the first dictation instead of the composer mount.
   const recorderRef = useRef<AudioRecorder | null>(null);
-  useEffect(() => () => recorderRef.current?.release(), []);
+  useEffect(
+    () => () => {
+      recorderRef.current?.release();
+      recorderRef.current = null;
+    },
+    [],
+  );
   const preparedRecorder = useCallback(() => {
     if (recorderRef.current === null) throw new Error("The voice recorder is not prepared.");
     return recorderRef.current;
