@@ -779,12 +779,31 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
     selectedThreadKey,
   ]);
 
+  // Sending reads the feed at press time. The feed changes on every streamed
+  // event; closing over it would hand the memoized composer a new handler each time.
+  const sendStateRef = useRef({
+    anchorMessageId,
+    hasStartedTurn: props.selectedThread.latestTurn !== null,
+    onSendMessage: props.onSendMessage,
+    queuedMessageCount: props.selectedThreadQueueCount,
+    selectedThreadFeed,
+    selectedThreadKey,
+  });
+  sendStateRef.current = {
+    anchorMessageId,
+    hasStartedTurn: props.selectedThread.latestTurn !== null,
+    onSendMessage: props.onSendMessage,
+    queuedMessageCount: props.selectedThreadQueueCount,
+    selectedThreadFeed,
+    selectedThreadKey,
+  };
   const handleSendMessage = useCallback(async () => {
-    const targetThreadKey = selectedThreadKey;
-    const hasUserMessage = selectedThreadFeed.some(
+    const send = sendStateRef.current;
+    const targetThreadKey = send.selectedThreadKey;
+    const hasUserMessage = send.selectedThreadFeed.some(
       (entry) => entry.type === "message" && entry.message.role === "user",
     );
-    const messageId = await props.onSendMessage();
+    const messageId = await send.onSendMessage();
     if (messageId === null || selectedThreadKeyRef.current !== targetThreadKey) {
       return messageId;
     }
@@ -795,24 +814,16 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
     setSubmittedMessageId(messageId);
     setAnchorMessageId(
       resolveThreadFeedSubmissionAnchor({
-        currentAnchorMessageId: anchorMessageId,
+        currentAnchorMessageId: send.anchorMessageId,
         submittedMessageId: messageId,
-        hasStartedTurn: props.selectedThread.latestTurn !== null,
+        hasStartedTurn: send.hasStartedTurn,
         hasUserMessage,
-        queuedMessageCount: props.selectedThreadQueueCount,
+        queuedMessageCount: send.queuedMessageCount,
       }),
     );
     composerEditorRef.current?.blur();
     return messageId;
-  }, [
-    anchorMessageId,
-    clearUsageLimitsFor,
-    props.onSendMessage,
-    props.selectedThread.latestTurn,
-    props.selectedThreadQueueCount,
-    selectedThreadFeed,
-    selectedThreadKey,
-  ]);
+  }, [clearUsageLimitsFor]);
 
   const handleEditPendingMessage = useCallback(async (message: QueuedThreadMessage) => {
     try {
