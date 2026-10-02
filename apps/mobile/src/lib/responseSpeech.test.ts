@@ -44,12 +44,12 @@ import type { SpeechRequest } from "./speechSettings";
 const first = { scope: "environment:thread", messageId: "first" };
 const second = { scope: "environment:thread", messageId: "second" };
 const request: SpeechRequest = {
-  provider: "openai",
-  model: "gpt-4o-mini-tts",
-  voice: "marin",
+  provider: "gemini",
+  model: "gemini-3.8-flash-tts",
+  voice: "Kore",
   pace: 1,
   instructions: "Read clearly.",
-  apiKeys: ["sk-test"],
+  apiKeys: ["test-key"],
 };
 const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
 
@@ -151,17 +151,17 @@ describe("responseSpeech", () => {
 
   it("reports playback errors aloud and on screen, and clears the reading", async () => {
     autoReadResponse.request(first);
-    mocks.start.mockRejectedValueOnce(new Error("Add your OpenAI API key in Settings → Voice."));
+    mocks.start.mockRejectedValueOnce(new Error("Add your Gemini API key in Settings → Voice."));
     await responseSpeech.toggle(first, "Hello", request, "Thread");
     await flush();
     expect(responseSpeech.getSnapshot()).toBeNull();
     expect(autoReadResponse.getSnapshot(first.scope)).toBeNull();
     expect(mocks.alert).toHaveBeenCalledWith(
       "Could not read response aloud",
-      "Add your OpenAI API key in Settings → Voice.",
+      "Add your Gemini API key in Settings → Voice.",
     );
     expect(mocks.announce).toHaveBeenCalledWith(
-      "Could not read the response aloud. Add your OpenAI API key in Settings → Voice.",
+      "Could not read the response aloud. Add your Gemini API key in Settings → Voice.",
       "error",
     );
   });

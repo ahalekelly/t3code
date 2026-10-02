@@ -16,7 +16,7 @@ enum SpeechCue: String {
 }
 
 /// Tones and system-voice messages for hands-free use. They need no network, so
-/// they still work when OpenAI cannot be reached.
+/// they still work when the speech provider cannot be reached.
 @MainActor
 final class SpeechCues: NSObject, AVAudioPlayerDelegate, AVSpeechSynthesizerDelegate {
   static let shared = SpeechCues()

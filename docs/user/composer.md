@@ -177,8 +177,8 @@ Code blocks are announced rather than read. Removing your headphones pauses
 reading; resuming starts that paragraph again.
 
 Under **Settings → Voice → Read aloud**, choose the model (MAI-Voice-2.1
-Flash by default, MAI-Voice-2.1, Gemini Flash or Flash-Lite, OpenAI, or ElevenLabs
-v4 or v4 Turbo), voice, and pace. Gemini and OpenAI also take a **Delivery**
+Flash by default, MAI-Voice-2.1, Gemini Flash or Flash-Lite, or ElevenLabs
+v4 or v4 Turbo), voice, and pace. Gemini also takes a **Delivery**
 description. Reading uses that provider's key from the same screen and costs
 about 1 to 7 cents per minute of audio. Use a paid-tier Gemini key: Google
 trains on free-tier requests. ElevenLabs lists the voices saved in your account.
