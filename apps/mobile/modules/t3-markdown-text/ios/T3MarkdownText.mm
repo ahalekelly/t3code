@@ -287,6 +287,8 @@ T3MarkdownOutsideTapCoordinatorForWindow(UIWindow *window)
   UILongPressGestureRecognizer *_longPressGestureRecognizer;
   UITapGestureRecognizer *_pressGestureRecognizer;
   NSArray *_contextAccessibilityElements;
+  // Reports one cutoff per episode, so a view that stays cut off while text streams in reports once.
+  BOOL _reportedCutoff;
 }
 
 + (ComponentDescriptorProvider)componentDescriptorProvider
@@ -368,6 +370,7 @@ T3MarkdownOutsideTapCoordinatorForWindow(UIWindow *window)
 - (void)prepareForRecycle
 {
   [super prepareForRecycle];
+  _reportedCutoff = NO;
   T3MarkdownOutsideTapCoordinator *coordinator =
       objc_getAssociatedObject(_outsideTapWindow, T3MarkdownOutsideTapCoordinatorKey);
   [coordinator removeTarget:self];
@@ -558,8 +561,13 @@ T3MarkdownOutsideTapCoordinatorForWindow(UIWindow *window)
     }
   }
   if (shownGlyphs >= layoutManager.numberOfGlyphs) {
+    _reportedCutoff = NO;
     return;
   }
+  if (_reportedCutoff) {
+    return;
+  }
+  _reportedCutoff = YES;
 
   NSTextStorage *storage = [[NSTextStorage alloc] initWithAttributedString:text];
   NSLayoutManager *measuringLayoutManager = [[NSLayoutManager alloc] init];
