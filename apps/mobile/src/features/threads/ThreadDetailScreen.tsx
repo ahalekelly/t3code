@@ -779,31 +779,12 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
     selectedThreadKey,
   ]);
 
-  // Sending reads the feed at press time. The feed changes on every streamed
-  // event; closing over it would hand the memoized composer a new handler each time.
-  const sendStateRef = useRef({
-    anchorMessageId,
-    hasStartedTurn: props.selectedThread.latestTurn !== null,
-    onSendMessage: props.onSendMessage,
-    queuedMessageCount: props.selectedThreadQueueCount,
-    selectedThreadFeed,
-    selectedThreadKey,
-  });
-  sendStateRef.current = {
-    anchorMessageId,
-    hasStartedTurn: props.selectedThread.latestTurn !== null,
-    onSendMessage: props.onSendMessage,
-    queuedMessageCount: props.selectedThreadQueueCount,
-    selectedThreadFeed,
-    selectedThreadKey,
-  };
-  const handleSendMessage = useCallback(async () => {
-    const send = sendStateRef.current;
-    const targetThreadKey = send.selectedThreadKey;
-    const hasUserMessage = send.selectedThreadFeed.some(
+  const sendMessage = async () => {
+    const targetThreadKey = selectedThreadKey;
+    const hasUserMessage = selectedThreadFeed.some(
       (entry) => entry.type === "message" && entry.message.role === "user",
     );
-    const messageId = await send.onSendMessage();
+    const messageId = await props.onSendMessage();
     if (messageId === null || selectedThreadKeyRef.current !== targetThreadKey) {
       return messageId;
     }
@@ -814,16 +795,21 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
     setSubmittedMessageId(messageId);
     setAnchorMessageId(
       resolveThreadFeedSubmissionAnchor({
-        currentAnchorMessageId: send.anchorMessageId,
+        currentAnchorMessageId: anchorMessageId,
         submittedMessageId: messageId,
-        hasStartedTurn: send.hasStartedTurn,
+        hasStartedTurn: props.selectedThread.latestTurn !== null,
         hasUserMessage,
-        queuedMessageCount: send.queuedMessageCount,
+        queuedMessageCount: props.selectedThreadQueueCount,
       }),
     );
     composerEditorRef.current?.blur();
     return messageId;
-  }, [clearUsageLimitsFor]);
+  };
+  // The feed changes on every streamed event, so the memoized composer gets a
+  // stable handler that runs the latest render's send.
+  const sendMessageRef = useRef(sendMessage);
+  sendMessageRef.current = sendMessage;
+  const handleSendMessage = useCallback(() => sendMessageRef.current(), []);
 
   const handleEditPendingMessage = useCallback(async (message: QueuedThreadMessage) => {
     try {
