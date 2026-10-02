@@ -41,7 +41,6 @@ import { scopedThreadKey } from "../../lib/scopedEntities";
 import { NATIVE_LIQUID_GLASS_SUPPORTED } from "../../native/native-glass";
 import { connectionTone } from "../connection/connectionTone";
 import {
-  useReconnectEnvironment,
   useRemoteConnectionStatus,
   useRemoteEnvironmentRuntime,
 } from "../../state/use-remote-environment-registry";
@@ -70,6 +69,7 @@ import { useThreadComposerState } from "../../state/use-thread-composer-state";
 import { resolveMergeBackTargetThreadId } from "@t3tools/client-runtime/state/thread-relationships";
 import { resolveLatestMergeBackRun } from "@t3tools/client-runtime/state/thread-workflows";
 import { threadEnvironment } from "../../state/threads";
+import { environmentCatalog } from "../../connection/catalog";
 import {
   projectThreadContentPresentation,
   READY_THREAD_CONTENT,
@@ -261,7 +261,7 @@ export function ThreadRouteScreen(props: ThreadRouteScreenProps) {
   const environmentId = environmentIdRaw ? EnvironmentId.make(environmentIdRaw) : null;
   const routeEnvironmentRuntime = useRemoteEnvironmentRuntime(environmentId);
   const routeEnvironmentShellState = useEnvironmentShellReadiness(environmentId);
-  const onReconnectEnvironment = useReconnectEnvironment();
+  const onReconnectEnvironment = useAtomCommand(environmentCatalog.retryNow, "environment retry");
   const navigation = useNavigation();
   const routeConnectionState =
     routeEnvironmentRuntime?.connectionState ?? (environmentId ? "available" : connectionState);
@@ -330,7 +330,7 @@ function ThreadRouteContent(
   const { fileInspector, layout, panes, showAuxiliaryPane, toggleAuxiliaryPane } =
     useAdaptiveWorkspaceLayout();
   const { connectionState } = useRemoteConnectionStatus();
-  const onReconnectEnvironment = useReconnectEnvironment();
+  const onReconnectEnvironment = useAtomCommand(environmentCatalog.retryNow, "environment retry");
   const {
     selectedThread,
     selectedThreadCreation,
