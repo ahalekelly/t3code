@@ -1,6 +1,7 @@
 import { useAtomRefresh, useAtomValue } from "@effect/atom-react";
 import * as Cause from "effect/Cause";
 import * as Option from "effect/Option";
+import { useMemo } from "react";
 import { AsyncResult, Atom } from "effect/unstable/reactivity";
 
 const EMPTY_ASYNC_RESULT_ATOM = Atom.make(AsyncResult.initial<never, never>(false)).pipe(
@@ -27,10 +28,15 @@ export function useEnvironmentQuery<A, E>(
   const selectedAtom = atom ?? EMPTY_ASYNC_RESULT_ATOM;
   const result = useAtomValue(selectedAtom);
   const refresh = useAtomRefresh(selectedAtom);
-  return {
-    data: Option.getOrNull(AsyncResult.value(result)),
-    error: result._tag === "Failure" ? formatError(result.cause) : null,
-    isPending: atom !== null && result.waiting,
-    refresh,
-  };
+  // Callers pass the view (and its `data`) into memoized children and hook deps,
+  // so it keeps its identity until the atom or its result changes.
+  return useMemo(
+    () => ({
+      data: Option.getOrNull(AsyncResult.value(result)),
+      error: result._tag === "Failure" ? formatError(result.cause) : null,
+      isPending: atom !== null && result.waiting,
+      refresh,
+    }),
+    [atom, result, refresh],
+  );
 }
