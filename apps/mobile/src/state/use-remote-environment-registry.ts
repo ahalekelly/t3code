@@ -45,28 +45,28 @@ const EMPTY_RUNTIME_STATE_ATOM = Atom.make<EnvironmentRuntimeState | null>(null)
   Atom.withLabel("mobile:environment-runtime-state:empty"),
 );
 
+type SavedConnectionsById = Record<EnvironmentId, SavedRemoteConnection>;
+
 // Presentations change on every connection phase; the record keeps its identity
 // until a saved connection itself changes, so consumers can depend on it.
-let previousSavedConnectionsById: Record<EnvironmentId, SavedRemoteConnection> = {};
 const savedConnectionsByIdAtom = Atom.make((get) => {
   const presentationById = get(environmentPresentations.presentationsAtom);
-  const next = Object.fromEntries(
+  return Object.fromEntries(
     [...presentationById.keys()].flatMap((environmentId) => {
       const connection = get(remoteEnvironmentProjections.savedConnectionAtom(environmentId));
       return connection === null ? [] : [[environmentId, connection]];
     }),
-  ) as Record<EnvironmentId, SavedRemoteConnection>;
-  const previous = previousSavedConnectionsById;
-  const nextIds = Object.keys(next) as EnvironmentId[];
-  if (
-    nextIds.length === Object.keys(previous).length &&
-    nextIds.every((environmentId) => previous[environmentId] === next[environmentId])
-  ) {
-    return previous;
-  }
-  previousSavedConnectionsById = next;
-  return next;
-}).pipe(Atom.withLabel("mobile:saved-connections-by-id"));
+  ) as SavedConnectionsById;
+}).pipe(
+  Atom.withEquality((previous: SavedConnectionsById, next: SavedConnectionsById) => {
+    const ids = Object.keys(next) as EnvironmentId[];
+    return (
+      ids.length === Object.keys(previous).length &&
+      ids.every((environmentId) => previous[environmentId] === next[environmentId])
+    );
+  }),
+  Atom.withLabel("mobile:saved-connections-by-id"),
+);
 
 export function useSavedRemoteConnections() {
   const catalog = useAtomValue(environmentCatalog.catalogValueAtom);
