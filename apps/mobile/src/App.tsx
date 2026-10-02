@@ -3,7 +3,7 @@ import { installComposerAttachmentUploads } from "./state/composer-attachment-up
 import { installThreadOutboxDelivery } from "./state/threadOutboxDelivery";
 import * as Linking from "expo-linking";
 import * as SplashScreen from "expo-splash-screen";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { StatusBar } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { KeyboardProvider } from "react-native-keyboard-controller";
@@ -19,7 +19,7 @@ import {
 } from "@react-navigation/native";
 import { pipe } from "effect/Function";
 
-import { RegistryContext } from "@effect/atom-react";
+import { RegistryContext, useAtomValue } from "@effect/atom-react";
 import { ProjectChipIconRasterizer } from "./native/ProjectChipIconImages";
 import { ThreadArrangementHost } from "./features/threads/ThreadArrangementSheet";
 import * as Dialog from "./components/ui/Dialog";
@@ -48,7 +48,7 @@ import { RootStack, rootPathnameFromState, workspaceLocationFromState } from "./
 import { appAtomRegistry } from "./state/atom-registry";
 import { subscribeComposerDraftModelReconciliation } from "./state/use-composer-drafts";
 import { environmentThreadShells } from "./state/threads";
-import { environmentShell } from "./state/shell";
+import { environmentShell, shellCachesLoadedAtom } from "./state/shell";
 import { OverlayPortalHost } from "./components/ui/OverlayPortal";
 import { shouldHandleAppLink, restoreDraftLinkState } from "./lib/appLinking";
 import { hasCloudPublicConfig } from "./features/cloud/publicConfig";
@@ -195,13 +195,22 @@ disposeOnFoundationReplace(typeof module === "undefined" ? undefined : module.ho
   for (const dispose of appServiceDisposers) dispose();
 });
 
+const MAX_SPLASH_WAIT_FOR_CACHE_MS = 2_000;
+
 function SplashScreenCoordinator() {
   const { isReady } = useAppearancePreferences();
+  const cachesLoaded = useAtomValue(shellCachesLoadedAtom);
+  const [cacheWaitExpired, setCacheWaitExpired] = useState(false);
 
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- hides the native splash screen once appearance preferences have loaded
   useEffect(() => {
-    if (isReady) void SplashScreen.hide();
-  }, [isReady]);
+    const timer = setTimeout(() => setCacheWaitExpired(true), MAX_SPLASH_WAIT_FOR_CACHE_MS);
+    return () => clearTimeout(timer);
+  }, []);
+
+  useEffect(() => {
+    if (isReady && (cachesLoaded || cacheWaitExpired)) void SplashScreen.hide();
+  }, [isReady, cachesLoaded, cacheWaitExpired]);
 
   return null;
 }
