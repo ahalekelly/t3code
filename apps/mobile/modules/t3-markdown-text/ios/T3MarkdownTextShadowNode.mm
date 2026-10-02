@@ -84,6 +84,14 @@ T3MarkdownTextShadowNode::T3MarkdownTextShadowNode(
    const ShadowNode& sourceShadowNode,
    const ShadowNodeFragment& fragment
 ) : ConcreteViewShadowNode(sourceShadowNode, fragment) {
+  // Yoga reuses the source's cached measurement for clones whose children did not
+  // change (state reconciliation, a parent relayout), so `measureContent` never runs
+  // on them. Carry the measured content over or `layout` publishes an empty string.
+  // New children dirty the node, and the next measurement replaces these.
+  const auto &source = static_cast<const T3MarkdownTextShadowNode &>(sourceShadowNode);
+  _attributedString = source._attributedString;
+  _paragraphStyleRanges = source._paragraphStyleRanges;
+  _attachmentRanges = source._attachmentRanges;
 };
 
 Size T3MarkdownTextShadowNode::measureContent(

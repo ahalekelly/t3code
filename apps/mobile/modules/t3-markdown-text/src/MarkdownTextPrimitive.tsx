@@ -34,6 +34,25 @@ export type SelectionChangeEvent = {
   nativeEvent: { target: number; start: number; end: number };
 };
 
+/** Fired when the iOS view draws less text than it holds; see T3MarkdownText.mm. */
+export type MarkdownTextCutoff = {
+  textLength: number;
+  shownLength: number;
+  frameHeight: number;
+  neededHeight: number;
+};
+
+let reportTextCutoff: ((cutoff: MarkdownTextCutoff) => void) | undefined;
+
+/** Receives every native markdown text cutoff, so the app can trace them. */
+export function setMarkdownTextCutoffReporter(reporter: (cutoff: MarkdownTextCutoff) => void) {
+  reportTextCutoff = reporter;
+}
+
+function handleTextCutoff(event: { nativeEvent: MarkdownTextCutoff }) {
+  reportTextCutoff?.(event.nativeEvent);
+}
+
 export type ContextMenuActionEvent = {
   nativeEvent: { target: number; actionIdentifier: string };
 };
@@ -105,6 +124,7 @@ function MarkdownTextPrimitiveChild({
           {...textDefaults}
           {...containerProps}
           style={[flattenedStyle]}
+          onTextCutoff={handleTextCutoff}
         >
           {nativeChildren}
         </T3MarkdownTextNativeComponent>
