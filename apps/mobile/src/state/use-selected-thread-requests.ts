@@ -85,6 +85,9 @@ function setUserInputDraftCustomAnswer(
   });
 }
 
+// Shared so the thread screen's memoized children keep their props while no question is pending.
+const NO_PENDING_USER_INPUT_DRAFTS = {};
+
 export function useSelectedThreadRequests() {
   const respondToApproval = useAtomCommand(
     threadEnvironment.respondToApproval,
@@ -203,7 +206,7 @@ export function useSelectedThreadRequests() {
             ];
           }),
         )
-      : {};
+      : NO_PENDING_USER_INPUT_DRAFTS;
   const activePendingUserInputAnswers = activePendingUserInput
     ? buildPendingUserInputAnswers(activePendingUserInput.questions, activePendingUserInputDrafts)
     : null;
