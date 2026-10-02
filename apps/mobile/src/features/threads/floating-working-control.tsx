@@ -71,7 +71,6 @@ export function FloatingWorkingControl(props: {
   const { width: windowWidth } = useWindowDimensions();
   const [overlayWidth, setOverlayWidth] = useState(windowWidth);
   const deviceControlWidth = props.devicePreview !== null ? CONTROL_HEIGHT : 0;
-  const hasCapsule = props.status !== null || props.devicePreview !== null;
   const labelWidth = Math.max(
     0,
     Math.min(overlayWidth, windowWidth) - CONTROL_HEIGHT - 16 - deviceControlWidth,
@@ -95,6 +94,10 @@ export function FloatingWorkingControl(props: {
   // and repeatedly retargets the animation as it grows.
   const capsuleWidth = useSharedValue<number | null>(null);
   const measuredWidthRef = useRef<number | null>(null);
+  // Without a device button beside it, an unmeasured status capsule would paint
+  // as an empty glass circle (native glass ignores opacity), so the label first
+  // measures in a hidden host and the capsule mounts once it has a width.
+  const [labelMeasured, setLabelMeasured] = useState(false);
   const handleLabelLayout = (event: LayoutChangeEvent) => {
     const width = event.nativeEvent.layout.width;
     if (width === measuredWidthRef.current) {
@@ -103,6 +106,7 @@ export function FloatingWorkingControl(props: {
     const first = measuredWidthRef.current === null;
     measuredWidthRef.current = width;
     capsuleWidth.value = first ? width : withTiming(width, CONTROL_TIMING);
+    if (first) setLabelMeasured(true);
   };
   // Forget the width while no label is shown so the next one appears at its
   // own size instead of animating from the previous label's.
@@ -113,29 +117,31 @@ export function FloatingWorkingControl(props: {
       capsuleWidth.value = null;
     }
   }, [capsuleWidth, hasStatus]);
+  if (!hasStatus && labelMeasured) setLabelMeasured(false);
+  const status = labelMeasured || props.devicePreview !== null ? props.status : null;
+  const measuringStatus = props.status !== null && status === null;
+  const hasCapsule = status !== null || props.devicePreview !== null;
   const capsuleStyle = useAnimatedStyle(() => ({
     transform: [{ translateX: CONTROL_SEPARATION * (1 - separationProgress.value) }],
   }));
-  // Zero until the first measurement lands, so the capsule never paints around
-  // a label it has not sized to yet.
   const capsuleSizerStyle = useAnimatedStyle(() => ({
     width: (capsuleWidth.value ?? 0) + deviceControlWidth,
   }));
 
-  if (!hasCapsule && !props.showScrollToEnd) {
+  if (!hasCapsule && !props.showScrollToEnd && !measuringStatus) {
     return null;
   }
 
   // Only the connection label is a button (tap to reconnect); the others
   // pass touches through to the feed like before.
-  const statusInteractive = props.status?.kind === "connection";
+  const statusInteractive = status?.kind === "connection";
   const capsuleInteractive = statusInteractive || props.devicePreview !== null;
   // The host stays centered on the capsule, but its measurement constraint
   // comes from the overlay, independent of the capsule's current width.
   const capsuleContent =
-    props.status === null && props.devicePreview !== null ? (
+    status === null && props.devicePreview !== null ? (
       <DevicePreviewButton {...props.devicePreview} compact={false} />
-    ) : props.status !== null ? (
+    ) : status !== null ? (
       <>
         <Animated.View className="h-11" style={capsuleSizerStyle} />
         <View
@@ -145,11 +151,11 @@ export function FloatingWorkingControl(props: {
         >
           <FloatingStatusLabel
             key={
-              props.status.kind === "working" || props.status.kind === "compacting"
-                ? props.status.kind
-                : `${props.status.kind}:${props.status.label}`
+              status.kind === "working" || status.kind === "compacting"
+                ? status.kind
+                : `${status.kind}:${status.label}`
             }
-            status={props.status}
+            status={status}
             onLayout={handleLabelLayout}
           />
         </View>
@@ -177,6 +183,17 @@ export function FloatingWorkingControl(props: {
       entering={NATIVE_LIQUID_GLASS_SUPPORTED ? undefined : CONTROL_ENTERING}
       exiting={NATIVE_LIQUID_GLASS_SUPPORTED ? undefined : CONTROL_EXITING}
     >
+      {measuringStatus ? (
+        <View
+          pointerEvents="none"
+          accessibilityElementsHidden
+          importantForAccessibility="no-hide-descendants"
+          className="absolute h-11 items-center justify-center opacity-0"
+          style={{ width: labelWidth }}
+        >
+          <FloatingStatusLabel status={props.status} onLayout={handleLabelLayout} />
+        </View>
+      ) : null}
       {hasCapsule && NATIVE_LIQUID_GLASS_SUPPORTED ? (
         <UniwindGlassContainer
           spacing={GLASS_MERGE_SPACING}
@@ -235,7 +252,7 @@ export function FloatingWorkingControl(props: {
             />
           </Animated.View>
         </View>
-      ) : NATIVE_LIQUID_GLASS_SUPPORTED ? (
+      ) : !props.showScrollToEnd ? null : NATIVE_LIQUID_GLASS_SUPPORTED ? (
         <UniwindGlassView
           colorScheme={props.colorScheme}
           glassEffectStyle="regular"
