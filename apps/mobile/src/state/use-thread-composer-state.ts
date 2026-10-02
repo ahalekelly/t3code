@@ -13,7 +13,7 @@ import {
   deriveThreadRuntime,
   threadRuntimeHasInterruptibleRun,
 } from "@t3tools/client-runtime/state/thread-execution";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import {
   CommandId,
@@ -524,7 +524,7 @@ export function useThreadComposerState() {
     scheduleUnusedComposerAttachmentCleanup(draft.attachments);
   };
 
-  const onSendMessage = async (
+  const sendMessage = async (
     followUpOverride?: ActiveTurnComposerAction,
     beforeDispatch?: () => Promise<boolean>,
   ) => {
@@ -727,6 +727,15 @@ export function useThreadComposerState() {
     );
     return messageId;
   };
+  // The thread changes on every streamed event; a stable handler keeps the composer from re-rendering.
+  const sendMessageRef = useRef(sendMessage);
+  useLayoutEffect(() => {
+    sendMessageRef.current = sendMessage;
+  });
+  const onSendMessage = (
+    followUpOverride?: ActiveTurnComposerAction,
+    beforeDispatch?: () => Promise<boolean>,
+  ) => sendMessageRef.current(followUpOverride, beforeDispatch);
 
   const onChangeDraftMessage = (value: string) => {
     if (!selectedThreadShell) {
