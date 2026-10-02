@@ -47,16 +47,13 @@ export function withRenderTrace<Props extends object>(id: string, Screen: Compon
 function recordAppResume(launch: boolean) {
   const route = rootNavigationRef.getCurrentRoute();
   const environmentId =
-    route?.name === "Thread" &&
-    typeof route.params === "object" &&
-    route.params !== null &&
-    "environmentId" in route.params
+    typeof route?.params === "object" && route.params !== null && "environmentId" in route.params
       ? route.params.environmentId
       : undefined;
   const now = toEpochNanos(performance.now());
   connectionTraceRecorder.recordSpan("client.app.resume", now, now, {
     "app.launch": launch,
-    screen: route?.name === "Home" ? "thread-list" : route?.name === "Thread" ? "thread" : "other",
+    screen: route?.name ?? "none",
     ...(typeof environmentId === "string" ? { "screen.environment.id": environmentId } : {}),
   });
 }
