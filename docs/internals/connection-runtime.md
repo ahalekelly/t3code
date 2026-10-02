@@ -35,9 +35,10 @@ to relay registrations; they must not discard directly paired environments.
 
 All environments share the client's one JS thread, so a mobile thread route
 focuses its environment and the others' background attempts wait until it is
-connected and its session verified, for at most two seconds. Their resume probes
-still start at once; only a reconnect waits. User-requested connects and retries
-skip the wait. The registry delivers
+connected and its session verified, or it makes no progress for a second, for at
+most two seconds. Their resume probes still start at once; only a reconnect
+waits. User-requested connects and
+retries skip the wait. The registry delivers
 wakeups itself, focused supervisor first: each supervisor marks its session as
 verifying while it receives the wakeup, so the focused one is already busy when
 the others check. Separate wakeup subscriptions would let the others race past a
