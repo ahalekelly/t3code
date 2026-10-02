@@ -50,8 +50,8 @@ const DESCRIPTOR_PATH = "/.well-known/t3/environment";
 const TICKET_PATH = "/api/auth/websocket-ticket";
 const TOKEN_PATH = "/oauth/token";
 
-// Descriptor requests run concurrently with ticket requests, so `descriptor` answers them
-// separately and `responses` serves every other request in call order.
+// `descriptor` answers every descriptor request, and `responses` serves every other
+// request in call order.
 function recordedFetch(input: {
   readonly responses: ReadonlyArray<Response>;
   readonly descriptor: () => Response;
