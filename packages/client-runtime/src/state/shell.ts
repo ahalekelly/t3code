@@ -59,6 +59,11 @@ const EMPTY_REMOVALS: ReadonlyMap<ThreadId, number> = new Map();
 // Shared by every shell state, so a rebuilt one never reuses a generation another already used.
 let lastShellGeneration = 0;
 
+/**
+ * An environment's shell state before its persisted cache is read. The shell
+ * atoms hold this exact object until then and only produce new objects after,
+ * so an identity check tells whether the cache was read.
+ */
 export const EMPTY_SHELL_STATE: EnvironmentShellState = {
   snapshot: Option.none(),
   status: "empty",
