@@ -267,7 +267,7 @@ function confirmRemoveApiKey(label: string, onConfirm: () => void) {
 
 /** Shows enough of a stored key to tell keys apart without revealing it. */
 function maskApiKey(key: string): string {
-  return key.length > 12 ? `${key.slice(0, 4)}...${key.slice(-4)}` : "...";
+  return key.length > 24 ? `${key.slice(0, 8)}...${key.slice(-8)}` : "...";
 }
 
 function VoiceChoice({
