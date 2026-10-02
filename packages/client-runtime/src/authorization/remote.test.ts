@@ -398,6 +398,121 @@ describe("remote environment authorization", () => {
     }).pipe(Effect.provide(TestClock.layer())),
   );
 
+  describe("hedged requests", () => {
+    const descriptorJson = {
+      environmentId: "environment-remote",
+      label: "Remote environment",
+      platform: { os: "linux", arch: "x64" },
+      serverVersion: "0.0.0-test",
+      capabilities: { repositoryIdentity: true },
+    };
+
+    // Each fetch call takes the next behavior: hang until aborted, or answer.
+    const scriptedFetch = (
+      ...behaviors: ReadonlyArray<"hang" | "descriptor" | "reject" | "reject-later">
+    ) => {
+      const signals: Array<AbortSignal | undefined> = [];
+      const rejectLater: Array<() => void> = [];
+      const fetchFn = ((_input, init) => {
+        signals.push(init?.signal ?? undefined);
+        const behavior = behaviors[signals.length - 1];
+        if (behavior === "descriptor") return Promise.resolve(Response.json(descriptorJson));
+        if (behavior === "reject") return Promise.reject(new TypeError("Network request failed"));
+        if (behavior === "reject-later") {
+          return new Promise<Response>((_, reject) => {
+            rejectLater.push(() => reject(new TypeError("Network request failed")));
+          });
+        }
+        if (behavior === "hang") return new Promise<Response>(() => undefined);
+        return Promise.reject(new Error("Unexpected fetch call"));
+      }) satisfies typeof fetch;
+      return { fetchFn, signals, rejectLater };
+    };
+
+    const forkDescriptor = (fetchFn: typeof fetch) =>
+      fetchRemoteEnvironmentDescriptor({ httpBaseUrl: "http://remote.example.com/" }).pipe(
+        provideRemoteHttp(fetchFn),
+        Effect.result,
+        Effect.forkScoped,
+      );
+
+    it.effect("answers from a second attempt when the first hangs past the hedge delay", () =>
+      Effect.gen(function* () {
+        const fetch = scriptedFetch("hang", "descriptor");
+        const fiber = yield* forkDescriptor(fetch.fetchFn);
+        yield* Effect.yieldNow;
+        yield* TestClock.adjust(Duration.millis(1_999));
+        expect(fetch.signals).toHaveLength(1);
+        expect(fiber.pollUnsafe()).toBeUndefined();
+
+        yield* TestClock.adjust(Duration.millis(1));
+        const result = yield* Fiber.join(fiber);
+
+        expect(result).toMatchObject({ success: { environmentId: "environment-remote" } });
+        expect(fetch.signals).toHaveLength(2);
+        expect(fetch.signals[0]?.aborted).toBe(true);
+      }).pipe(Effect.provide(TestClock.layer())),
+    );
+
+    it.effect("does not hedge a request that answers before the delay", () =>
+      Effect.gen(function* () {
+        const fetch = scriptedFetch("descriptor");
+        const fiber = yield* forkDescriptor(fetch.fetchFn);
+        const result = yield* Fiber.join(fiber);
+        yield* TestClock.adjust(Duration.seconds(10));
+
+        expect(result).toMatchObject({ success: { environmentId: "environment-remote" } });
+        expect(fetch.signals).toHaveLength(1);
+      }).pipe(Effect.provide(TestClock.layer())),
+    );
+
+    it.effect("keeps the overall timeout when both attempts hang", () =>
+      Effect.gen(function* () {
+        const fetch = scriptedFetch("hang", "hang");
+        const fiber = yield* forkDescriptor(fetch.fetchFn);
+        yield* Effect.yieldNow;
+        yield* TestClock.adjust(Duration.seconds(10));
+        const result = yield* Fiber.join(fiber);
+
+        expect(result).toMatchObject({
+          failure: {
+            _tag: "RemoteEnvironmentAuthTimeoutError",
+            message:
+              "Remote environment endpoint http://remote.example.com/.well-known/t3/environment timed out after 10000ms.",
+          },
+        });
+        expect(fetch.signals).toHaveLength(2);
+        expect(fetch.signals.every((signal) => signal?.aborted)).toBe(true);
+      }).pipe(Effect.provide(TestClock.layer())),
+    );
+
+    it.effect("fails with the first attempt's error once it settles after the delay", () =>
+      Effect.gen(function* () {
+        const fetch = scriptedFetch("reject-later", "hang");
+        const fiber = yield* forkDescriptor(fetch.fetchFn);
+        yield* Effect.yieldNow;
+        yield* TestClock.adjust(Duration.millis(2_500));
+        expect(fetch.signals).toHaveLength(2);
+        fetch.rejectLater[0]?.();
+        const result = yield* Fiber.join(fiber);
+
+        expect(result).toMatchObject({ failure: { _tag: "RemoteEnvironmentAuthFetchError" } });
+        expect(fetch.signals[1]?.aborted).toBe(true);
+      }).pipe(Effect.provide(TestClock.layer())),
+    );
+
+    it.effect("fails immediately when the first attempt fails before the delay", () =>
+      Effect.gen(function* () {
+        const fetch = scriptedFetch("reject");
+        const fiber = yield* forkDescriptor(fetch.fetchFn);
+        const result = yield* Fiber.join(fiber);
+
+        expect(result).toMatchObject({ failure: { _tag: "RemoteEnvironmentAuthFetchError" } });
+        expect(fetch.signals).toHaveLength(1);
+      }).pipe(Effect.provide(TestClock.layer())),
+    );
+  });
+
   it.effect("revives declared typed errors from remote auth failures", () =>
     Effect.gen(function* () {
       const fetch = recordedFetch(

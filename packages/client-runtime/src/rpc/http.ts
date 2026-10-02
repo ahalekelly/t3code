@@ -216,6 +216,20 @@ const failRemoteRequest = (
   );
 };
 
+const REMOTE_REQUEST_HEDGE_DELAY = Duration.seconds(2);
+
+/**
+ * Runs an idempotent request and starts one identical attempt if the first has
+ * not settled after `REMOTE_REQUEST_HEDGE_DELAY`. Tunnels such as Tailscale can
+ * black-hole the first connection after the device wakes while a fresh one
+ * succeeds. The first attempt to settle, with a success or an error, decides
+ * the result and the other is interrupted.
+ */
+export const hedgeIdempotentRequest = <A, E, R>(
+  request: Effect.Effect<A, E, R>,
+): Effect.Effect<A, E, R> =>
+  Effect.raceFirst(request, Effect.sleep(REMOTE_REQUEST_HEDGE_DELAY).pipe(Effect.andThen(request)));
+
 export const executeEnvironmentHttpRequest = <A, E, R>(
   requestUrl: string,
   timeoutMs: number,
