@@ -1,6 +1,6 @@
 import * as Linking from "expo-linking";
 import * as SplashScreen from "expo-splash-screen";
-import { Profiler, useEffect, useState } from "react";
+import { Profiler, useEffect } from "react";
 import { StatusBar, View } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { KeyboardProvider } from "react-native-keyboard-controller";
@@ -19,7 +19,6 @@ import {
 } from "./features/settings/appearance/AppearancePreferencesProvider";
 import {
   navigationRef,
-  recordLaunchMark,
   recordReactCommit,
   traceAppLifecycle,
 } from "./features/observability/appTraces";
@@ -38,7 +37,6 @@ if (process.env.EXPO_PUBLIC_SHOWCASE === "1") {
   prepareNativeShowcaseCapture();
 }
 
-recordLaunchMark("client.js.start", {});
 void SplashScreen.preventAutoHideAsync().catch(() => {
   // The native module can be unavailable in non-native test environments.
 });
@@ -56,27 +54,23 @@ const appLinking = {
 
 const Navigation = createStaticNavigation(RootStack);
 
-// A launch whose home list never paints (a slow cache read, a starved JS
-// thread) must not hold the launch screen.
 const MAX_LAUNCH_SCREEN_MS = 2_000;
 
 /** Keeps the launch screen up until appearance is ready and the home list has painted, so neither pops in. */
 function SplashScreenCoordinator() {
   const { isReady } = useAppearancePreferences();
   const homePainted = useAtomValue(homeLaunchPaintedAtom);
-  const [launchWaitExpired, setLaunchWaitExpired] = useState(false);
 
   useEffect(() => {
-    const timer = setTimeout(() => setLaunchWaitExpired(true), MAX_LAUNCH_SCREEN_MS);
-    return () => clearTimeout(timer);
-  }, []);
-
-  useEffect(() => {
-    if (isReady && (homePainted || launchWaitExpired)) {
-      recordLaunchMark("client.splash.hide", { homePainted, launchWaitExpired });
+    if (!isReady) return;
+    if (homePainted) {
       void SplashScreen.hide();
+      return;
     }
-  }, [isReady, homePainted, launchWaitExpired]);
+    // A home list that never paints must not hold the launch screen.
+    const timer = setTimeout(() => void SplashScreen.hide(), MAX_LAUNCH_SCREEN_MS);
+    return () => clearTimeout(timer);
+  }, [isReady, homePainted]);
 
   return null;
 }

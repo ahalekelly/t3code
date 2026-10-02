@@ -55,20 +55,13 @@ export function withRenderTrace<Props extends object>(id: string, Screen: Compon
 
 export const navigationRef = createNavigationContainerRef();
 
-/** Records a zero-length launch milestone span, e.g. the launch screen hiding or an empty home render. */
-export function recordLaunchMark(
-  name: string,
-  attributes: Record<string, string | number | boolean>,
-) {
-  const now = toEpochNanos(performance.now());
-  connectionTraceRecorder.recordSpan(name, now, now, attributes);
-}
-
 /** Records a `client.app.resume` span naming the screen the app opened on. */
 function recordAppResume(launch: boolean) {
   const route = navigationRef.getCurrentRoute();
   const environmentId =
-    typeof route?.params === "object" && route.params !== null && "environmentId" in route.params
+    typeof route?.params === "object" &&
+    route.params !== null &&
+    "environmentId" in route.params
       ? route.params.environmentId
       : undefined;
   const now = toEpochNanos(performance.now());

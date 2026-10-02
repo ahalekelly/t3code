@@ -97,9 +97,6 @@ function loadDecodedCache<A, B>(input: {
         onNone: () => Effect.succeed(Option.none<B>()),
         onSome: (raw) =>
           input.decode(raw).pipe(
-            Effect.withSpan("cache.decode", {
-              attributes: { "cache.kind": input.kind, "cache.payload_chars": raw.length },
-            }),
             Effect.map(input.select),
             Effect.catch((cause) =>
               Effect.logWarning("Discarding corrupt mobile client cache record.", {
@@ -136,13 +133,7 @@ export const make = Effect.fn("MobileEnvironmentCacheStore.make")(function* () {
         decode: decodeStoredShellSnapshot,
         select: (stored) =>
           stored.environmentId === environmentId ? Option.some(stored.snapshot) : Option.none(),
-      }).pipe(
-        Effect.tap(() =>
-          Effect.promise(() => projectFaviconDatabaseCache.hydrate()).pipe(
-            Effect.withSpan("MobileEnvironmentCache.hydrateProjectFavicons"),
-          ),
-        ),
-      ),
+      }).pipe(Effect.tap(() => Effect.promise(() => projectFaviconDatabaseCache.hydrate()))),
     ),
     saveShell: Effect.fn("MobileEnvironmentCache.saveShell")(function* (environmentId, snapshot) {
       const payload = yield* encodeShellSnapshotForCache(snapshot).pipe(

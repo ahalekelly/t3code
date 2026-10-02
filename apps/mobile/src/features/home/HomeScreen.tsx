@@ -3,7 +3,6 @@ import type { ThreadMoveDestination } from "../threads/threadOrder";
 import { computeThreadMoveAvailability } from "../threads/threadOrder";
 import { LegendList, type LegendListRef } from "@legendapp/list/react-native";
 import { homeLaunchPaintedAtom, shellCachesLoadedAtom } from "../../state/shell";
-import { recordLaunchMark } from "../observability/appTraces";
 import {
   type EnvironmentProject,
   type EnvironmentThreadShell,
@@ -909,7 +908,6 @@ export function HomeScreen(props: HomeScreenProps) {
   }, [launchContentReady, markLaunchPainted]);
 
   if (!hasAnyThreads) {
-    recordLaunchMark("client.home.empty", { title: emptyState.title });
     return (
       <View className="flex-1 bg-screen android:bg-header">
         <View
