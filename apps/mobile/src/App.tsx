@@ -25,7 +25,7 @@ import {
 } from "./features/observability/appTraces";
 import { RootStack } from "./Stack";
 import { appAtomRegistry } from "./state/atom-registry";
-import { shellCachesLoadedAtom } from "./state/shell";
+import { homeLaunchPaintedAtom } from "./state/shell";
 import { OverlayPortalHost } from "./components/OverlayPortal";
 import { shouldHandleAppLink } from "./lib/appLinking";
 import { useMobileNavigationTheme } from "./lib/useMobileNavigationTheme";
@@ -56,26 +56,27 @@ const appLinking = {
 
 const Navigation = createStaticNavigation(RootStack);
 
-// A cache read that never settles must not hold the launch screen.
-const MAX_SPLASH_WAIT_FOR_CACHE_MS = 2_000;
+// A launch whose home list never paints (a slow cache read, a starved JS
+// thread) must not hold the launch screen.
+const MAX_LAUNCH_SCREEN_MS = 2_000;
 
-/** Keeps the launch screen up until appearance and cached threads are ready, so neither pops in. */
+/** Keeps the launch screen up until appearance is ready and the home list has painted, so neither pops in. */
 function SplashScreenCoordinator() {
   const { isReady } = useAppearancePreferences();
-  const cachesLoaded = useAtomValue(shellCachesLoadedAtom);
-  const [cacheWaitExpired, setCacheWaitExpired] = useState(false);
+  const homePainted = useAtomValue(homeLaunchPaintedAtom);
+  const [launchWaitExpired, setLaunchWaitExpired] = useState(false);
 
   useEffect(() => {
-    const timer = setTimeout(() => setCacheWaitExpired(true), MAX_SPLASH_WAIT_FOR_CACHE_MS);
+    const timer = setTimeout(() => setLaunchWaitExpired(true), MAX_LAUNCH_SCREEN_MS);
     return () => clearTimeout(timer);
   }, []);
 
   useEffect(() => {
-    if (isReady && (cachesLoaded || cacheWaitExpired)) {
-      recordLaunchMark("client.splash.hide", { cachesLoaded, cacheWaitExpired });
+    if (isReady && (homePainted || launchWaitExpired)) {
+      recordLaunchMark("client.splash.hide", { homePainted, launchWaitExpired });
       void SplashScreen.hide();
     }
-  }, [isReady, cachesLoaded, cacheWaitExpired]);
+  }, [isReady, homePainted, launchWaitExpired]);
 
   return null;
 }
