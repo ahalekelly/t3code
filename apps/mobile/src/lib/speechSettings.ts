@@ -62,28 +62,6 @@ const MAI_VOICES = ["Harper", "Olivia", "Iris", "Ethan", "Grant", "Jasper", "Sag
  * free-form delivery prompt.
  */
 export const SPEECH_MODELS = {
-  "gpt-4o-mini-tts": {
-    label: "OpenAI",
-    provider: "openai",
-    centsPerMinute: 1.5,
-    instructions: true,
-    // Most natural first.
-    voices: [
-      "marin",
-      "cedar",
-      "alloy",
-      "ash",
-      "ballad",
-      "coral",
-      "echo",
-      "fable",
-      "nova",
-      "onyx",
-      "sage",
-      "shimmer",
-      "verse",
-    ],
-  },
   "gemini-3.8-flash-tts": {
     label: "Gemini Flash",
     provider: "gemini",
@@ -149,7 +127,7 @@ export type SpeechVoice = { readonly id: string; readonly name: string };
 
 /** What native reading needs to read a response aloud. */
 export type SpeechRequest = {
-  readonly provider: VoiceApiProvider;
+  readonly provider: (typeof SPEECH_MODELS)[SpeechModel]["provider"];
   readonly model: SpeechModel;
   readonly voice: string;
   readonly pace: SpeechPace;

@@ -1,15 +1,14 @@
 import Foundation
 import os
 
-/// Streams OpenAI, Gemini, ElevenLabs, or Azure MAI speech as 24 kHz 16-bit PCM straight from the phone.
+/// Streams Gemini, ElevenLabs, or Azure MAI speech as 24 kHz 16-bit PCM straight from the phone.
 struct CloudVoice: Sendable {
-  /// Matches `VOICE_API_PROVIDERS` in speechSettings.ts, which also lists each provider's models.
+  /// Matches the providers of `SPEECH_MODELS` in speechSettings.ts.
   enum Provider: String, Sendable {
-    case openai, gemini, elevenlabs, azure
+    case gemini, elevenlabs, azure
 
     var label: String {
       switch self {
-      case .openai: "OpenAI"
       case .gemini: "Gemini"
       case .elevenlabs: "ElevenLabs"
       case .azure: "Azure Speech"
@@ -48,7 +47,7 @@ struct CloudVoice: Sendable {
     guard (200...299).contains(status) else {
       var data = Data()
       for try await byte in bytes { data.append(byte) }
-      // OpenAI and Gemini send `error.message`, ElevenLabs `detail.message`; Azure sends no body.
+      // Gemini sends `error.message`, ElevenLabs `detail.message`; Azure sends no body.
       let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
       let error = (json?["error"] ?? json?["detail"]) as? [String: Any]
       throw SpeechError("\(provider.label) speech failed (\(status)): \(error?["message"] as? String ?? "no details")")
@@ -58,7 +57,7 @@ struct CloudVoice: Sendable {
     var pcm = Data()
     let piece = Int(Self.sampleRate / 4) * 2
     switch provider {
-    case .openai, .elevenlabs, .azure:
+    case .elevenlabs, .azure:
       for try await byte in bytes {
         pcm.append(byte)
         if pcm.count >= piece, !(await Self.send(&pcm, to: append)) { return }
@@ -139,12 +138,6 @@ struct CloudVoice: Sendable {
     var request: URLRequest
     let body: [String: Any]
     switch provider {
-    case .openai:
-      request = URLRequest(url: URL(string: "https://api.openai.com/v1/audio/speech")!)
-      request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
-      var openAi = ["model": model, "input": text, "voice": voice, "response_format": "pcm"]
-      if !instructions.isEmpty { openAi["instructions"] = instructions }
-      body = openAi
     case .gemini:
       request = URLRequest(url: URL(string: "https://generativelanguage.googleapis.com/v1beta/interactions")!)
       request.setValue(apiKey, forHTTPHeaderField: "x-goog-api-key")
