@@ -101,9 +101,15 @@ export function useSelectedThreadGitActions() {
     [updateThreadMetadata],
   );
 
+  // Keyed by identity, not the thread object: the shell replaces the thread on
+  // every streamed update, and each refresh runs git status on the server and
+  // reloads the branch list.
+  const selectedEnvironmentId = selectedThread?.environmentId ?? null;
+  const selectedThreadId = selectedThread?.id ?? null;
+  const hasSelectedProject = selectedThreadProject !== null;
   const refreshSelectedThreadGitStatus = useCallback(
     async (options?: { readonly quiet?: boolean; readonly cwd?: string | null }) => {
-      if (!selectedThread || !selectedThreadProject) {
+      if (selectedEnvironmentId === null || !hasSelectedProject) {
         return null;
       }
 
@@ -112,10 +118,10 @@ export function useSelectedThreadGitActions() {
         return null;
       }
 
-      const target = { environmentId: selectedThread.environmentId, cwd };
+      const target = { environmentId: selectedEnvironmentId, cwd };
       const execute = () =>
         refreshStatus({
-          environmentId: selectedThread.environmentId,
+          environmentId: selectedEnvironmentId,
           input: { cwd },
         });
       const result = options?.quiet
@@ -138,17 +144,12 @@ export function useSelectedThreadGitActions() {
       setPendingConnectionError(null);
       return result.value;
     },
-    [refreshStatus, selectedThread, selectedThreadCwd, selectedThreadProject],
+    [hasSelectedProject, refreshStatus, selectedEnvironmentId, selectedThreadCwd],
   );
 
-  // Shell updates replace the selected thread object many times per second while a
-  // turn streams, so key the refresh on primitives. The server publishes status after
-  // each turn finishes; this only seeds status when the selection or cwd changes, and
-  // again on reconnect because the server's cached status can miss changes made while
-  // the app was away.
-  const selectedEnvironmentId = selectedThread?.environmentId ?? null;
-  const selectedThreadId = selectedThread?.id ?? null;
-  const hasSelectedThreadProject = selectedThreadProject !== null;
+  // The server publishes status after each turn finishes; this only seeds status when
+  // the selection or cwd changes, and again on reconnect because the server's cached
+  // status can miss changes made while the app was away.
   const isEnvironmentConnected = selectedEnvironmentRuntime?.connectionState === "connected";
   const refreshOnSelection = useEffectEvent(() => {
     void refreshSelectedThreadGitStatus({ quiet: true });
@@ -157,7 +158,7 @@ export function useSelectedThreadGitActions() {
     if (
       selectedEnvironmentId === null ||
       selectedThreadId === null ||
-      !hasSelectedThreadProject ||
+      !hasSelectedProject ||
       selectedThreadCwd === null ||
       !isEnvironmentConnected
     ) {
@@ -167,7 +168,7 @@ export function useSelectedThreadGitActions() {
   }, [
     selectedEnvironmentId,
     selectedThreadId,
-    hasSelectedThreadProject,
+    hasSelectedProject,
     selectedThreadCwd,
     isEnvironmentConnected,
   ]);
