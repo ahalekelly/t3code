@@ -113,7 +113,7 @@ describe("createThreadRowProviderInstanceResolver", () => {
   ]);
 
   it("hands out the same reference for repeated lookups of one instance", () => {
-    const resolve = createThreadRowProviderInstanceResolver(serverConfigs);
+    const resolve = createThreadRowProviderInstanceResolver()(serverConfigs);
     const first = resolve(makeThread(environmentId, "codex"));
     const second = resolve(makeThread(environmentId, "codex"));
     // Memoized rows compare props by reference: a fresh object per call would
@@ -123,7 +123,7 @@ describe("createThreadRowProviderInstanceResolver", () => {
   });
 
   it("distinguishes instances of the same driver", () => {
-    const resolve = createThreadRowProviderInstanceResolver(serverConfigs);
+    const resolve = createThreadRowProviderInstanceResolver()(serverConfigs);
     const personal = resolve(makeThread(environmentId, "codex"));
     const work = resolve(makeThread(environmentId, "codex_work"));
     expect(personal).not.toBeNull();
@@ -132,19 +132,34 @@ describe("createThreadRowProviderInstanceResolver", () => {
     expect(work?.displayName).toBe("Codex Work");
   });
 
-  it("hands out a new identity when the server-config generation changes", () => {
-    const before = createThreadRowProviderInstanceResolver(serverConfigs);
+  it("hands out a new identity when a new server-config generation changes the instance", () => {
+    const resolverForGeneration = createThreadRowProviderInstanceResolver();
+    const before = resolverForGeneration(serverConfigs)(makeThread(environmentId, "codex"));
     const nextConfigs = new Map<EnvironmentId, ServerConfig>([
       [environmentId, makeConfig([{ instanceId: "codex", driver: "codex" }])],
     ]);
-    const after = createThreadRowProviderInstanceResolver(nextConfigs);
-    expect(after(makeThread(environmentId, "codex"))).not.toBe(
-      before(makeThread(environmentId, "codex")),
-    );
+    const after = resolverForGeneration(nextConfigs)(makeThread(environmentId, "codex"));
+    expect(after).not.toBe(before);
+    expect(after?.showBadge).toBe(false);
+  });
+
+  it("keeps the identity when a new server-config generation resolves the same instance", () => {
+    const resolverForGeneration = createThreadRowProviderInstanceResolver();
+    const before = resolverForGeneration(serverConfigs)(makeThread(environmentId, "codex"));
+    const resentConfigs = new Map<EnvironmentId, ServerConfig>([
+      [
+        environmentId,
+        makeConfig([
+          { instanceId: "codex", driver: "codex", displayName: "Codex" },
+          { instanceId: "codex_work", driver: "codex", displayName: "Codex" },
+        ]),
+      ],
+    ]);
+    expect(resolverForGeneration(resentConfigs)(makeThread(environmentId, "codex"))).toBe(before);
   });
 
   it("resolves unknown instances to null without throwing", () => {
-    const resolve = createThreadRowProviderInstanceResolver(serverConfigs);
+    const resolve = createThreadRowProviderInstanceResolver()(serverConfigs);
     expect(resolve(makeThread(environmentId, "ghost"))).toBeNull();
     expect(resolve(makeThread(environmentId, "ghost"))).toBeNull();
   });

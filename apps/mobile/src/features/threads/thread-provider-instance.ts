@@ -1,4 +1,5 @@
-import { useMemo } from "react";
+import * as Equal from "effect/Equal";
+import { useMemo, useState } from "react";
 
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
 import {
@@ -44,31 +45,41 @@ export function resolveThreadProviderInstance(
 }
 
 /**
- * Builds a resolver handing out reference-stable `ThreadRowProviderInstance`
- * objects. `resolveThreadProviderInstance` builds a fresh object per call,
- * which breaks the memoized row's props comparison on every parent render —
- * the result only depends on (environment, instance id), so one cache per
- * server-config generation keeps each row's `providerInstance` prop stable
- * until the instance behind the row actually changes.
+ * Builds the list-scoped source of reference-stable `ThreadRowProviderInstance`
+ * objects, which memoized rows compare by reference. Each server-config
+ * generation gets its own resolver, and a generation reuses the previous
+ * generation's object for an (environment, instance id) whose resolved value is
+ * unchanged, so a reconnect that resends the same config re-renders no rows.
  */
-export function createThreadRowProviderInstanceResolver(
+export function createThreadRowProviderInstanceResolver(): (
   serverConfigs: ReadonlyMap<EnvironmentId, ServerConfig>,
-): (thread: EnvironmentThreadShell) => ThreadRowProviderInstance | null {
-  const cache = new Map<string, ThreadRowProviderInstance | null>();
-  return (thread) => {
-    const instanceId = thread.session?.providerInstanceId ?? thread.modelSelection.instanceId;
-    const cacheKey = `${thread.environmentId}|${instanceId ?? ""}`;
-    const cached = cache.get(cacheKey);
-    if (cached !== undefined) return cached;
-    const resolved = resolveThreadProviderInstance(serverConfigs, thread);
-    cache.set(cacheKey, resolved);
-    return resolved;
+) => (thread: EnvironmentThreadShell) => ThreadRowProviderInstance | null {
+  const latest = new Map<string, ThreadRowProviderInstance | null>();
+  return (serverConfigs) => {
+    const generation = new Map<string, ThreadRowProviderInstance | null>();
+    return (thread) => {
+      const instanceId = thread.session?.providerInstanceId ?? thread.modelSelection.instanceId;
+      const cacheKey = `${thread.environmentId}|${instanceId ?? ""}`;
+      const cached = generation.get(cacheKey);
+      if (cached !== undefined) return cached;
+      const resolved = resolveThreadProviderInstance(serverConfigs, thread);
+      const previous = latest.get(cacheKey);
+      const value =
+        previous !== undefined && Equal.equals(previous, resolved) ? previous : resolved;
+      latest.set(cacheKey, value);
+      generation.set(cacheKey, value);
+      return value;
+    };
   };
 }
 
-/** List-scoped wrapper: one cache per server-config generation. */
+/** List-scoped wrapper: one resolver per server-config generation. */
 export function useThreadRowProviderInstanceResolver(
   serverConfigs: ReadonlyMap<EnvironmentId, ServerConfig>,
 ): (thread: EnvironmentThreadShell) => ThreadRowProviderInstance | null {
-  return useMemo(() => createThreadRowProviderInstanceResolver(serverConfigs), [serverConfigs]);
+  const [resolverForGeneration] = useState(createThreadRowProviderInstanceResolver);
+  return useMemo(
+    () => resolverForGeneration(serverConfigs),
+    [resolverForGeneration, serverConfigs],
+  );
 }
