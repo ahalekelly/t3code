@@ -173,16 +173,19 @@ function withReferencedContextFiles(
   const retainedIds = new Set(
     context?.records.flatMap((record) => ("attachmentId" in record ? [record.attachmentId] : [])),
   );
+  const attachments = draft.attachments.filter(
+    (attachment) =>
+      attachment.type === "image" ||
+      !previousIds.has(attachment.id) ||
+      retainedIds.has(attachment.id),
+  );
   return {
     ...draft,
     text,
     context,
-    attachments: draft.attachments.filter(
-      (attachment) =>
-        attachment.type === "image" ||
-        !previousIds.has(attachment.id) ||
-        retainedIds.has(attachment.id),
-    ),
+    // Keep the array when nothing was dropped: composer callbacks and memoized
+    // views depend on its identity, and this runs on every keystroke.
+    attachments: attachments.length === draft.attachments.length ? draft.attachments : attachments,
   };
 }
 
