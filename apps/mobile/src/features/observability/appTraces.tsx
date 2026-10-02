@@ -10,7 +10,7 @@ import { connectionTraceRecorder } from "./tracing";
 const MIN_TRACED_COMMIT_MS = 4;
 
 // Profiler times are performance.now() milliseconds; spans use epoch nanoseconds.
-const toEpochNanos = (performanceMs: number) =>
+export const toEpochNanos = (performanceMs: number) =>
   BigInt(Math.round((Date.now() - performance.now() + performanceMs) * 1_000_000));
 
 /**

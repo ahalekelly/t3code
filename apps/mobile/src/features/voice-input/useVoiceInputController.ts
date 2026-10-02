@@ -38,6 +38,8 @@ import {
   type VoiceTranscriber,
 } from "@t3tools/client-runtime/voice-input";
 import { normalizeVoiceInputDecibels, VOICE_WAVEFORM_SAMPLE_COUNT } from "./voiceInputMetering";
+import { toEpochNanos } from "../observability/appTraces";
+import { connectionTraceRecorder } from "../observability/tracing";
 
 const INITIAL_STATE: VoiceInputState = { phase: "idle", error: null, errorAction: null };
 /** Selecting a cloud source without its key is a setup mistake, not a reason to fall back. */
@@ -65,6 +67,60 @@ const VOICE_RECORDING_OPTIONS = {
     : RecordingPresets.HIGH_QUALITY.android),
 };
 
+type PreparationTimer = <T>(step: string, run: () => Promise<T>) => Promise<T>;
+
+type PreparationTrace = {
+  readonly start: number;
+  end: number | null;
+  outcome: VoiceInputState["phase"] | null;
+  pending: number;
+  readonly steps: Record<string, number>;
+};
+
+/**
+ * Records a `client.voice.prepare` span per dictation start, from the tap until
+ * recording starts or fails, with each step's duration. The span waits for steps
+ * still running when the start ends early, such as a cancelled transcriber.
+ */
+function createPreparationTracer() {
+  let current: PreparationTrace | null = null;
+  const record = (trace: PreparationTrace) => {
+    if (trace.end === null || trace.pending > 0) return;
+    connectionTraceRecorder.recordSpan(
+      "client.voice.prepare",
+      toEpochNanos(trace.start),
+      toEpochNanos(trace.end),
+      { ...trace.steps, "voice.outcome": trace.outcome },
+    );
+  };
+  const timed: PreparationTimer = async (step, run) => {
+    const trace = current;
+    if (trace === null) return run();
+    const start = performance.now();
+    trace.pending += 1;
+    try {
+      return await run();
+    } finally {
+      trace.steps[`voice.${step}_ms`] = Math.round(performance.now() - start);
+      trace.pending -= 1;
+      record(trace);
+    }
+  };
+  const phaseChanged = (phase: VoiceInputState["phase"]) => {
+    if (phase === "preparing") {
+      current = { start: performance.now(), end: null, outcome: null, pending: 0, steps: {} };
+      return;
+    }
+    const trace = current;
+    if (trace === null) return;
+    current = null;
+    trace.end = performance.now();
+    trace.outcome = phase;
+    record(trace);
+  };
+  return { timed, phaseChanged };
+}
+
 async function releaseVoiceRecordingAudio(): Promise<void> {
   try {
     await setAudioModeAsync({ allowsRecording: false });
@@ -75,19 +131,21 @@ async function releaseVoiceRecordingAudio(): Promise<void> {
   }
 }
 
-async function configureVoiceRecordingAudio(): Promise<void> {
+async function configureVoiceRecordingAudio(timed: PreparationTimer): Promise<void> {
   autoReadResponse.cancelAll();
   if (Platform.OS === "ios") await responseSpeech.stop();
   try {
-    await setAudioModeAsync({
-      allowsRecording: true,
-      interruptionMode: "doNotMix",
-      playsInSilentMode: true,
-      shouldPlayInBackground: false,
-      // Keeps recording when the phone locks. Android cannot record.
-      allowsBackgroundRecording: Platform.OS === "ios",
-    });
-    await setIsAudioActiveAsync(true);
+    await timed("audio_mode", () =>
+      setAudioModeAsync({
+        allowsRecording: true,
+        interruptionMode: "doNotMix",
+        playsInSilentMode: true,
+        shouldPlayInBackground: false,
+        // Keeps recording when the phone locks. Android cannot record.
+        allowsBackgroundRecording: Platform.OS === "ios",
+      }),
+    );
+    await timed("activate", () => setIsAudioActiveAsync(true));
   } catch (error) {
     try {
       await releaseVoiceRecordingAudio();
@@ -153,18 +211,20 @@ export function useVoiceInputController(input: {
   }, []);
 
   if (!controllerRef.current) {
+    const { timed, phaseChanged } = createPreparationTracer();
     controllerRef.current = new VoiceInputController({
       recorder: {
         get uri() {
           return recorderRef.current?.uri ?? null;
         },
-        prepareToRecordAsync: () => {
-          if (recorderRef.current === null) {
-            recorderRef.current = new AudioModule.AudioRecorder(VOICE_RECORDING_OPTIONS);
-            recorderRef.current.addListener("recordingStatusUpdate", handleRecorderStatus);
-          }
-          return recorderRef.current.prepareToRecordAsync();
-        },
+        prepareToRecordAsync: () =>
+          timed("recorder", () => {
+            if (recorderRef.current === null) {
+              recorderRef.current = new AudioModule.AudioRecorder(VOICE_RECORDING_OPTIONS);
+              recorderRef.current.addListener("recordingStatusUpdate", handleRecorderStatus);
+            }
+            return recorderRef.current.prepareToRecordAsync();
+          }),
         record: (options) => preparedRecorder().record(options),
         stop: async () => {
           await recorderRef.current?.stop();
@@ -172,15 +232,23 @@ export function useVoiceInputController(input: {
       },
       getTranscriber: () => {
         const { source, apiKeys } = transcriptionConfigRef.current;
-        if (source === "local") return getLocalVoiceTranscriber();
-        if (apiKeys.length === 0) return missingKeyTranscriber(source);
-        return createCloudVoiceTranscriber(source, apiKeys);
+        const transcriber =
+          source === "local"
+            ? getLocalVoiceTranscriber()
+            : apiKeys.length === 0
+              ? missingKeyTranscriber(source)
+              : createCloudVoiceTranscriber(source, apiKeys);
+        return (
+          transcriber && {
+            prepare: (options) => timed("transcriber", () => transcriber.prepare(options)),
+          }
+        );
       },
       requestPermission: async () => {
-        const permission = await requestRecordingPermissionsAsync();
+        const permission = await timed("permission", requestRecordingPermissionsAsync);
         return { granted: permission.granted, canAskAgain: permission.canAskAgain };
       },
-      configureRecording: configureVoiceRecordingAudio,
+      configureRecording: () => configureVoiceRecordingAudio(timed),
       releaseRecording: releaseVoiceRecordingAudio,
       deleteRecording: (uri) => new File(uri).delete(),
       readDraft: (): VoiceDraftSnapshot | null => {
@@ -207,6 +275,7 @@ export function useVoiceInputController(input: {
         }
       },
       onStateChange: (next) => {
+        phaseChanged(next.phase);
         // Settling without a commit (cancel, empty transcript, stale draft,
         // failed transcription) must not leave a later manual finish armed.
         if (next.phase === "error" && sendRequestedRef.current && readRepliesAloudRef.current) {
