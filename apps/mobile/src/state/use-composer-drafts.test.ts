@@ -279,6 +279,23 @@ describe("mobile composer drafts", () => {
     },
   );
 
+  it("keeps the attachments array when a text edit drops none of them", () => {
+    const image = {
+      type: "image" as const,
+      id: "image",
+      name: "photo.png",
+      mimeType: "image/png",
+      sizeBytes: 10,
+      previewUri: "file:///photo.png",
+    };
+    appAtomRegistry.set(composerDraftsAtom, {
+      thread: { text: "", attachments: [image] } as never,
+    });
+    const before = getComposerDraftSnapshot("thread").attachments;
+    setComposerDraftText("thread", "typing");
+    expect(getComposerDraftSnapshot("thread").attachments).toBe(before);
+  });
+
   it("restores a missing file reference without duplicating its record or replacing another record's id", () => {
     const file = {
       type: "file" as const,

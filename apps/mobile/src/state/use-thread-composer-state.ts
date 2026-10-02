@@ -39,7 +39,7 @@ import {
   pickComposerMedia,
   removePersistedComposerAttachmentFile,
 } from "../lib/composerImages";
-import type { DraftComposerImageAttachment } from "../lib/composerImages";
+import type { DraftComposerAttachment, DraftComposerImageAttachment } from "../lib/composerImages";
 import { scopedThreadKey } from "../lib/scopedEntities";
 import { buildThreadFeed } from "../lib/threadActivity";
 import { acknowledgedThreadMessagesAtom } from "./acknowledged-thread-messages";
@@ -122,6 +122,9 @@ export function useThreadDraftForThread(input: {
     draftAttachments: draft.attachments,
   };
 }
+
+// Shared so memoized composer and feed props keep their identity without a draft.
+const NO_DRAFT_ATTACHMENTS: ReadonlyArray<DraftComposerAttachment> = [];
 
 export function useThreadComposerState() {
   const {
@@ -241,7 +244,7 @@ export function useThreadComposerState() {
 
   const selectedDraft = selectedThreadKey ? composerDrafts[selectedThreadKey] : null;
   const draftMessage = selectedDraft?.text ?? "";
-  const draftAttachments = selectedDraft?.attachments ?? [];
+  const draftAttachments = selectedDraft?.attachments ?? NO_DRAFT_ATTACHMENTS;
   const selectedThreadQueueCount = selectedThreadQueuedMessages.length;
   const selectedThread = selectedThreadDetail ?? selectedThreadShell;
   const modelSelection = selectedDraft?.modelSelection ?? selectedThread?.modelSelection ?? null;
@@ -526,7 +529,7 @@ export function useThreadComposerState() {
     if (problems.length > 0) {
       Alert.alert("Could not attach photo or video", problems.join("\n\n"));
     }
-  }, [composerDrafts, selectedEnvironmentRuntime?.serverConfig, selectedThreadShell]);
+  }, [selectedEnvironmentRuntime?.serverConfig, selectedThreadShell]);
 
   const onPickDraftFiles = useCallback(async () => {
     if (!selectedThreadShell) {
@@ -562,7 +565,7 @@ export function useThreadComposerState() {
     if (problems.length > 0) {
       Alert.alert("Could not attach file", problems.join("\n\n"));
     }
-  }, [composerDrafts, selectedEnvironmentRuntime?.serverConfig, selectedThreadShell]);
+  }, [selectedEnvironmentRuntime?.serverConfig, selectedThreadShell]);
 
   const onPasteIntoDraft = useCallback(async () => {
     if (!selectedThreadShell) {
@@ -653,12 +656,7 @@ export function useThreadComposerState() {
         `You can attach up to ${PROVIDER_SEND_TURN_MAX_ATTACHMENTS} files per message.`,
       );
     }
-  }, [
-    composerDrafts,
-    reservePastedTextFileName,
-    selectedEnvironmentRuntime?.serverConfig,
-    selectedThreadShell,
-  ]);
+  }, [reservePastedTextFileName, selectedEnvironmentRuntime?.serverConfig, selectedThreadShell]);
 
   const onNativePasteImages = useCallback(
     async (uris: ReadonlyArray<string>) => {
@@ -685,7 +683,7 @@ export function useThreadComposerState() {
         });
       }
     },
-    [composerDrafts, selectedThreadShell],
+    [selectedThreadShell],
   );
 
   const onNativePasteText = useCallback(
@@ -729,12 +727,7 @@ export function useThreadComposerState() {
         );
       }
     },
-    [
-      composerDrafts,
-      reservePastedTextFileName,
-      selectedEnvironmentRuntime?.serverConfig,
-      selectedThreadShell,
-    ],
+    [reservePastedTextFileName, selectedEnvironmentRuntime?.serverConfig, selectedThreadShell],
   );
 
   const onRemoveDraftImage = useCallback(
