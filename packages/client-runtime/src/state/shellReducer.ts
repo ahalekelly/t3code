@@ -1,12 +1,34 @@
 import {
+  OrchestrationProjectShell,
   OrchestrationV2ThreadShell,
-  type OrchestrationProjectShell,
   type OrchestrationV2ShellSnapshot,
   type OrchestrationV2ShellStreamItem,
 } from "@t3tools/contracts";
 import * as Schema from "effect/Schema";
 
 const sameThreadShell = Schema.toEquivalence(OrchestrationV2ThreadShell);
+const sameProjectShell = Schema.toEquivalence(OrchestrationProjectShell);
+
+/**
+ * Keeps each previous entity equal to its replacement, and the previous array
+ * when nothing changed. Clients compare entities by reference, so a reconnect
+ * that reloads an unchanged shell re-renders nothing.
+ */
+function reuseUnchanged<T extends { readonly id: string }>(
+  previous: ReadonlyArray<T>,
+  next: ReadonlyArray<T>,
+  same: (left: T, right: T) => boolean,
+): ReadonlyArray<T> {
+  const previousById = new Map(previous.map((entity) => [entity.id, entity] as const));
+  const reused = next.map((entity) => {
+    const match = previousById.get(entity.id);
+    return match !== undefined && same(match, entity) ? match : entity;
+  });
+  return reused.length === previous.length &&
+    reused.every((entity, index) => entity === previous[index])
+    ? previous
+    : reused;
+}
 
 function upsertById<T extends { readonly id: unknown }>(
   items: ReadonlyArray<T>,
@@ -60,10 +82,8 @@ export function mergeShellSnapshotProjects(
     return next;
   }
 
-  const isEnrichment = options !== undefined;
-  const resolvedRootSet = isEnrichment ? new Set(options.resolvedRepositoryIdentityRoots) : null;
-
-  if (isEnrichment) {
+  if (options !== undefined) {
+    const resolvedRootSet = new Set(options.resolvedRepositoryIdentityRoots);
     const nextById = new Map(next.projects.map((project) => [project.id, project] as const));
     return {
       ...previous,
@@ -72,7 +92,7 @@ export function mergeShellSnapshotProjects(
         if (candidate === undefined || candidate.workspaceRoot !== project.workspaceRoot) {
           return project;
         }
-        if (resolvedRootSet?.has(project.workspaceRoot) === true) {
+        if (resolvedRootSet.has(project.workspaceRoot)) {
           return { ...project, repositoryIdentity: candidate.repositoryIdentity };
         }
         if (project.repositoryIdentity == null && candidate.repositoryIdentity != null) {
@@ -84,15 +104,18 @@ export function mergeShellSnapshotProjects(
   }
 
   const previousById = new Map(previous.projects.map((project) => [project.id, project] as const));
+  const projects = next.projects.map((project) =>
+    retainRepositoryIdentity(previousById.get(project.id), project),
+  );
   return {
     ...next,
-    projects: next.projects.map((project) => {
-      const prior = previousById.get(project.id);
-      if (resolvedRootSet?.has(project.workspaceRoot) === true) {
-        return project;
-      }
-      return retainRepositoryIdentity(prior, project);
-    }),
+    projects: reuseUnchanged(previous.projects, projects, sameProjectShell),
+    threads: reuseUnchanged(previous.threads, next.threads, sameThreadShell),
+    archivedThreads: reuseUnchanged(
+      previous.archivedThreads,
+      next.archivedThreads,
+      sameThreadShell,
+    ),
   };
 }
 
