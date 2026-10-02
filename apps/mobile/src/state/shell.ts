@@ -37,6 +37,12 @@ export const shellCachesLoadedAtom = Atom.make((get) => {
   return true;
 }).pipe(Atom.withLabel("mobile-shell-caches-loaded"));
 
+/** Set once the home list has painted its launch content, so the launch screen can hide over it. */
+export const homeLaunchPaintedAtom = Atom.make(false).pipe(
+  Atom.keepAlive,
+  Atom.withLabel("mobile-home-launch-painted"),
+);
+
 const EMPTY_ENVIRONMENT_SHELL_STATE_ATOM = Atom.make(
   AsyncResult.success<EnvironmentShellState>({
     snapshot: Option.none(),
