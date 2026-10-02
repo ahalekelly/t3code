@@ -4,6 +4,7 @@ import {
   createEnvironmentShellSummaryAtom,
   createEnvironmentSnapshotAtom,
   createShellEnvironmentAtoms,
+  EMPTY_SHELL_STATE,
   type EnvironmentShellState,
 } from "@t3tools/client-runtime/state/shell";
 import { useAtomValue } from "@effect/atom-react";
@@ -24,15 +25,13 @@ export const environmentShellSummaryAtom = createEnvironmentShellSummaryAtom({
 
 /**
  * Whether every enabled environment has read its cached shell, so a launch can
- * show cached threads at once instead of a connecting state. A loaded shell has
- * a snapshot or has started synchronizing; until then it reads as empty.
+ * show cached threads at once instead of a connecting state.
  */
 export const shellCachesLoadedAtom = Atom.make((get) => {
   const catalog = get(environmentCatalog.catalogValueAtom);
   if (!catalog.isReady) return false;
   for (const environmentId of enabledEnvironmentIds(catalog)) {
-    const state = get(environmentShell.stateValueAtom(environmentId));
-    if (Option.isNone(state.snapshot) && state.status === "empty") return false;
+    if (get(environmentShell.stateValueAtom(environmentId)) === EMPTY_SHELL_STATE) return false;
   }
   return true;
 }).pipe(Atom.withLabel("mobile-shell-caches-loaded"));
@@ -43,11 +42,7 @@ export const homeLaunchPaintedAtom = Atom.make(false).pipe(
   Atom.withLabel("mobile-home-launch-painted"),
 );
 
-const EMPTY_ENVIRONMENT_SHELL_STATE_ATOM = Atom.make<EnvironmentShellState>({
-  snapshot: Option.none(),
-  status: "empty",
-  error: Option.none(),
-});
+const EMPTY_ENVIRONMENT_SHELL_STATE_ATOM = Atom.make(EMPTY_SHELL_STATE);
 
 const shellStatus = (state: EnvironmentShellState) => state.status;
 const shellHasError = (state: EnvironmentShellState) => Option.isSome(state.error);

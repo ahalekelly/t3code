@@ -37,7 +37,12 @@ export interface EnvironmentShellState {
   readonly error: Option.Option<string>;
 }
 
-const EMPTY_SHELL_STATE: EnvironmentShellState = {
+/**
+ * An environment's shell state before its persisted cache is read. The shell
+ * atoms hold this exact object until then and only produce new objects after,
+ * so an identity check tells whether the cache was read.
+ */
+export const EMPTY_SHELL_STATE: EnvironmentShellState = {
   snapshot: Option.none(),
   status: "empty",
   error: Option.none(),
