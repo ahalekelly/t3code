@@ -75,9 +75,15 @@ export function useSelectedThreadGitActions() {
     [updateThreadMetadata],
   );
 
+  // Keyed by identity, not the thread object: the shell replaces the thread on
+  // every streamed update, and each refresh runs git status on the server and
+  // reloads the branch list.
+  const selectedEnvironmentId = selectedThread?.environmentId ?? null;
+  const selectedThreadId = selectedThread?.id ?? null;
+  const hasSelectedProject = selectedThreadProject !== null;
   const refreshSelectedThreadGitStatus = useCallback(
     async (options?: { readonly quiet?: boolean; readonly cwd?: string | null }) => {
-      if (!selectedThread || !selectedThreadProject) {
+      if (selectedEnvironmentId === null || !hasSelectedProject) {
         return null;
       }
 
@@ -86,10 +92,10 @@ export function useSelectedThreadGitActions() {
         return null;
       }
 
-      const target = { environmentId: selectedThread.environmentId, cwd };
+      const target = { environmentId: selectedEnvironmentId, cwd };
       const execute = () =>
         refreshStatus({
-          environmentId: selectedThread.environmentId,
+          environmentId: selectedEnvironmentId,
           input: { cwd },
         });
       const result = options?.quiet
@@ -112,15 +118,15 @@ export function useSelectedThreadGitActions() {
       setPendingConnectionError(null);
       return result.value;
     },
-    [refreshStatus, selectedThread, selectedThreadCwd, selectedThreadProject],
+    [hasSelectedProject, refreshStatus, selectedEnvironmentId, selectedThreadCwd],
   );
 
   useEffect(() => {
-    if (!selectedThread || !selectedThreadProject) {
+    if (selectedThreadId === null) {
       return;
     }
     void refreshSelectedThreadGitStatus({ quiet: true });
-  }, [refreshSelectedThreadGitStatus, selectedThread, selectedThreadProject]);
+  }, [refreshSelectedThreadGitStatus, selectedThreadId]);
 
   const runSelectedThreadGitMutation = useCallback(
     async <T, E>(
