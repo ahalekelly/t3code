@@ -26,8 +26,7 @@ import * as ConnectionWakeups from "../connection/wakeups.ts";
 import { safeErrorLogAttributes } from "../errors/safeLog.ts";
 import * as Persistence from "../platform/persistence.ts";
 import { runCachePersistence } from "./cachePersistence.ts";
-import { subscribeDynamicWithSession } from "../rpc/client.ts";
-import type { RpcSession } from "../rpc/session.ts";
+import { subscribeDynamicWithInput } from "../rpc/client.ts";
 import * as ShellSnapshotLoader from "./shellSnapshotHttp.ts";
 import type { DeferredShellSnapshot } from "./shellPullRequests.ts";
 import {
@@ -82,16 +81,6 @@ function withoutDeferredPullRequests(value: DeferredShellSnapshot): Orchestratio
 
 const SHELL_SYNCHRONIZATION_ERROR_MESSAGE = "Could not synchronize environment data.";
 
-function groupBySession<A>(entries: ReadonlyArray<readonly [RpcSession, A]>) {
-  const groups: Array<[RpcSession, Array<A>]> = [];
-  for (const [session, value] of entries) {
-    const last = groups.at(-1);
-    if (last?.[0] === session) last[1].push(value);
-    else groups.push([session, [value]]);
-  }
-  return groups;
-}
-
 export const makeEnvironmentShellState = Effect.fn("EnvironmentShellState.make")(function* () {
   const supervisor = yield* EnvironmentSupervisor.EnvironmentSupervisor;
   const cache = yield* Persistence.EnvironmentCacheStore;
@@ -119,8 +108,6 @@ export const makeEnvironmentShellState = Effect.fn("EnvironmentShellState.make")
   // The omissions and server build of the subscription whose snapshot the
   // in-memory shell last came from; null while it holds only cached data.
   const authoritativeOmission = yield* Ref.make<string | null>(null);
-  // Items buffered from a previous session keep that session's key.
-  const sessionOmissions = new WeakMap<RpcSession, string | null>();
   const latestLiveSnapshot = yield* Ref.make<Option.Option<OrchestrationV2ShellSnapshot>>(
     Option.none(),
   );
@@ -377,6 +364,32 @@ export const makeEnvironmentShellState = Effect.fn("EnvironmentShellState.make")
     yield* fillDeferredPullRequests(cached.value, cachedSnapshot.value);
   }
 
+  // Stream.switchMap can still deliver a replaced attempt's buffered items, so
+  // only the current attempt's items apply; the new attempt's cursor makes the
+  // server replay the dropped ones. applyLock keeps a batch wholly before or
+  // after an attempt starts.
+  const applyLock = yield* Semaphore.make(1);
+  let attempt: { readonly input: unknown; readonly omission: string | null } | undefined;
+  const startAttempt = applyLock.withPermits(1)(
+    Effect.sync(() => {
+      attempt = undefined;
+    }),
+  );
+  const receiveItems = (
+    received: ReadonlyArray<readonly [input: unknown, item: OrchestrationV2ShellStreamItem]>,
+  ) =>
+    applyLock.withPermits(1)(
+      Effect.suspend(() => {
+        // Skip applyItems for an empty batch: it would write a stale
+        // awaitingCompletion over the one a starting attempt sets unlocked.
+        const current = attempt;
+        const items = received.flatMap(([input, item]) => (input === current?.input ? [item] : []));
+        return current === undefined || items.length === 0
+          ? Effect.void
+          : applyItems(items, current.omission);
+      }),
+    );
+
   const foregroundResubscriptions = Option.match(wakeups, {
     onNone: () => Stream.never,
     onSome: (service) =>
@@ -385,9 +398,10 @@ export const makeEnvironmentShellState = Effect.fn("EnvironmentShellState.make")
 
   yield* setSynchronizing;
   yield* Effect.forkScoped(
-    subscribeDynamicWithSession(
+    subscribeDynamicWithInput(
       ORCHESTRATION_V2_WS_METHODS.subscribeShell,
       Effect.fn("EnvironmentShellState.makeSubscribeInput")(function* (session) {
+        yield* startAttempt;
         const { omitIdleSubagents, omitOlderSettled, omissionKey } =
           yield* session.initialConfig.pipe(
             Effect.map((config) => {
@@ -412,7 +426,6 @@ export const makeEnvironmentShellState = Effect.fn("EnvironmentShellState.make")
               omissionKey: null,
             })),
           );
-        sessionOmissions.set(session, omissionKey);
         yield* Ref.set(awaitingCompletion, true);
         yield* setSynchronizing;
 
@@ -468,29 +481,23 @@ export const makeEnvironmentShellState = Effect.fn("EnvironmentShellState.make")
           ...(omitIdleSubagents ? { omitIdleSubagents: true as const } : {}),
           ...(omitOlderSettled ? { omitOlderSettled: true as const } : {}),
         };
-        if (!canResume || Option.isNone(current.snapshot)) {
-          return { ...omission, requestCompletionMarker: true as const };
-        }
-        return {
-          afterSequence: current.snapshot.value.snapshotSequence,
-          ...omission,
-          requestCompletionMarker: true as const,
-        };
+        const input =
+          !canResume || Option.isNone(current.snapshot)
+            ? { ...omission, requestCompletionMarker: true as const }
+            : {
+                afterSequence: current.snapshot.value.snapshotSequence,
+                ...omission,
+                requestCompletionMarker: true as const,
+              };
+        attempt = { input, omission: omissionKey };
+        return input;
       }),
       {
         onExpectedFailure: (cause) => setStreamError(Cause.squash(cause)),
         retryExpectedFailureAfter: "250 millis",
         resubscribe: foregroundResubscriptions,
       },
-    ).pipe(
-      Stream.runForEachArray((entries) =>
-        Effect.forEach(
-          groupBySession(entries),
-          ([session, items]) => applyItems(items, sessionOmissions.get(session) ?? null),
-          { discard: true },
-        ),
-      ),
-    ),
+    ).pipe(Stream.runForEachArray(receiveItems)),
   );
   yield* SubscriptionRef.changes(supervisor.state).pipe(
     Stream.runForEach((connectionState) => {
