@@ -12,6 +12,7 @@ import * as Fiber from "effect/Fiber";
 import * as Option from "effect/Option";
 import * as Queue from "effect/Queue";
 import * as Ref from "effect/Ref";
+import * as Scheduler from "effect/Scheduler";
 import * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
 import * as SubscriptionRef from "effect/SubscriptionRef";
@@ -27,9 +28,9 @@ import * as ConnectionWakeups from "../connection/wakeups.ts";
 import * as Persistence from "../platform/persistence.ts";
 import * as RpcSession from "../rpc/session.ts";
 import type { WsRpcProtocolClient } from "../rpc/protocol.ts";
-import { makeEnvironmentShellState } from "./shell.ts";
+import { type EnvironmentShellState, makeEnvironmentShellState } from "./shell.ts";
 import * as ShellSnapshotLoader from "./shellSnapshotHttp.ts";
-import { v2Project, v2ShellSnapshot } from "./orchestrationV2TestFixtures.ts";
+import { v2Project, v2ShellSnapshot, v2ThreadShell } from "./orchestrationV2TestFixtures.ts";
 
 const TARGET = new PrimaryConnectionTarget({
   environmentId: EnvironmentId.make("environment-1"),
@@ -63,7 +64,156 @@ function session(client: WsRpcProtocolClient): RpcSession.RpcSession {
   };
 }
 
+const TEST_CACHE = (snapshot: OrchestrationV2ShellSnapshot) =>
+  Persistence.EnvironmentCacheStore.of({
+    loadShell: () => Effect.succeedSome(snapshot),
+    saveShell: () => Effect.void,
+    loadThread: () => Effect.succeedNone,
+    saveThread: () => Effect.void,
+    removeThread: () => Effect.void,
+    loadServerConfig: () => Effect.succeedNone,
+    saveServerConfig: () => Effect.void,
+    loadVcsRefs: () => Effect.succeedNone,
+    saveVcsRefs: () => Effect.void,
+    removeVcsRefs: () => Effect.void,
+    clearVcsRefs: () => Effect.void,
+    clear: () => Effect.void,
+  });
+
+// Shell state whose first subscription emits `first`, one item per chunk, and
+// whose later subscriptions stream `events`. `firstSent` completes once the
+// first subscription has emitted everything.
+const makeShell = Effect.fn("TestShell.make")(function* (options: {
+  readonly load: (call: number) => OrchestrationV2ShellSnapshot;
+  readonly first: ReadonlyArray<OrchestrationV2ShellStreamItem>;
+}) {
+  const events = yield* Queue.unbounded<OrchestrationV2ShellStreamItem>();
+  const wakeups = yield* Queue.unbounded<ConnectionWakeups.ConnectionWakeup>();
+  const firstSent = yield* Deferred.make<void>();
+  let subscriptions = 0;
+  let loads = 0;
+  const client = {
+    [ORCHESTRATION_V2_WS_METHODS.subscribeShell]: () =>
+      Stream.unwrap(
+        Effect.sync(() =>
+          ++subscriptions === 1
+            ? Stream.fromIterable(options.first).pipe(
+                Stream.rechunk(1),
+                Stream.concat(
+                  Stream.fromEffect(Deferred.succeed(firstSent, undefined)).pipe(Stream.drain),
+                ),
+                Stream.concat(Stream.never),
+              )
+            : Stream.fromQueue(events),
+        ),
+      ),
+  } as unknown as WsRpcProtocolClient;
+  const activeSession = yield* SubscriptionRef.make(Option.some(session(client)));
+  const supervisor = EnvironmentSupervisor.EnvironmentSupervisor.of({
+    target: TARGET,
+    state: yield* SubscriptionRef.make(AVAILABLE_CONNECTION_STATE),
+    session: activeSession,
+    prepared: yield* SubscriptionRef.make(Option.some(PREPARED)),
+    connect: Effect.void,
+    disconnect: Effect.void,
+    retryNow: Effect.void,
+  } satisfies EnvironmentSupervisor.EnvironmentSupervisor["Service"]);
+  const shellState = yield* makeEnvironmentShellState().pipe(
+    Effect.provideService(EnvironmentSupervisor.EnvironmentSupervisor, supervisor),
+    Effect.provideService(Persistence.EnvironmentCacheStore, TEST_CACHE(LIVE_SHELL_SNAPSHOT)),
+    Effect.provideService(
+      ShellSnapshotLoader.ShellSnapshotLoader,
+      ShellSnapshotLoader.ShellSnapshotLoader.of({
+        load: () => Effect.sync(() => Option.some(options.load(++loads))),
+      }),
+    ),
+    Effect.provideService(
+      ConnectionWakeups.ConnectionWakeups,
+      ConnectionWakeups.ConnectionWakeups.of({ changes: Stream.fromQueue(wakeups) }),
+    ),
+  );
+  return {
+    events,
+    wakeups,
+    firstSent: Deferred.await(firstSent),
+    replaceSession: SubscriptionRef.set(activeSession, Option.some(session(client))),
+    awaitState: (predicate: (state: EnvironmentShellState) => boolean) =>
+      SubscriptionRef.changes(shellState).pipe(
+        Stream.filter(predicate),
+        Stream.runHead,
+        Effect.map(Option.getOrThrow),
+      ),
+  };
+});
+
+// Runs `scenario` once per count of events the first subscription sends
+// before its last item. A small scheduler budget makes the consumer fall
+// behind, and the count decides whether that last item is still buffered or
+// mid-apply when the next attempt starts, so the counts cover both up to past
+// the 16-chunk subscription buffer.
+const forEachInterleaving = (
+  scenario: (count: number) => Effect.Effect<void, never, Scope.Scope>,
+) =>
+  Effect.forEach(
+    Array.from({ length: 20 }, (_, index) => index + 1),
+    (count) => Effect.scoped(scenario(count)),
+    { discard: true },
+  ).pipe(Effect.provideService(Scheduler.MaxOpsBeforeYield, 5));
+const threadUpdated = (sequence: number) =>
+  ({
+    kind: "thread.updated",
+    sequence,
+    location: "active",
+    thread: { ...v2ThreadShell, id: `thread-${sequence}` as typeof v2ThreadShell.id },
+  }) as const;
+const hasThread = (state: EnvironmentShellState, id: string) =>
+  Option.isSome(state.snapshot) && state.snapshot.value.threads.some((thread) => thread.id === id);
+const threadEvents = (count: number) =>
+  Array.from({ length: count }, (_, index) => threadUpdated(index + 2));
+
 describe("environment shell synchronization", () => {
+  it.effect("does not let a replaced attempt's marker mark the next catch-up live", () =>
+    forEachInterleaving((count) =>
+      Effect.gen(function* () {
+        const shell = yield* makeShell({
+          load: () => LIVE_SHELL_SNAPSHOT,
+          first: [...threadEvents(count), { kind: "synchronized" }],
+        });
+        yield* shell.firstSent;
+        yield* Queue.offer(shell.wakeups, "application-active");
+
+        const next = threadUpdated(count + 2);
+        yield* Queue.offer(shell.events, next);
+        const caughtUp = yield* shell.awaitState((state) => hasThread(state, next.thread.id));
+        expect(caughtUp.status, `after ${count} events`).toBe("synchronizing");
+      }),
+    ),
+  );
+
+  it.effect("does not apply a replaced session's snapshot over the next HTTP snapshot", () =>
+    forEachInterleaving((count) =>
+      Effect.gen(function* () {
+        const fresh: OrchestrationV2ShellSnapshot = {
+          ...LIVE_SHELL_SNAPSHOT,
+          snapshotSequence: 100,
+          threads: [{ ...v2ThreadShell, id: "fresh" as typeof v2ThreadShell.id }],
+        };
+        const stale = { ...LIVE_SHELL_SNAPSHOT, snapshotSequence: count + 2 };
+        const shell = yield* makeShell({
+          load: (call) => (call === 1 ? LIVE_SHELL_SNAPSHOT : fresh),
+          first: [...threadEvents(count), { kind: "snapshot", snapshot: stale }],
+        });
+        yield* shell.firstSent;
+        yield* shell.replaceSession;
+
+        const next = threadUpdated(fresh.snapshotSequence + 1);
+        yield* Queue.offer(shell.events, next);
+        const updated = yield* shell.awaitState((state) => hasThread(state, next.thread.id));
+        expect(hasThread(updated, "fresh"), `after ${count} events`).toBe(true);
+      }),
+    ),
+  );
+
   it.effect("publishes live state before persistence and preserves it when ready", () =>
     Effect.gen(function* () {
       const events = yield* Queue.unbounded<OrchestrationV2ShellStreamItem>();
