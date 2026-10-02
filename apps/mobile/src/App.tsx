@@ -3,7 +3,7 @@ import { installComposerAttachmentUploads } from "./state/composer-attachment-up
 import { installThreadOutboxDelivery } from "./state/threadOutboxDelivery";
 import * as Linking from "expo-linking";
 import * as SplashScreen from "expo-splash-screen";
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import { StatusBar } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { KeyboardProvider } from "react-native-keyboard-controller";
@@ -200,17 +200,17 @@ const MAX_LAUNCH_SCREEN_MS = 2_000;
 function SplashScreenCoordinator() {
   const { isReady } = useAppearancePreferences();
   const homePainted = useAtomValue(homeLaunchPaintedAtom);
-  const [launchWaitExpired, setLaunchWaitExpired] = useState(false);
 
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- hides the native splash screen once appearance preferences have loaded
   useEffect(() => {
-    const timer = setTimeout(() => setLaunchWaitExpired(true), MAX_LAUNCH_SCREEN_MS);
+    if (!isReady) return;
+    if (homePainted) {
+      void SplashScreen.hide();
+      return;
+    }
+    const timer = setTimeout(() => void SplashScreen.hide(), MAX_LAUNCH_SCREEN_MS);
     return () => clearTimeout(timer);
-  }, []);
-
-  useEffect(() => {
-    if (isReady && (homePainted || launchWaitExpired)) void SplashScreen.hide();
-  }, [isReady, homePainted, launchWaitExpired]);
+  }, [isReady, homePainted]);
 
   return null;
 }
