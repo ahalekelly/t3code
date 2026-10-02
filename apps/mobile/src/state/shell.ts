@@ -1,3 +1,4 @@
+import { enabledEnvironmentIds } from "@t3tools/client-runtime/state/connections";
 import {
   createEnvironmentShellAtoms,
   createEnvironmentShellSummaryAtom,
@@ -19,6 +20,16 @@ export const environmentShellSummaryAtom = createEnvironmentShellSummaryAtom({
   catalogValueAtom: environmentCatalog.catalogValueAtom,
   shellStateValueAtom: environmentShell.stateValueAtom,
 });
+
+export const shellCachesLoadedAtom = Atom.make((get) => {
+  const catalog = get(environmentCatalog.catalogValueAtom);
+  if (!catalog.isReady) return false;
+  for (const environmentId of enabledEnvironmentIds(catalog)) {
+    const state = get(environmentShell.stateValueAtom(environmentId));
+    if (Option.isNone(state.snapshot) && state.status === "empty") return false;
+  }
+  return true;
+}).pipe(Atom.withLabel("mobile-shell-caches-loaded"));
 
 const EMPTY_ENVIRONMENT_SHELL_STATE_ATOM = Atom.make<EnvironmentShellState>(EMPTY_SHELL_STATE);
 
