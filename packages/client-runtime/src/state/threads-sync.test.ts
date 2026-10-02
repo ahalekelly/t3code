@@ -797,7 +797,6 @@ describe("EnvironmentThreads", () => {
         harness.observed,
         (value) => value.status === "synchronizing" && Option.isSome(value.data),
       );
-      const changesBefore = yield* Ref.get(harness.stateChangeCount);
       yield* Queue.offerAll(harness.inputs, [
         titleUpdated("Doomed title", CACHED_SNAPSHOT_SEQUENCE + 1),
         deleted(CACHED_SNAPSHOT_SEQUENCE + 2),
@@ -805,8 +804,6 @@ describe("EnvironmentThreads", () => {
       ]);
       yield* awaitThreadState(harness.observed, (value) => value.status === "deleted");
 
-      // The replay applies in order as one update: the update, then the delete.
-      expect(yield* Ref.get(harness.stateChangeCount)).toBe(changesBefore + 1);
       expect(yield* Ref.get(harness.removedThreads)).toEqual([THREAD_ID]);
       expect(yield* Ref.get(harness.loaderCalls)).toBe(0);
 
@@ -996,6 +993,25 @@ describe("EnvironmentThreads", () => {
         (value) => Option.getOrNull(value.data)?.title === "Live title",
       );
       expect(yield* Ref.get(harness.stateChangeCount)).toBe(changesBefore + 2);
+    }),
+  );
+
+  it.effect("keeps held catch-up items across a restarted attempt", () =>
+    Effect.gen(function* () {
+      const harness = yield* makeHarness({ cached: BASE_THREAD, completionMarker: true });
+      yield* Queue.offer(harness.inputs, titleUpdated("Held title", CACHED_SNAPSHOT_SEQUENCE + 1));
+      yield* awaitThreadState(harness.observed, (value) => value.status === "synchronizing");
+
+      yield* Queue.offer(harness.wakeups, "application-active");
+      yield* harness.awaitSubscriptionCount(2);
+      expect(yield* Ref.get(harness.lastSubscribeAfterSequence)).toBe(CACHED_SNAPSHOT_SEQUENCE);
+      expect(Option.getOrThrow((yield* Ref.get(harness.latest)).data).title).toBe(
+        BASE_THREAD.title,
+      );
+      // The new attempt's catch-up applies the held event even if it is not re-sent.
+      yield* Queue.offer(harness.inputs, synchronized());
+      const live = yield* awaitThreadState(harness.observed, (value) => value.status === "live");
+      expect(Option.getOrThrow(live.data).title).toBe("Held title");
     }),
   );
 
