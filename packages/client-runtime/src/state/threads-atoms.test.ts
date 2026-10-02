@@ -493,7 +493,7 @@ describe("createEnvironmentThreadStateAtoms", () => {
   );
 });
 
-it.effect.each([1, 16, 500])("publishes V2 message replay once per batch of %i", (batchSize) =>
+it.effect.each([1, 16, 500])("publishes V2 replay batches of %i once, at the marker", (batchSize) =>
   Effect.gen(function* () {
     const h = yield* makeHarness();
     const unmount = h.registry.mount(h.stateAtom);
@@ -533,17 +533,13 @@ it.effect.each([1, 16, 500])("publishes V2 message replay once per batch of %i",
     }));
     for (let offset = 0; offset < events.length; offset += batchSize) {
       yield* Queue.offerAll(first.events, events.slice(offset, offset + batchSize));
-      const last = Math.min(offset + batchSize, events.length) - 1;
-      yield* observeState(
-        h.registry,
-        h.stateAtom,
-        (state) => Option.getOrNull(state.data)?.messages[0]?.text === `${last},`,
-      );
+      yield* Effect.yieldNow;
     }
+    // Frames already applied are skipped, even when re-sent mid-catch-up.
     yield* Queue.offerAll(first.events, [events[499]!, events[0]!, { kind: "synchronized" }]);
     yield* observeState(h.registry, h.stateAtom, (state) => state.status === "live");
     expect(currentThread(h.registry, h.stateAtom).messages[0]?.text).toBe("499,");
-    expect(updates).toBe(Math.ceil(500 / batchSize));
+    expect(updates).toBe(1);
     stop();
     unmount();
     yield* Deferred.await(first.closed);
