@@ -71,9 +71,9 @@ export function reuseUnchangedShellEntities(
   previous: OrchestrationShellSnapshot,
   next: OrchestrationShellSnapshot,
 ): OrchestrationShellSnapshot {
-  const projects = reuseUnchanged(previous.projects, next.projects);
-  const threads = reuseUnchanged(previous.threads, next.threads);
-  return projects === next.projects && threads === next.threads
-    ? next
-    : { ...next, projects, threads };
+  return {
+    ...next,
+    projects: reuseUnchanged(previous.projects, next.projects),
+    threads: reuseUnchanged(previous.threads, next.threads),
+  };
 }
