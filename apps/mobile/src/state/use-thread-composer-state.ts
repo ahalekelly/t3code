@@ -326,31 +326,7 @@ export function useThreadComposerState() {
     );
   }, [selectedThreadDetail, selectedThreadSessionActivity, selectedThreadShell]);
 
-  // Sending reads the thread at press time. The detail changes on every
-  // streamed event; closing over it would hand the memoized composer a new
-  // send handler each time.
-  const sendContextRef = useRef({
-    selectedEnvironmentRuntime,
-    selectedThreadCreation,
-    selectedThreadDetail,
-    selectedThreadShell,
-    uploadThreadFeedback,
-  });
-  sendContextRef.current = {
-    selectedEnvironmentRuntime,
-    selectedThreadCreation,
-    selectedThreadDetail,
-    selectedThreadShell,
-    uploadThreadFeedback,
-  };
-  const onSendMessage = useCallback(async () => {
-    const {
-      selectedEnvironmentRuntime,
-      selectedThreadCreation,
-      selectedThreadDetail,
-      selectedThreadShell,
-      uploadThreadFeedback,
-    } = sendContextRef.current;
+  const sendMessage = async () => {
     if (!selectedThreadShell) {
       return null;
     }
@@ -504,7 +480,12 @@ export function useThreadComposerState() {
       },
     );
     return messageId;
-  }, []);
+  };
+  // The thread detail changes on every streamed event, so the memoized composer
+  // gets a stable handler that runs the latest render's send.
+  const sendMessageRef = useRef(sendMessage);
+  sendMessageRef.current = sendMessage;
+  const onSendMessage = useCallback(() => sendMessageRef.current(), []);
 
   const onChangeDraftMessage = useCallback(
     (value: string) => {
