@@ -2,6 +2,7 @@ import { useAtomValue } from "@effect/atom-react";
 import { useNavigation } from "@react-navigation/native";
 import type { EnvironmentId } from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
+import * as Equivalence from "effect/Equivalence";
 import { AsyncResult, Atom } from "effect/unstable/reactivity";
 import { useCallback, useMemo } from "react";
 import { Alert } from "react-native";
@@ -59,13 +60,7 @@ const savedConnectionsByIdAtom = Atom.make((get) => {
     }),
   ) as SavedConnectionsById;
 }).pipe(
-  Atom.withEquality((previous: SavedConnectionsById, next: SavedConnectionsById) => {
-    const ids = Object.keys(next) as EnvironmentId[];
-    return (
-      ids.length === Object.keys(previous).length &&
-      ids.every((environmentId) => previous[environmentId] === next[environmentId])
-    );
-  }),
+  Atom.withEquality(Equivalence.Record(Equivalence.strictEqual())),
   Atom.withLabel("mobile:saved-connections-by-id"),
 );
 
