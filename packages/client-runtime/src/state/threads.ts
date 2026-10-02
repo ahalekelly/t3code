@@ -23,7 +23,7 @@ import { connectionProjectionPhase } from "../connection/model.ts";
 import { EnvironmentSupervisor } from "../connection/supervisor.ts";
 import * as ConnectionWakeups from "../connection/wakeups.ts";
 import { EnvironmentCacheStore } from "../platform/persistence.ts";
-import { subscribeDynamic } from "../rpc/client.ts";
+import { subscribeDynamicWithInput } from "../rpc/client.ts";
 import { ThreadSnapshotLoader, type ThreadSnapshotWindow } from "./threadSnapshotHttp.ts";
 import { parseThreadKey, threadKey } from "./entities.ts";
 import { applyThreadDetailEvent } from "./threadReducer.ts";
@@ -531,11 +531,46 @@ export const makeEnvironmentThreadState = Effect.fn("EnvironmentThreadState.make
     yield* applyLock.withPermits(1)(applyItemLocked(item).pipe(Effect.andThen(remember)));
   });
 
-  const applyItems = Effect.fn("EnvironmentThreadState.applyItems")(function* (
-    items: ReadonlyArray<OrchestrationThreadStreamItem>,
+  // Items received from subscribe until the server's completion marker. They
+  // apply together when the marker arrives, so a resume that only replays
+  // events renders its final state once (the slow path below steps through a
+  // batch with a snapshot, revert, or delete). Starting an attempt discards the
+  // previous attempt's held items and ignores its late ones: none were applied,
+  // so the cursor has not moved and the new attempt replays them. Both run
+  // under applyLock, so each batch lands wholly before or after an attempt
+  // starts.
+  let attempt: unknown;
+  let catchUp: Array<OrchestrationThreadStreamItem> = [];
+  const startAttempt = applyLock.withPermits(1)(
+    Effect.sync(() => {
+      attempt = undefined;
+      catchUp = [];
+    }),
+  );
+  const receiveItems = Effect.fn("EnvironmentThreadState.receiveItems")(function* (
+    received: ReadonlyArray<readonly [input: unknown, item: OrchestrationThreadStreamItem]>,
   ) {
     yield* applyLock.withPermits(1)(
       Effect.gen(function* () {
+        let completes = false;
+        for (const [input, item] of received) {
+          if (input !== attempt) continue;
+          catchUp.push(item);
+          if (item.kind === "synchronized") completes = true;
+        }
+        if (catchUp.length === 0) return;
+        if (!completes && (yield* Ref.get(awaitingCompletion))) {
+          // A warm resume keeps its "live" status until it learns it is behind.
+          yield* SubscriptionRef.updateSome(state, (current) =>
+            current.status === "live"
+              ? Option.some({ ...current, status: "synchronizing" as const })
+              : Option.none(),
+          );
+          return;
+        }
+        const items = catchUp;
+        catchUp = [];
+
         const current = yield* SubscriptionRef.get(state);
         if (
           Option.isNone(current.data) ||
@@ -584,56 +619,6 @@ export const makeEnvironmentThreadState = Effect.fn("EnvironmentThreadState.make
         yield* remember;
       }),
     );
-  });
-
-  // Items received from subscribe until the server's completion marker. They
-  // apply together when the marker arrives, so a resume that only replays
-  // events renders its final state once (applyItems steps through a batch
-  // with a snapshot, revert, or delete). A failed or restarted attempt keeps
-  // them: the cursor has not moved, so the next attempt replays the same range
-  // and they apply, in arrival order, with its catch-up. Discarding them could
-  // open a gap, since items of a failed attempt can still arrive after the
-  // next attempt began. Re-replayed events are skipped and a snapshot
-  // supersedes everything before it, so the buffer stays within one server
-  // replay.
-  let catchUp: Array<OrchestrationThreadStreamItem> = [];
-  let catchUpSequence = 0;
-  const receiveItems = Effect.fn("EnvironmentThreadState.receiveItems")(function* (
-    items: ReadonlyArray<OrchestrationThreadStreamItem>,
-  ) {
-    const awaiting = yield* Ref.get(awaitingCompletion);
-    if (!awaiting && catchUp.length === 0) {
-      return yield* items.length === 1 ? applyItem(items[0]!) : applyItems(items);
-    }
-    if (catchUp.length === 0) catchUpSequence = yield* SubscriptionRef.get(lastSequence);
-    let synchronized = false;
-    for (const item of items) {
-      if (item.kind === "synchronized") {
-        synchronized = true;
-      } else if (item.kind === "snapshot") {
-        catchUp = [item];
-        catchUpSequence = item.snapshot.snapshotSequence;
-      } else if (item.event.sequence > catchUpSequence) {
-        catchUp.push(item);
-        catchUpSequence = item.event.sequence;
-      }
-    }
-    if (awaiting && !synchronized) {
-      // A warm resume keeps its "live" status until it learns it is behind.
-      if (catchUp.length > 0) {
-        yield* SubscriptionRef.updateSome(state, (current) =>
-          current.status === "live"
-            ? Option.some({ ...current, status: "synchronizing" as const })
-            : Option.none(),
-        );
-      }
-      return;
-    }
-    const batch: Array<OrchestrationThreadStreamItem> = synchronized
-      ? [...catchUp, { kind: "synchronized" }]
-      : catchUp;
-    catchUp = [];
-    yield* batch.length === 1 ? applyItem(batch[0]!) : applyItems(batch);
   });
 
   // Merges an older disjoint page below the currently loaded window. All four
@@ -805,9 +790,10 @@ export const makeEnvironmentThreadState = Effect.fn("EnvironmentThreadState.make
 
   yield* markSynchronizing;
   yield* Effect.forkScoped(
-    subscribeDynamic(
+    subscribeDynamicWithInput(
       ORCHESTRATION_WS_METHODS.subscribeThread,
       Effect.fn("EnvironmentThreadState.makeSubscribeInput")(function* (session) {
+        yield* startAttempt;
         const config = yield* session.initialConfig.pipe(
           Effect.orElseSucceed(
             () =>
@@ -874,9 +860,6 @@ export const makeEnvironmentThreadState = Effect.fn("EnvironmentThreadState.make
             supportsReasoningMessages,
           );
           if (Option.isSome(httpSnapshot)) {
-            // Render the snapshot now rather than holding it for the marker.
-            // It supersedes anything still held from an earlier attempt.
-            catchUp = [];
             yield* applyItem({ kind: "snapshot", snapshot: httpSnapshot.value });
             current = yield* SubscriptionRef.get(state);
           }
@@ -892,7 +875,7 @@ export const makeEnvironmentThreadState = Effect.fn("EnvironmentThreadState.make
           }));
         }
 
-        return {
+        const input = {
           threadId,
           ...(canResume ? { afterSequence: sequence } : {}),
           ...(supportsCompletionMarker ? { requestCompletionMarker: true as const } : {}),
@@ -902,6 +885,8 @@ export const makeEnvironmentThreadState = Effect.fn("EnvironmentThreadState.make
           // path; without this a resume failure re-downloads the full thread.
           ...(supportsPagination ? { turnLimit: INITIAL_THREAD_USER_TURN_LIMIT } : {}),
         };
+        attempt = input;
+        return input;
       }),
       {
         onDefect: () => setStreamError("Could not synchronize the thread."),
