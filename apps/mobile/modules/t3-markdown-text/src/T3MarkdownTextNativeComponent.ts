@@ -2,6 +2,7 @@ import codegenNativeComponent from "react-native/Libraries/Utilities/codegenNati
 import type { ViewProps } from "react-native";
 import type {
   BubblingEventHandler,
+  Double,
   Int32,
   WithDefault,
 } from "react-native/Libraries/Types/CodegenTypes";
@@ -23,6 +24,14 @@ interface TextLayoutEvent extends TargetedEvent {
 interface SelectionChangeEvent extends TargetedEvent {
   start: Int32;
   end: Int32;
+}
+
+/** The view drew `shownLength` of `textLength` characters; see T3MarkdownText.mm. */
+interface TextCutoffEvent extends TargetedEvent {
+  textLength: Int32;
+  shownLength: Int32;
+  frameHeight: Double;
+  neededHeight: Double;
 }
 
 type EllipsizeMode = "head" | "middle" | "tail" | "clip";
@@ -49,6 +58,7 @@ interface NativeProps extends ViewProps {
    * ```
    */
   onSelectionChange?: BubblingEventHandler<SelectionChangeEvent>;
+  onTextCutoff?: BubblingEventHandler<TextCutoffEvent>;
 }
 
 export default codegenNativeComponent<NativeProps>("T3MarkdownText", {

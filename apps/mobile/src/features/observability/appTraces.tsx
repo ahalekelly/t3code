@@ -1,6 +1,7 @@
 import { createNavigationContainerRef } from "@react-navigation/native";
 import { Profiler, type ComponentType, type ProfilerOnRenderCallback } from "react";
 import { AppState } from "react-native";
+import { setMarkdownTextCutoffReporter } from "@t3tools/mobile-markdown-text/primitive";
 
 import { connectionTraceRecorder } from "./tracing";
 
@@ -59,9 +60,7 @@ export const navigationRef = createNavigationContainerRef();
 function recordAppResume(launch: boolean) {
   const route = navigationRef.getCurrentRoute();
   const environmentId =
-    typeof route?.params === "object" &&
-    route.params !== null &&
-    "environmentId" in route.params
+    typeof route?.params === "object" && route.params !== null && "environmentId" in route.params
       ? route.params.environmentId
       : undefined;
   const now = toEpochNanos(performance.now());
@@ -101,9 +100,21 @@ function traceSuspensions() {
   return () => clearTimeout(timer);
 }
 
-/** Navigation `onReady`: traces the launch screen, every move to the background, and every return. */
+/**
+ * Navigation `onReady`: traces the launch screen, every move to the background, every
+ * return, and every markdown text view that draws less text than it holds.
+ */
 export function traceAppLifecycle() {
   recordAppResume(true);
+  setMarkdownTextCutoffReporter(({ textLength, shownLength, frameHeight, neededHeight }) => {
+    const now = toEpochNanos(performance.now());
+    connectionTraceRecorder.recordSpan("client.markdown.text_cutoff", now, now, {
+      textLength,
+      shownLength,
+      frameHeight,
+      neededHeight,
+    });
+  });
   // iOS also reports `active` after brief `inactive` overlays (Control Center, Face ID), so
   // only a return from `background` counts as a resume.
   let previous = AppState.currentState;

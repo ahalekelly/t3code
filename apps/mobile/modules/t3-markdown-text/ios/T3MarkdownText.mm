@@ -453,6 +453,11 @@ T3MarkdownOutsideTapCoordinatorForWindow(UIWindow *window)
   if (!textChanged && !frameChanged) {
     return;
   }
+  // Without scrolling, UITextView sizes its text container to its frame and drops or
+  // ellipsizes lines that do not fit. Size it before laying out new text in it.
+  if (frameChanged) {
+    _textView.frame = _view.frame;
+  }
   if (textChanged) {
     // Reassigning attributedText clears any active selection. Save it and
     // restore after, while suppressing the synthetic textViewDidChangeSelection
@@ -475,9 +480,8 @@ T3MarkdownOutsideTapCoordinatorForWindow(UIWindow *window)
     }
     _suppressSelectionChange = NO;
   }
-  if (frameChanged) {
-    _textView.frame = _view.frame;
-  }
+  [_textView.layoutManager ensureLayoutForTextContainer:_textView.textContainer];
+  [self reportCutoffIfNeeded:convertedAttrString];
 
   // Text attachments have no native link element. Expose their existing runs
   // at the measured glyph bounds, without inserting views into text layout.
@@ -530,6 +534,57 @@ T3MarkdownOutsideTapCoordinatorForWindow(UIWindow *window)
     std::dynamic_pointer_cast<const facebook::react::T3MarkdownTextEventEmitter>(_eventEmitter)
     ->onTextLayout(facebook::react::T3MarkdownTextEventEmitter::OnTextLayout{static_cast<int>(self.tag), lines});
   };
+}
+
+/**
+ * Logs and emits `onTextCutoff` when the frame holds less text than the view was given.
+ * `neededHeight` is the height the shadow node measures at this width: above
+ * `frameHeight`, layout gave the view a short frame; at or below it, TextKit
+ * laid out stale geometry.
+ */
+- (void)reportCutoffIfNeeded:(NSAttributedString *)text
+{
+  NSLayoutManager *layoutManager = _textView.layoutManager;
+  NSTextContainer *textContainer = _textView.textContainer;
+  if (textContainer.maximumNumberOfLines > 0 || layoutManager.numberOfGlyphs == 0) {
+    return;
+  }
+  NSUInteger shownGlyphs = NSMaxRange([layoutManager glyphRangeForTextContainer:textContainer]);
+  if (shownGlyphs > 0) {
+    const NSRange truncated =
+        [layoutManager truncatedGlyphRangeInLineFragmentForGlyphAtIndex:shownGlyphs - 1];
+    if (truncated.location != NSNotFound) {
+      shownGlyphs = truncated.location;
+    }
+  }
+  if (shownGlyphs >= layoutManager.numberOfGlyphs) {
+    return;
+  }
+
+  NSTextStorage *storage = [[NSTextStorage alloc] initWithAttributedString:text];
+  NSLayoutManager *measuringLayoutManager = [[NSLayoutManager alloc] init];
+  measuringLayoutManager.usesFontLeading = NO;
+  NSTextContainer *measuringContainer =
+      [[NSTextContainer alloc] initWithSize:CGSizeMake(textContainer.size.width, CGFLOAT_MAX)];
+  measuringContainer.lineFragmentPadding = 0;
+  measuringContainer.lineBreakMode = textContainer.lineBreakMode;
+  [measuringLayoutManager addTextContainer:measuringContainer];
+  [storage addLayoutManager:measuringLayoutManager];
+  [measuringLayoutManager ensureLayoutForTextContainer:measuringContainer];
+  const double neededHeight =
+      ceil([measuringLayoutManager usedRectForTextContainer:measuringContainer].size.height);
+
+  const int textLength = static_cast<int>(text.length);
+  const int shownLength =
+      static_cast<int>([layoutManager characterIndexForGlyphAtIndex:shownGlyphs]);
+  const double frameHeight = _textView.frame.size.height;
+  NSLog(@"T3MarkdownText cutoff: showing %d of %d characters, frame %.2fx%.2f, needs height %.2f",
+        shownLength, textLength, _textView.frame.size.width, frameHeight, neededHeight);
+  if (_eventEmitter != nullptr) {
+    std::dynamic_pointer_cast<const T3MarkdownTextEventEmitter>(_eventEmitter)
+        ->onTextCutoff(T3MarkdownTextEventEmitter::OnTextCutoff{
+            static_cast<int>(self.tag), textLength, shownLength, frameHeight, neededHeight});
+  }
 }
 
 - (void)loadAttachmentImages:(const std::vector<T3MarkdownTextAttachmentRange> &)attachmentRanges
