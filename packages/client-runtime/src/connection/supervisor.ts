@@ -332,7 +332,6 @@ export const make = Effect.fn("EnvironmentSupervisor.make")(function* (
     attempt: number,
     generation: number,
     pendingRetry: Option.Option<PendingRetryTrace>,
-    resumeHedge: boolean,
   ) => {
     const traced = Effect.gen(function* () {
       const attemptSpan = yield* Effect.currentSpan.pipe(Effect.orDie);
@@ -340,7 +339,6 @@ export const make = Effect.fn("EnvironmentSupervisor.make")(function* (
       yield* Effect.annotateCurrentSpan({
         "connection.attempt": attempt,
         "connection.generation": generation,
-        "connection.resume_hedge": resumeHedge,
         "connection.retry.failure_count": Option.match(pendingRetry, {
           onNone: () => 0,
           onSome: (retry) => retry.failureCount,
@@ -375,13 +373,12 @@ export const make = Effect.fn("EnvironmentSupervisor.make")(function* (
     attempt: number,
     generation: number,
     pendingRetry: Option.Option<PendingRetryTrace>,
-    resumeHedge: boolean,
     report: (progress: ConnectionDriver.ConnectionDriverProgress) => Effect.Effect<void>,
   ) {
     const connect = driver.connect(entry, report);
     const traced =
       target._tag === "RelayConnectionTarget"
-        ? traceRelayEstablishment(connect, attempt, generation, pendingRetry, resumeHedge)
+        ? traceRelayEstablishment(connect, attempt, generation, pendingRetry)
         : connect.pipe(
             Effect.map((lease) => ({ attemptSpan: Option.none<Tracer.Span>(), lease })),
             Effect.mapError((error): TracedAttemptFailure => ({
@@ -485,7 +482,7 @@ export const make = Effect.fn("EnvironmentSupervisor.make")(function* (
     let deadSessionError: ConnectionAttemptError | null = null;
     const fresh = yield* awaitTurn.pipe(
       Effect.andThen(
-        openLease(1, generation + 1, Option.none(), true, (next) =>
+        openLease(1, generation + 1, Option.none(), (next) =>
           Effect.suspend(() => {
             progress = next;
             return deadSessionError === null
@@ -653,7 +650,7 @@ export const make = Effect.fn("EnvironmentSupervisor.make")(function* (
   ) {
     yield* SubscriptionRef.set(prepared, Option.none());
     const nextGeneration = generation + 1;
-    const open = openLease(attempt, nextGeneration, pendingRetry, false, (progress) =>
+    const open = openLease(attempt, nextGeneration, pendingRetry, (progress) =>
       reportProgress(attempt, nextGeneration, lastFailure, progress),
     );
     const opening = yield* (
