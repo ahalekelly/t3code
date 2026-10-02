@@ -1044,8 +1044,12 @@ describe("EnvironmentSupervisor", () => {
 
   it.effect("times out the resume probe and then the fresh lease before backing off", () =>
     Effect.gen(function* () {
+      const freshStarted = yield* Deferred.make<void>();
       const harness = yield* makeHarness({
-        prepare: (attempt) => (attempt === 2 ? Effect.never : Effect.succeed(PREPARED_CONNECTION)),
+        prepare: (attempt) =>
+          attempt === 2
+            ? Deferred.succeed(freshStarted, undefined).pipe(Effect.andThen(Effect.never))
+            : Effect.succeed(PREPARED_CONNECTION),
         probe: () => Effect.never,
       });
       const supervisor = yield* EnvironmentSupervisor.make(TARGET_ENTRY, {
@@ -1054,6 +1058,7 @@ describe("EnvironmentSupervisor", () => {
       yield* awaitState(supervisor.state, (state) => state.phase === "connected");
 
       yield* supervisor.wake("application-active-reconnect");
+      yield* Deferred.await(freshStarted);
       yield* TestClock.adjust("2999 millis");
       expect((yield* SubscriptionRef.get(supervisor.state)).phase).toBe("connected");
       yield* TestClock.adjust("1 milli");
@@ -1137,6 +1142,35 @@ describe("EnvironmentSupervisor", () => {
       const backoff = yield* awaitState(supervisor.state, (state) => state.phase === "backoff");
       expect(backoff.lastFailure?.detail).toBe("Session closed.");
       expect(backoff.attempt).toBe(1);
+    }),
+  );
+
+  it.effect("starts a new fresh lease when another long resume interrupts a pending race", () =>
+    Effect.gen(function* () {
+      const freshFailed = yield* Deferred.make<void>();
+      const harness = yield* makeHarness({
+        prepare: (attempt) =>
+          attempt === 2
+            ? Deferred.succeed(freshFailed, undefined).pipe(
+                Effect.andThen(Effect.fail(transient("Fresh lease failed."))),
+              )
+            : Effect.succeed(PREPARED_CONNECTION),
+        probe: () => Effect.never,
+      });
+      const supervisor = yield* EnvironmentSupervisor.make(TARGET_ENTRY, {
+        initiallyDesired: true,
+      }).pipe(Effect.provide(harness.dependencies));
+      yield* awaitState(supervisor.state, (state) => state.phase === "connected");
+
+      yield* supervisor.wake("application-active-reconnect");
+      yield* Deferred.await(freshFailed);
+      yield* supervisor.wake("application-active-reconnect");
+      yield* awaitState(
+        supervisor.state,
+        (state) => state.phase === "connected" && state.generation === 2,
+      );
+      expect(yield* Ref.get(harness.prepareCount)).toBe(3);
+      expect(yield* Ref.get(harness.releaseCount)).toBe(1);
     }),
   );
 
