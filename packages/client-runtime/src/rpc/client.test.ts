@@ -38,6 +38,7 @@ import {
   request,
   runStream,
   subscribe,
+  subscribeDynamicWithInput,
   subscribeDynamicWithSession,
 } from "./client.ts";
 
@@ -446,6 +447,71 @@ describe("environment RPC", () => {
         [firstSession, bufferedFirstValue],
         [secondSession, secondValue],
       ]);
+    }),
+  );
+
+  it.effect("tags an old value buffered across a resubscribe with its attempt's input", () =>
+    Effect.gen(function* () {
+      const secondSubscribed = yield* Deferred.make<void>();
+      const firstValueBlocked = yield* Deferred.make<void>();
+      const releaseFirstValue = yield* Deferred.make<void>();
+      const resubscribe = yield* Queue.unbounded<void>();
+      const values = [1, 2, 3].map((index) => ({ index }) as unknown as ServerLifecycleStreamEvent);
+      let calls = 0;
+      const client = {
+        [WS_METHODS.subscribeServerLifecycle]: () => {
+          calls += 1;
+          return calls === 1
+            ? Stream.fromIterable([values[0]!, values[1]!]).pipe(Stream.concat(Stream.never))
+            : Stream.fromEffect(Deferred.succeed(secondSubscribed, undefined)).pipe(
+                Stream.drain,
+                Stream.concat(Stream.make(values[2]!)),
+                Stream.concat(Stream.never),
+              );
+        },
+      } as unknown as WsRpcProtocolClient;
+      const inputs: Array<object> = [];
+      const { activeSession, supervisor } = yield* makeHarness();
+
+      const resultFiber = yield* subscribeDynamicWithInput(
+        WS_METHODS.subscribeServerLifecycle,
+        () =>
+          Effect.sync(() => {
+            const input = {};
+            inputs.push(input);
+            return input;
+          }),
+        { resubscribe: Stream.fromQueue(resubscribe) },
+      ).pipe(
+        Stream.mapEffect((tagged) =>
+          tagged[1] === values[0]
+            ? Deferred.succeed(firstValueBlocked, undefined).pipe(
+                Effect.andThen(Deferred.await(releaseFirstValue)),
+                Effect.as(tagged),
+              )
+            : Effect.succeed(tagged),
+        ),
+        Stream.take(3),
+        Stream.runCollect,
+        Effect.provideService(EnvironmentSupervisor.EnvironmentSupervisor, supervisor),
+        Effect.forkChild,
+      );
+
+      yield* SubscriptionRef.set(activeSession, Option.some(session(client)));
+      yield* Deferred.await(firstValueBlocked);
+      yield* Queue.offer(resubscribe, undefined);
+      yield* Deferred.await(secondSubscribed);
+      yield* Deferred.succeed(releaseFirstValue, undefined);
+
+      const result = yield* Fiber.join(resultFiber);
+      expect(inputs).toHaveLength(2);
+      expect(result).toEqual([
+        [inputs[0], values[0]],
+        [inputs[0], values[1]],
+        [inputs[1], values[2]],
+      ]);
+      expect(result[1]![0]).toBe(inputs[0]);
+      expect(result[2]![0]).toBe(inputs[1]);
     }),
   );
 
