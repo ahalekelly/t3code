@@ -25,8 +25,7 @@ export const shellCachesLoadedAtom = Atom.make((get) => {
   const catalog = get(environmentCatalog.catalogValueAtom);
   if (!catalog.isReady) return false;
   for (const environmentId of enabledEnvironmentIds(catalog)) {
-    const state = get(environmentShell.stateValueAtom(environmentId));
-    if (Option.isNone(state.snapshot) && state.status === "empty") return false;
+    if (get(environmentShell.stateValueAtom(environmentId)) === EMPTY_SHELL_STATE) return false;
   }
   return true;
 }).pipe(Atom.withLabel("mobile-shell-caches-loaded"));
