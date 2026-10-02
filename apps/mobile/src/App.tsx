@@ -19,6 +19,7 @@ import {
 } from "./features/settings/appearance/AppearancePreferencesProvider";
 import {
   navigationRef,
+  recordLaunchMark,
   recordReactCommit,
   traceAppLifecycle,
 } from "./features/observability/appTraces";
@@ -37,6 +38,7 @@ if (process.env.EXPO_PUBLIC_SHOWCASE === "1") {
   prepareNativeShowcaseCapture();
 }
 
+recordLaunchMark("client.js.start", {});
 void SplashScreen.preventAutoHideAsync().catch(() => {
   // The native module can be unavailable in non-native test environments.
 });
@@ -69,7 +71,10 @@ function SplashScreenCoordinator() {
   }, []);
 
   useEffect(() => {
-    if (isReady && (cachesLoaded || cacheWaitExpired)) void SplashScreen.hide();
+    if (isReady && (cachesLoaded || cacheWaitExpired)) {
+      recordLaunchMark("client.splash.hide", { cachesLoaded, cacheWaitExpired });
+      void SplashScreen.hide();
+    }
   }, [isReady, cachesLoaded, cacheWaitExpired]);
 
   return null;
