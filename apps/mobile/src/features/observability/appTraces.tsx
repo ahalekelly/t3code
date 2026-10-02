@@ -59,8 +59,7 @@ export const navigationRef = createNavigationContainerRef();
 function recordAppResume(launch: boolean) {
   const route = navigationRef.getCurrentRoute();
   const environmentId =
-    route?.name === "Thread" &&
-    typeof route.params === "object" &&
+    typeof route?.params === "object" &&
     route.params !== null &&
     "environmentId" in route.params
       ? route.params.environmentId
@@ -68,7 +67,7 @@ function recordAppResume(launch: boolean) {
   const now = toEpochNanos(performance.now());
   connectionTraceRecorder.recordSpan("client.app.resume", now, now, {
     "app.launch": launch,
-    screen: route?.name === "Home" ? "thread-list" : route?.name === "Thread" ? "thread" : "other",
+    screen: route?.name ?? "none",
     ...(typeof environmentId === "string" ? { "screen.environment.id": environmentId } : {}),
   });
 }
