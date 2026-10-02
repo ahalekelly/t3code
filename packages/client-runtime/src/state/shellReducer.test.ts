@@ -3,7 +3,7 @@ import { describe, expect, it } from "vite-plus/test";
 import { ProjectId, ProviderInstanceId, ThreadId } from "@t3tools/contracts";
 import type { OrchestrationShellSnapshot, OrchestrationShellStreamEvent } from "@t3tools/contracts";
 
-import { applyShellStreamEvent } from "./shellReducer.ts";
+import { applyShellStreamEvent, reuseUnchangedShellEntities } from "./shellReducer.ts";
 
 const baseSnapshot: OrchestrationShellSnapshot = {
   snapshotSequence: 0,
@@ -182,5 +182,57 @@ describe("applyShellStreamEvent", () => {
     const unknownEvent = { kind: "unknown-future-event", sequence: 99 } as any;
     const next = applyShellStreamEvent(baseSnapshot, unknownEvent);
     expect(next).toBe(baseSnapshot);
+  });
+});
+
+describe("reuseUnchangedShellEntities", () => {
+  const previous: OrchestrationShellSnapshot = {
+    ...baseSnapshot,
+    snapshotSequence: 4,
+    projects: [stubProject],
+    threads: [stubThread, { ...stubThread, id: ThreadId.make("thread-2") }],
+  };
+
+  it("keeps the previous lists when a reloaded snapshot is unchanged", () => {
+    const reloaded: OrchestrationShellSnapshot = {
+      ...previous,
+      snapshotSequence: 9,
+      projects: previous.projects.map((project) => ({ ...project, scripts: [] })),
+      threads: previous.threads.map((thread) => ({
+        ...thread,
+        modelSelection: { ...thread.modelSelection },
+      })),
+    };
+
+    const next = reuseUnchangedShellEntities(previous, reloaded);
+
+    expect(next.snapshotSequence).toBe(9);
+    expect(next.projects).toBe(previous.projects);
+    expect(next.threads).toBe(previous.threads);
+  });
+
+  it("replaces only the changed, added, and removed entities", () => {
+    const renamed = { ...stubThread, id: ThreadId.make("thread-2"), title: "Renamed" };
+    const added = { ...stubThread, id: ThreadId.make("thread-3") };
+    const reloaded: OrchestrationShellSnapshot = {
+      ...previous,
+      projects: [{ ...stubProject }],
+      threads: [{ ...stubThread }, renamed, added],
+    };
+
+    const next = reuseUnchangedShellEntities(previous, reloaded);
+
+    expect(next.projects).toBe(previous.projects);
+    expect(next.threads).toHaveLength(3);
+    expect(next.threads[0]).toBe(previous.threads[0]);
+    expect(next.threads[1]).toBe(renamed);
+    expect(next.threads[2]).toBe(added);
+
+    const removed = reuseUnchangedShellEntities(previous, {
+      ...previous,
+      threads: [{ ...stubThread }],
+    });
+    expect(removed.threads).toHaveLength(1);
+    expect(removed.threads[0]).toBe(previous.threads[0]);
   });
 });
