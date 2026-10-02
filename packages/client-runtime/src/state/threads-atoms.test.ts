@@ -622,7 +622,7 @@ describe("createEnvironmentThreadStateAtoms", () => {
     }),
   );
 
-  it.effect.each([1, 16, 500])("publishes each replay batch once (batch size: %i)", (batchSize) =>
+  it.effect.each([1, 16, 500])("publishes a catch-up once (batch size: %i)", (batchSize) =>
     Effect.gen(function* () {
       const h = yield* makeHarness();
       const unmount = h.registry.mount(h.stateAtom);
@@ -659,20 +659,15 @@ describe("createEnvironmentThreadStateAtoms", () => {
       }));
       for (let offset = 0; offset < events.length; offset += batchSize) {
         yield* Queue.offerAll(first.events, events.slice(offset, offset + batchSize));
-        const last = Math.min(offset + batchSize, events.length) - 1;
-        yield* observeState(
-          h.registry,
-          h.stateAtom,
-          (state) => Option.getOrNull(state.data)?.messages[0]?.text.endsWith(`${last},`) === true,
-        );
       }
+      // Frames already applied are skipped, even when re-sent mid-catch-up.
       yield* Queue.offerAll(first.events, [events[499]!, events[0]!]);
       yield* Queue.offer(first.events, { kind: "synchronized" });
       yield* observeState(h.registry, h.stateAtom, (state) => state.status === "live");
       expect(currentThread(h.registry, h.stateAtom).messages[0]?.text).toBe(
         Array.from({ length: 500 }, (_, index) => `${index},`).join(""),
       );
-      expect(updates).toBe(Math.ceil(500 / batchSize));
+      expect(updates).toBe(1);
       stop();
       unmount();
       yield* Deferred.await(first.closed);
@@ -729,12 +724,9 @@ describe("createEnvironmentThreadStateAtoms", () => {
     }),
   );
 
-  it.effect.each([
-    { replayed: false, statuses: ["live"] },
-    { replayed: true, statuses: ["live", "synchronizing", "live"] },
-  ])(
+  it.effect.each([{ replayed: false }, { replayed: true }])(
     "keeps a warm resume live until it replays events (replayed: $replayed)",
-    ({ replayed, statuses }) =>
+    ({ replayed }) =>
       Effect.gen(function* () {
         const h = yield* makeHarness({ connected: true });
         const unmount = h.registry.mount(h.stateAtom);
@@ -744,10 +736,12 @@ describe("createEnvironmentThreadStateAtoms", () => {
         unmount();
         yield* Deferred.await(first.closed);
 
-        const observed: Array<EnvironmentThreadState["status"]> = [];
-        const stop = h.registry.subscribe(h.stateAtom, (state) => observed.push(state.status), {
-          immediate: true,
-        });
+        const observed: Array<string> = [];
+        const stop = h.registry.subscribe(
+          h.stateAtom,
+          (state) => observed.push(`${state.status}:${Option.getOrNull(state.data)?.title}`),
+          { immediate: true },
+        );
         const remount = h.registry.mount(h.stateAtom);
         const next = yield* Queue.take(h.subscriptions);
         expect(next.afterSequence).toBe(7);
@@ -759,9 +753,19 @@ describe("createEnvironmentThreadStateAtoms", () => {
           yield* observeState(h.registry, h.stateAtom, (state) => state.status === "synchronizing");
         }
         yield* Queue.offer(next.events, { kind: "synchronized" });
-        yield* observeState(h.registry, h.stateAtom, (state) => state.status === "live");
-        expect(observed.filter((status, index) => observed[index - 1] !== status)).toEqual(
-          statuses,
+        yield* observeState(
+          h.registry,
+          h.stateAtom,
+          (state) =>
+            state.status === "live" &&
+            Option.getOrNull(state.data)?.title === (replayed ? "Replayed" : THREAD.title),
+        );
+        // Retained data stays on screen until the replay lands in one update;
+        // only a resume that replays something shows sync progress meanwhile.
+        expect(observed.filter((entry, index) => observed[index - 1] !== entry)).toEqual(
+          replayed
+            ? [`live:${THREAD.title}`, `synchronizing:${THREAD.title}`, "live:Replayed"]
+            : [`live:${THREAD.title}`],
         );
         stop();
         remount();

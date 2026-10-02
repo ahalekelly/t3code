@@ -357,11 +357,11 @@ const sessionSet = (
   },
 });
 
-const deleted = (): OrchestrationThreadStreamItem => ({
+const deleted = (sequence = 3): OrchestrationThreadStreamItem => ({
   kind: "event",
   event: {
     eventId: EventId.make("event-deleted"),
-    sequence: 3,
+    sequence,
     occurredAt: "2026-04-01T02:00:00.000Z",
     commandId: null,
     causationEventId: null,
@@ -783,7 +783,7 @@ describe("EnvironmentThreads", () => {
     }),
   );
 
-  it.effect("does not resurrect a deleted thread when the app returns to the foreground", () =>
+  it.effect("does not resurrect a thread deleted during catch-up when the app returns", () =>
     Effect.gen(function* () {
       const harness = yield* makeHarness({
         cached: BASE_THREAD,
@@ -793,19 +793,33 @@ describe("EnvironmentThreads", () => {
           thread: { ...BASE_THREAD, title: "Stale HTTP thread" },
         }),
       });
-      yield* Queue.offer(harness.inputs, snapshot(BASE_THREAD));
-      yield* Queue.offer(harness.inputs, deleted());
+      yield* awaitThreadState(
+        harness.observed,
+        (value) => value.status === "synchronizing" && Option.isSome(value.data),
+      );
+      const changesBefore = yield* Ref.get(harness.stateChangeCount);
+      yield* Queue.offerAll(harness.inputs, [
+        titleUpdated("Doomed title", CACHED_SNAPSHOT_SEQUENCE + 1),
+        deleted(CACHED_SNAPSHOT_SEQUENCE + 2),
+        synchronized(),
+      ]);
       yield* awaitThreadState(harness.observed, (value) => value.status === "deleted");
 
+      // The replay applies in order as one update: the update, then the delete.
+      expect(yield* Ref.get(harness.stateChangeCount)).toBe(changesBefore + 1);
+      expect(yield* Ref.get(harness.removedThreads)).toEqual([THREAD_ID]);
       expect(yield* Ref.get(harness.loaderCalls)).toBe(0);
+
       yield* Queue.offer(harness.wakeups, "application-active");
-      for (let attempt = 0; attempt < 100; attempt += 1) {
-        if ((yield* Ref.get(harness.subscriptionCount)) >= 2) break;
-        yield* Effect.yieldNow;
-      }
+      yield* harness.awaitSubscriptionCount(2);
+      // A replay of pre-delete events on the new subscription must not revive it.
+      yield* Queue.offerAll(harness.inputs, [
+        titleUpdated("Doomed title", CACHED_SNAPSHOT_SEQUENCE + 1),
+        synchronized(),
+      ]);
+      for (let index = 0; index < 100; index += 1) yield* Effect.yieldNow;
 
       const latest = yield* Ref.get(harness.latest);
-      expect(yield* Ref.get(harness.subscriptionCount)).toBe(2);
       expect(yield* Ref.get(harness.loaderCalls)).toBe(0);
       expect(latest.status).toBe("deleted");
       expect(Option.isNone(latest.data)).toBe(true);
@@ -927,7 +941,7 @@ describe("EnvironmentThreads", () => {
     }),
   );
 
-  it.effect("keeps replayed updates synchronizing until the completion marker arrives", () =>
+  it.effect("holds replayed updates until the completion marker arrives", () =>
     Effect.gen(function* () {
       const harness = yield* makeHarness({ cached: BASE_THREAD, completionMarker: true });
       yield* awaitThreadState(
@@ -935,26 +949,53 @@ describe("EnvironmentThreads", () => {
         (value) => value.status === "synchronizing" && Option.isSome(value.data),
       );
       expect(yield* Ref.get(harness.lastRequestCompletionMarker)).toBe(true);
+      const changesBefore = yield* Ref.get(harness.stateChangeCount);
 
       yield* Queue.offer(
         harness.inputs,
         titleUpdated("Caught-up title", CACHED_SNAPSHOT_SEQUENCE + 1),
       );
-      const catchingUp = yield* awaitThreadState(
-        harness.observed,
-        (value) =>
-          value.status === "synchronizing" &&
-          Option.isSome(value.data) &&
-          value.data.value.title === "Caught-up title",
-      );
-      expect(catchingUp.status).toBe("synchronizing");
-
       yield* Queue.offer(harness.inputs, synchronized());
       const live = yield* awaitThreadState(
         harness.observed,
         (value) => value.status === "live" && Option.isSome(value.data),
       );
       expect(Option.getOrThrow(live.data).title).toBe("Caught-up title");
+      // One update, straight from the cached title to the caught-up one: the
+      // replayed event never rendered on its own.
+      expect(yield* Ref.get(harness.stateChangeCount)).toBe(changesBefore + 1);
+    }),
+  );
+
+  it.effect("publishes a 20-event catch-up as one state change", () =>
+    Effect.gen(function* () {
+      const harness = yield* makeHarness({ cached: BASE_THREAD, completionMarker: true });
+      yield* awaitThreadState(
+        harness.observed,
+        (value) => value.status === "synchronizing" && Option.isSome(value.data),
+      );
+      const changesBefore = yield* Ref.get(harness.stateChangeCount);
+      // Separate frames, as the server sends a replay.
+      for (let index = 1; index <= 20; index += 1) {
+        yield* Queue.offer(
+          harness.inputs,
+          titleUpdated(`Title ${index}`, CACHED_SNAPSHOT_SEQUENCE + index),
+        );
+        yield* Effect.yieldNow;
+      }
+      yield* Queue.offer(harness.inputs, synchronized());
+      const live = yield* awaitThreadState(harness.observed, (value) => value.status === "live");
+
+      expect(Option.getOrThrow(live.data).title).toBe("Title 20");
+      expect(yield* Ref.get(harness.stateChangeCount)).toBe(changesBefore + 1);
+
+      // Live events after the marker apply as they arrive.
+      yield* Queue.offer(harness.inputs, titleUpdated("Live title", CACHED_SNAPSHOT_SEQUENCE + 21));
+      yield* awaitThreadState(
+        harness.observed,
+        (value) => Option.getOrNull(value.data)?.title === "Live title",
+      );
+      expect(yield* Ref.get(harness.stateChangeCount)).toBe(changesBefore + 2);
     }),
   );
 

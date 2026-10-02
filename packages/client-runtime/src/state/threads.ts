@@ -167,9 +167,9 @@ function matchesThreadSnapshot(
 
 // A retained "live" state stays live: the cursor resume that follows only
 // replays what the thread missed, and on servers that send the completion
-// marker the first replayed event moves the status to "synchronizing" on its
-// own. Downgrading here would flash a sync label on every return to a
-// recently viewed thread.
+// marker that replay applies in one update when the marker arrives.
+// Downgrading here would flash a sync label on every return to a recently
+// viewed thread.
 function cachedThreadState(value: EnvironmentThreadState): EnvironmentThreadState {
   return {
     ...value,
@@ -436,67 +436,6 @@ export const makeEnvironmentThreadState = Effect.fn("EnvironmentThreadState.make
     );
   });
 
-  // Body of applyItem, running under applyLock.
-  const applyItemLocked = Effect.fn("EnvironmentThreadState.applyItemLocked")(function* (
-    item: OrchestrationThreadStreamItem,
-  ) {
-    if (item.kind === "synchronized") {
-      yield* Ref.set(awaitingCompletion, false);
-      yield* SubscriptionRef.update(state, (current) =>
-        Option.isSome(current.data) && current.status !== "deleted" && Option.isNone(current.error)
-          ? { ...current, status: "live" as const, error: Option.none() }
-          : current,
-      );
-      return;
-    }
-
-    if (item.kind === "snapshot") {
-      // A fresh snapshot replaces all loaded history, including older
-      // pages: a turn reverted while disconnected would otherwise survive
-      // in the preserved history with no event left to remove it. The
-      // epoch bump discards any older-page fetch racing this snapshot.
-      yield* Ref.update(historyEpoch, (epoch) => epoch + 1);
-      // A parked response must not clear loadingOlder on a request started
-      // from the replacement snapshot's cursor.
-      yield* Ref.set(pendingOlderPage, null);
-      yield* SubscriptionRef.set(lastSequence, item.snapshot.snapshotSequence);
-      yield* setThread(item.snapshot.thread, pageStateFromSnapshot(item.snapshot.page));
-      return;
-    }
-
-    const sequence = yield* SubscriptionRef.get(lastSequence);
-    if (item.event.sequence <= sequence) {
-      return;
-    }
-    yield* SubscriptionRef.set(lastSequence, item.event.sequence);
-
-    const current = yield* SubscriptionRef.get(state);
-    if (Option.isNone(current.data)) {
-      if (item.event.type === "thread.deleted") {
-        yield* setDeleted();
-      }
-      return;
-    }
-    if (item.event.type === "thread.reverted") {
-      // A revert rewrites loaded history (whole turns disappear), so an
-      // older-page fetch in flight may straddle the removed range; the epoch
-      // bump discards it. The stored page cursor stays valid: cursors are an
-      // (anchor, turnId) keyset derived from event content, which survives
-      // the revert projector's row rewrite, so no refresh is needed — the
-      // revert reducer's turn filtering fully handles loaded history.
-      yield* Ref.update(historyEpoch, (epoch) => epoch + 1);
-    }
-    const result = applyThreadDetailEvent(current.data.value, item.event);
-    if (result.kind === "updated") {
-      yield* setThread(result.thread, "keep");
-    } else if (result.kind === "deleted") {
-      yield* setDeleted();
-    }
-    // The event may have advanced the live state past a parked page's
-    // watermark; merge it as soon as that happens.
-    yield* tryMergePendingOlderPage();
-  });
-
   // Merges a parked older page once the live state has caught up to the
   // page's thread watermark, or discards it if history was rewritten
   // (epoch advanced) while it waited. Must run under applyLock.
@@ -525,60 +464,137 @@ export const makeEnvironmentThreadState = Effect.fn("EnvironmentThreadState.make
     },
   );
 
-  const applyItem = Effect.fn("EnvironmentThreadState.applyItem")(function* (
-    item: OrchestrationThreadStreamItem,
+  // Reduces a batch of stream items to one state update, so a burst of
+  // replayed events renders once instead of stepping through stale
+  // intermediate states. Must run under applyLock.
+  const applyBatchLocked = Effect.fn("EnvironmentThreadState.applyBatchLocked")(function* (
+    items: ReadonlyArray<OrchestrationThreadStreamItem>,
   ) {
-    yield* applyLock.withPermits(1)(applyItemLocked(item).pipe(Effect.andThen(remember)));
+    const current = yield* SubscriptionRef.get(state);
+    let data = current.data;
+    let page: Option.Option<EnvironmentThreadPageState> | "keep" = "keep";
+    let sequence = yield* SubscriptionRef.get(lastSequence);
+    let deleted = false;
+    let historyRewritten = false;
+    let snapshotReceived = false;
+    let synchronized = false;
+    // Retain the last settled state even if the next turn starts before
+    // this batch publishes. Its cursor must describe that settled content.
+    let persistable: { thread: OrchestrationThread; sequence: number } | undefined;
+    for (const item of items) {
+      if (item.kind === "synchronized") {
+        synchronized = true;
+        continue;
+      }
+      if (item.kind === "snapshot") {
+        // A fresh snapshot replaces all loaded history, including older
+        // pages: a turn reverted while disconnected would otherwise survive
+        // in the preserved history with no event left to remove it.
+        historyRewritten = true;
+        snapshotReceived = true;
+        deleted = false;
+        sequence = item.snapshot.snapshotSequence;
+        data = Option.some(item.snapshot.thread);
+        page = pageStateFromSnapshot(item.snapshot.page);
+        if (shouldPersistThread(item.snapshot.thread)) {
+          persistable = { thread: item.snapshot.thread, sequence };
+        }
+        continue;
+      }
+      if (item.event.sequence <= sequence) continue;
+      sequence = item.event.sequence;
+      if (Option.isNone(data)) {
+        if (item.event.type === "thread.deleted") deleted = true;
+        continue;
+      }
+      // A revert rewrites loaded history (whole turns disappear). The stored
+      // page cursor stays valid: cursors are an (anchor, turnId) keyset derived
+      // from event content, which survives the revert projector's row rewrite.
+      if (item.event.type === "thread.reverted") historyRewritten = true;
+      const result = applyThreadDetailEvent(data.value, item.event);
+      if (result.kind === "updated") {
+        data = Option.some(result.thread);
+        if (shouldPersistThread(result.thread)) persistable = { thread: result.thread, sequence };
+      } else if (result.kind === "deleted") {
+        deleted = true;
+        data = Option.none();
+      }
+    }
+
+    // The epoch bump discards any older-page fetch straddling rewritten history.
+    if (historyRewritten) yield* Ref.update(historyEpoch, (epoch) => epoch + 1);
+    // A parked response must not clear loadingOlder on a request started
+    // from the replacement snapshot's cursor.
+    if (snapshotReceived) yield* Ref.set(pendingOlderPage, null);
+    yield* SubscriptionRef.set(lastSequence, sequence);
+    if (synchronized) yield* Ref.set(awaitingCompletion, false);
+    if (deleted) {
+      yield* setDeleted();
+    } else if (Option.isSome(data) && (data !== current.data || page !== "keep")) {
+      yield* setThread(data.value, page);
+      if (persistable !== undefined && !shouldPersistThread(data.value)) {
+        yield* offerThreadPersistence(persistable.thread, persistable.sequence);
+      }
+    } else if (synchronized) {
+      yield* SubscriptionRef.update(state, (value) =>
+        Option.isSome(value.data) && value.status !== "deleted" && Option.isNone(value.error)
+          ? { ...value, status: "live" as const, error: Option.none() }
+          : value,
+      );
+    }
+    // The batch may have advanced the live state past a parked page's
+    // watermark; merge it as soon as that happens.
+    yield* tryMergePendingOlderPage();
+    yield* remember;
   });
 
-  const applyItems = Effect.fn("EnvironmentThreadState.applyItems")(function* (
+  // Items received during a subscription's catch-up phase (from subscribe
+  // until the server's completion marker). They apply together when the marker
+  // arrives, so a resume renders its final state once. A failed or restarted
+  // attempt keeps them: the cursor has not moved, so the next attempt replays
+  // the same range and they apply, in arrival order, with its catch-up.
+  // Discarding them could open a gap, since items of a failed attempt can still
+  // arrive after the next attempt began. Re-replayed events are skipped and a
+  // snapshot supersedes everything before it, so the buffer stays within one
+  // server replay (bounded by the server's resume limits).
+  let catchUp: Array<OrchestrationThreadStreamItem> = [];
+  let catchUpSequence = 0;
+  const receiveItems = Effect.fn("EnvironmentThreadState.receiveItems")(function* (
     items: ReadonlyArray<OrchestrationThreadStreamItem>,
   ) {
     yield* applyLock.withPermits(1)(
       Effect.gen(function* () {
-        const current = yield* SubscriptionRef.get(state);
-        if (
-          Option.isNone(current.data) ||
-          (yield* Ref.get(pendingOlderPage)) !== null ||
-          items.some(
-            (item) =>
-              item.kind === "snapshot" ||
-              (item.kind === "event" &&
-                (item.event.type === "thread.reverted" || item.event.type === "thread.deleted")),
-          )
-        ) {
-          for (const item of items) {
-            yield* applyItemLocked(item);
-            yield* remember;
-          }
-          return;
-        }
-
-        let thread = current.data.value;
-        let sequence = yield* SubscriptionRef.get(lastSequence);
+        if (catchUp.length === 0) catchUpSequence = yield* SubscriptionRef.get(lastSequence);
         let synchronized = false;
-        // Retain the last settled state even if the next turn starts before
-        // this batch publishes. Its cursor must describe that settled content.
-        let persistable: { thread: OrchestrationThread; sequence: number } | undefined;
         for (const item of items) {
           if (item.kind === "synchronized") {
             synchronized = true;
-          } else if (item.kind === "event" && item.event.sequence > sequence) {
-            sequence = item.event.sequence;
-            const result = applyThreadDetailEvent(thread, item.event);
-            if (result.kind === "updated") {
-              thread = result.thread;
-              if (shouldPersistThread(thread)) persistable = { thread, sequence };
-            }
+          } else if (item.kind === "snapshot") {
+            catchUp = [item];
+            catchUpSequence = item.snapshot.snapshotSequence;
+          } else if (item.event.sequence > catchUpSequence) {
+            catchUp.push(item);
+            catchUpSequence = item.event.sequence;
           }
         }
-        yield* SubscriptionRef.set(lastSequence, sequence);
-        if (thread !== current.data.value) yield* setThread(thread, "keep");
-        if (persistable !== undefined && !shouldPersistThread(thread)) {
-          yield* offerThreadPersistence(persistable.thread, persistable.sequence);
+        if (!synchronized && (yield* Ref.get(awaitingCompletion))) {
+          // A warm resume keeps its "live" status until it learns it is behind.
+          const current = yield* SubscriptionRef.get(state);
+          if (catchUp.length > 0 && current.status === "live") {
+            yield* SubscriptionRef.set(state, { ...current, status: "synchronizing" as const });
+          }
+          return;
         }
-        if (synchronized) yield* applyItemLocked({ kind: "synchronized" });
-        yield* remember;
+        if (synchronized) catchUp.push({ kind: "synchronized" });
+        const batch = catchUp;
+        catchUp = [];
+        // A parked older page must merge at the exact event that reaches its
+        // watermark, before later events touch the rows it brings in.
+        if ((yield* Ref.get(pendingOlderPage)) !== null) {
+          for (const item of batch) yield* applyBatchLocked([item]);
+        } else {
+          yield* applyBatchLocked(batch);
+        }
       }),
     );
   });
@@ -821,7 +837,14 @@ export const makeEnvironmentThreadState = Effect.fn("EnvironmentThreadState.make
             supportsReasoningMessages,
           );
           if (Option.isSome(httpSnapshot)) {
-            yield* applyItem({ kind: "snapshot", snapshot: httpSnapshot.value });
+            // Render the snapshot now rather than holding it for the marker.
+            // It supersedes anything still buffered from an earlier attempt.
+            yield* applyLock.withPermits(1)(
+              Effect.suspend(() => {
+                catchUp = [];
+                return applyBatchLocked([{ kind: "snapshot", snapshot: httpSnapshot.value }]);
+              }),
+            );
             current = yield* SubscriptionRef.get(state);
           }
         }
@@ -853,11 +876,7 @@ export const makeEnvironmentThreadState = Effect.fn("EnvironmentThreadState.make
         retryExpectedFailureAfter: "250 millis",
         resubscribe: foregroundResubscriptions,
       },
-    ).pipe(
-      Stream.runForEachArray((items) =>
-        items.length === 1 ? applyItem(items[0]!) : applyItems(items),
-      ),
-    ),
+    ).pipe(Stream.runForEachArray(receiveItems)),
   );
 
   // Expose loadOlderTurns to UI actions through the request registry.
