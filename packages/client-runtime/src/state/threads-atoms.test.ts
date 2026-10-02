@@ -747,8 +747,20 @@ describe("createEnvironmentThreadStateAtoms", () => {
         expect(next.afterSequence).toBe(7);
         if (replayed) {
           yield* Queue.offer(next.events, {
-            kind: "snapshot",
-            snapshot: { snapshotSequence: 9, thread: { ...THREAD, title: "Replayed" } },
+            kind: "event",
+            event: {
+              eventId: EventId.make("replayed-event"),
+              commandId: null,
+              causationEventId: null,
+              correlationId: null,
+              metadata: {},
+              sequence: 8,
+              occurredAt: THREAD.createdAt,
+              aggregateKind: "thread",
+              aggregateId: THREAD_ID,
+              type: "thread.meta-updated",
+              payload: { threadId: THREAD_ID, title: "Replayed", updatedAt: THREAD.createdAt },
+            },
           });
           yield* observeState(h.registry, h.stateAtom, (state) => state.status === "synchronizing");
         }
