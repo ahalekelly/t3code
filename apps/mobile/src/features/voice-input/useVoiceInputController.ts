@@ -1,9 +1,10 @@
 import {
+  AudioModule,
   RecordingPresets,
   requestRecordingPermissionsAsync,
   setAudioModeAsync,
   setIsAudioActiveAsync,
-  useAudioRecorder,
+  type AudioRecorder,
   type RecordingStatus,
 } from "expo-audio";
 import { File } from "expo-file-system";
@@ -51,12 +52,17 @@ function missingKeyTranscriber(source: CloudTranscriptionSource): VoiceTranscrib
   };
 }
 const VOICE_METERING_INTERVAL_MS = 80;
-// Mono AAC at 64 kbps keeps speech clear at under 10 MB for the full recording limit.
+// The native recorder takes the platform's options flattened, as useAudioRecorder passes them.
 const VOICE_RECORDING_OPTIONS = {
-  ...RecordingPresets.HIGH_QUALITY,
+  extension: RecordingPresets.HIGH_QUALITY.extension,
+  sampleRate: RecordingPresets.HIGH_QUALITY.sampleRate,
+  // Mono AAC at 64 kbps keeps speech clear at under 10 MB for the full recording limit.
   numberOfChannels: 1,
   bitRate: 64_000,
   isMeteringEnabled: true,
+  ...(Platform.OS === "ios"
+    ? RecordingPresets.HIGH_QUALITY.ios
+    : RecordingPresets.HIGH_QUALITY.android),
 };
 
 async function releaseVoiceRecordingAudio(): Promise<void> {
@@ -131,11 +137,39 @@ export function useVoiceInputController(input: {
       interrupted: status.interrupted === true,
     });
   }, []);
-  const recorder = useAudioRecorder(VOICE_RECORDING_OPTIONS, handleRecorderStatus);
+  // Creating the app's first native recorder blocks the JS thread for about
+  // 100 ms, so it waits for the first dictation instead of the composer mount.
+  const recorderRef = useRef<AudioRecorder | null>(null);
+  useEffect(
+    () => () => {
+      recorderRef.current?.release();
+      recorderRef.current = null;
+    },
+    [],
+  );
+  const preparedRecorder = useCallback(() => {
+    if (recorderRef.current === null) throw new Error("The voice recorder is not prepared.");
+    return recorderRef.current;
+  }, []);
 
   if (!controllerRef.current) {
     controllerRef.current = new VoiceInputController({
-      recorder,
+      recorder: {
+        get uri() {
+          return recorderRef.current?.uri ?? null;
+        },
+        prepareToRecordAsync: () => {
+          if (recorderRef.current === null) {
+            recorderRef.current = new AudioModule.AudioRecorder(VOICE_RECORDING_OPTIONS);
+            recorderRef.current.addListener("recordingStatusUpdate", handleRecorderStatus);
+          }
+          return recorderRef.current.prepareToRecordAsync();
+        },
+        record: (options) => preparedRecorder().record(options),
+        stop: async () => {
+          await recorderRef.current?.stop();
+        },
+      },
       getTranscriber: () => {
         const { source, apiKeys } = transcriptionConfigRef.current;
         if (source === "local") return getLocalVoiceTranscriber();
@@ -251,7 +285,7 @@ export function useVoiceInputController(input: {
 
     const sampleRecording = () => {
       if (controller.currentState.phase !== "recording") return;
-      const status = recorder.getStatus();
+      const status = preparedRecorder().getStatus();
       if (!status.isRecording) return;
 
       const level = normalizeVoiceInputDecibels(status.metering);
@@ -293,7 +327,7 @@ export function useVoiceInputController(input: {
       subscription.remove();
       pause();
     };
-  }, [audioLevels, controller, recorder, state.phase]);
+  }, [audioLevels, controller, preparedRecorder, state.phase]);
 
   // The controller commits the draft and goes idle in the same render, so the
   // send waits for the composer to report the committed text back rather than
