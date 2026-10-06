@@ -1,10 +1,16 @@
 import type { ComponentProps } from "react";
 import { Platform } from "react-native";
-import { NativeScrollView as ScrollView } from "../../native/NativeScrollViewMarker";
+import { KeyboardAwareScrollView } from "react-native-keyboard-controller";
+import { NativeScrollViewMarker } from "../../native/NativeScrollViewMarker";
 
-export function ScreenScrollView(props: ComponentProps<typeof ScrollView>) {
-  return (
-    <ScrollView
+/**
+ * Scroll view for forms and settings screens. Keeps the focused input above the keyboard,
+ * and keeps content readable inside a wide pane while its surface fills the screen.
+ */
+export function ScreenScrollView(props: ComponentProps<typeof KeyboardAwareScrollView>) {
+  const scrollView = (
+    <KeyboardAwareScrollView
+      bottomOffset={16}
       {...props}
       contentContainerStyle={[
         props.contentContainerStyle,
@@ -15,5 +21,10 @@ export function ScreenScrollView(props: ComponentProps<typeof ScrollView>) {
         },
       ]}
     />
+  );
+  return Platform.OS === "ios" ? (
+    <NativeScrollViewMarker style={{ flex: 1 }}>{scrollView}</NativeScrollViewMarker>
+  ) : (
+    scrollView
   );
 }

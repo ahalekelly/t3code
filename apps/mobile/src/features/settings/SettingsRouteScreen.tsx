@@ -160,6 +160,7 @@ function SettingsIndexSections() {
             <SettingsRow icon="mic" label="Microphone" target="SettingsMicrophone" />
           </>
         ) : null}
+        <SettingsRow icon="mic" label="Voice" target="SettingsVoice" />
       </SettingsSection>
 
       <SettingsSection title="Automations">
