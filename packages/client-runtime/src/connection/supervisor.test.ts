@@ -118,9 +118,9 @@ function blocked(message = "Authentication required.") {
   });
 }
 
-function awaitState(
-  state: SubscriptionRef.SubscriptionRef<SupervisorConnectionState>,
-  predicate: (value: SupervisorConnectionState) => boolean,
+function awaitState<A>(
+  state: SubscriptionRef.SubscriptionRef<A>,
+  predicate: (value: A) => boolean,
 ) {
   return SubscriptionRef.changes(state).pipe(
     Stream.filter(predicate),
@@ -726,11 +726,16 @@ describe("EnvironmentSupervisor", () => {
     }),
   );
 
-  it.effect("replaces the session on a long resume while the network reports offline", () =>
+  it.effect("replaces a dead session on a long resume while the network reports offline", () =>
     Effect.gen(function* () {
       const probeCount = yield* Ref.make(0);
       const harness = yield* makeHarness({
-        probe: () => Ref.update(probeCount, (count) => count + 1),
+        probe: () =>
+          Ref.updateAndGet(probeCount, (count) => count + 1).pipe(
+            Effect.flatMap((count) =>
+              count === 2 ? Effect.fail(transient("Socket died.")) : Effect.void,
+            ),
+          ),
       });
       const supervisor = yield* EnvironmentSupervisor.make(TARGET_ENTRY, {
         initiallyDesired: true,
@@ -756,7 +761,7 @@ describe("EnvironmentSupervisor", () => {
       );
 
       expect(replaced.attempt).toBe(1);
-      expect(yield* Ref.get(probeCount)).toBe(1);
+      expect(yield* Ref.get(probeCount)).toBe(2);
       expect(yield* Ref.get(harness.sessionCount)).toBe(2);
       expect(yield* Ref.get(harness.releaseCount)).toBe(1);
     }),
@@ -1025,9 +1030,11 @@ describe("EnvironmentSupervisor", () => {
     }).pipe(Effect.provide(TestClock.layer())),
   );
 
-  it.effect("restarts the retry ladder when a long resume replaces a connected session", () =>
+  it.effect("restarts the retry ladder when a long resume replaces a dead session", () =>
     Effect.gen(function* () {
-      const harness = yield* makeHarness();
+      const harness = yield* makeHarness({
+        probe: (attempt) => (attempt === 2 ? Effect.fail(transient("Socket died.")) : Effect.void),
+      });
       const supervisor = yield* EnvironmentSupervisor.make(TARGET_ENTRY, {
         initiallyDesired: true,
       }).pipe(Effect.provide(harness.dependencies));
@@ -1106,11 +1113,36 @@ describe("EnvironmentSupervisor", () => {
     }),
   );
 
-  it.effect("immediately replaces a mobile session after a long background resume", () =>
+  it.effect("keeps a mobile session that answers its long-resume probe", () =>
     Effect.gen(function* () {
       const probeCount = yield* Ref.make(0);
+      const probed = yield* Deferred.make<void>();
       const harness = yield* makeHarness({
-        probe: () => Ref.update(probeCount, (count) => count + 1),
+        probe: () =>
+          Ref.update(probeCount, (count) => count + 1).pipe(
+            Effect.andThen(Deferred.succeed(probed, undefined)),
+          ),
+      });
+      const supervisor = yield* EnvironmentSupervisor.make(TARGET_ENTRY, {
+        initiallyDesired: true,
+      }).pipe(Effect.provide(harness.dependencies));
+
+      yield* awaitState(supervisor.state, (state) => state.phase === "connected");
+      yield* supervisor.wake("application-active-reconnect");
+      yield* Deferred.await(probed);
+      yield* awaitState(supervisor.verifying, (verifying) => !verifying);
+
+      expect(yield* Ref.get(probeCount)).toBe(1);
+      expect(yield* Ref.get(harness.sessionCount)).toBe(1);
+      expect(yield* Ref.get(harness.releaseCount)).toBe(0);
+      expect((yield* SubscriptionRef.get(supervisor.state)).phase).toBe("connected");
+    }),
+  );
+
+  it.effect("replaces a mobile session whose long-resume probe takes over a second", () =>
+    Effect.gen(function* () {
+      const harness = yield* makeHarness({
+        probe: (attempt) => (attempt === 1 ? Effect.never : Effect.void),
       });
       const supervisor = yield* EnvironmentSupervisor.make(TARGET_ENTRY, {
         initiallyDesired: true,
@@ -1120,19 +1152,26 @@ describe("EnvironmentSupervisor", () => {
         supervisor.state,
         (state) => state.phase === "connected" && state.generation === 1,
       );
+      // Let the supervisor finish entering the connected state.
+      yield* Effect.yieldNow;
       yield* supervisor.wake("application-active-reconnect");
-      yield* awaitState(
+      yield* TestClock.adjust("999 millis");
+      expect(yield* Ref.get(harness.sessionCount)).toBe(1);
+      expect(yield* SubscriptionRef.get(supervisor.verifying)).toBe(true);
+      expect((yield* SubscriptionRef.get(supervisor.state)).phase).toBe("connected");
+
+      // No backoff: the replacement starts as soon as the probe times out.
+      yield* TestClock.adjust("1 millis");
+      const replaced = yield* awaitState(
         supervisor.state,
         (state) => state.phase === "connected" && state.generation === 2,
       );
-
-      expect(yield* Ref.get(probeCount)).toBe(0);
-      expect(yield* Ref.get(harness.sessionCount)).toBe(2);
+      expect(replaced.attempt).toBe(1);
       expect(yield* Ref.get(harness.releaseCount)).toBe(1);
-    }),
+    }).pipe(Effect.provide(TestClock.layer())),
   );
 
-  it.effect("replaces a mobile session when a long resume interrupts an active probe", () =>
+  it.effect("cuts a running probe short to a second on a long resume", () =>
     Effect.gen(function* () {
       const harness = yield* makeHarness({
         probe: (attempt) => (attempt === 1 ? Effect.never : Effect.void),
@@ -1148,6 +1187,8 @@ describe("EnvironmentSupervisor", () => {
       yield* supervisor.wake("application-active-probe");
       yield* Effect.yieldNow;
       yield* supervisor.wake("application-active-reconnect");
+      yield* Effect.yieldNow;
+      yield* TestClock.adjust("1 second");
       yield* awaitState(
         supervisor.state,
         (state) => state.phase === "connected" && state.generation === 2,
@@ -1155,7 +1196,7 @@ describe("EnvironmentSupervisor", () => {
 
       expect(yield* Ref.get(harness.sessionCount)).toBe(2);
       expect(yield* Ref.get(harness.releaseCount)).toBe(1);
-    }),
+    }).pipe(Effect.provide(TestClock.layer())),
   );
 
   it.effect("reconnects immediately when the session closes during a resume probe", () =>

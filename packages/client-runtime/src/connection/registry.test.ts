@@ -1834,6 +1834,8 @@ describe("EnvironmentRegistry", () => {
         const otherReplacedAt = yield* Deferred.make<number>();
         const harness = yield* makeHarness([TARGET, SECOND_TARGET], [], [], {
           wakeups: Stream.fromQueue(wakeups),
+          probe: () =>
+            Effect.fail(new ConnectionTransientError({ reason: "transport", detail: "Dead." })),
           beforeSessionConnect: (environmentId) =>
             Effect.gen(function* () {
               const count = yield* Ref.modify(connects, (current) => {
