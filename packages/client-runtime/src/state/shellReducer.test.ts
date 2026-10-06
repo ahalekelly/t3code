@@ -463,3 +463,55 @@ describe("applyShellStreamEvent", () => {
     expect(next).toBe(v2ShellSnapshot);
   });
 });
+
+describe("mergeShellSnapshotProjects reload", () => {
+  const previous = {
+    ...v2ShellSnapshot,
+    snapshotSequence: 4,
+    threads: [v2ThreadShell, { ...v2ThreadShell, id: ThreadId.make("thread-2") }],
+    archivedThreads: [{ ...v2ThreadShell, id: ThreadId.make("archived") }],
+  };
+
+  it("keeps the previous lists when a reloaded snapshot is unchanged", () => {
+    const reloaded = {
+      ...previous,
+      snapshotSequence: 9,
+      projects: previous.projects.map((project) => ({ ...project, scripts: [...project.scripts] })),
+      threads: previous.threads.map((thread) => ({
+        ...thread,
+        modelSelection: { ...thread.modelSelection },
+      })),
+      archivedThreads: previous.archivedThreads.map((thread) => ({ ...thread })),
+    };
+
+    const next = mergeShellSnapshotProjects(previous, reloaded);
+
+    expect(next.snapshotSequence).toBe(9);
+    expect(next.projects).toBe(previous.projects);
+    expect(next.threads).toBe(previous.threads);
+    expect(next.archivedThreads).toBe(previous.archivedThreads);
+  });
+
+  it("replaces only the changed, added, and removed entities", () => {
+    const renamed = { ...v2ThreadShell, id: ThreadId.make("thread-2"), title: "Renamed" };
+    const added = { ...v2ThreadShell, id: ThreadId.make("thread-3") };
+    const next = mergeShellSnapshotProjects(previous, {
+      ...previous,
+      projects: [{ ...v2Project }],
+      threads: [{ ...v2ThreadShell }, renamed, added],
+    });
+
+    expect(next.projects).toBe(previous.projects);
+    expect(next.threads).toHaveLength(3);
+    expect(next.threads[0]).toBe(previous.threads[0]);
+    expect(next.threads[1]).toBe(renamed);
+    expect(next.threads[2]).toBe(added);
+
+    const removed = mergeShellSnapshotProjects(previous, {
+      ...previous,
+      threads: [{ ...v2ThreadShell }],
+    });
+    expect(removed.threads).toHaveLength(1);
+    expect(removed.threads[0]).toBe(previous.threads[0]);
+  });
+});
