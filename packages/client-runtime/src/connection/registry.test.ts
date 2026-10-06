@@ -15,6 +15,7 @@ import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Queue from "effect/Queue";
+import * as Random from "effect/Random";
 import * as Ref from "effect/Ref";
 import * as Result from "effect/Result";
 import * as Scheduler from "effect/Scheduler";
@@ -1854,11 +1855,15 @@ describe("EnvironmentRegistry", () => {
           const reconnectedAt = yield* stepClockUntil(otherReconnectedAt);
           expect(reconnectedAt).toBeGreaterThanOrEqual(1_000);
           expect(reconnectedAt).toBeLessThan(2_000);
-        }).pipe(Effect.provide(harness.layer), Effect.scoped);
+        }).pipe(Effect.provide(harness.layer), Effect.scoped, Random.withSeed("c"));
       }),
     );
 
-    it.effect("on a long resume, defers the others' replacement sessions", () =>
+    // Fork-only A/B: the seed picks the wakeup's arm ("c" waits, "a" skips).
+    it.effect.each([
+      { arm: "wait", seed: "c" },
+      { arm: "skip", seed: "a" },
+    ])("on a long resume, the $arm arm defers the others' replacement sessions", ({ arm, seed }) =>
       Effect.gen(function* () {
         const wakeups = yield* Queue.unbounded<ConnectionWakeups.ConnectionWakeup>();
         const connects = yield* Ref.make(new Map<EnvironmentId, number>());
@@ -1889,9 +1894,13 @@ describe("EnvironmentRegistry", () => {
           yield* Queue.offer(wakeups, "application-active-reconnect");
 
           const replacedAt = yield* stepClockUntil(otherReplacedAt);
-          expect(replacedAt).toBeGreaterThanOrEqual(1_000);
-          expect(replacedAt).toBeLessThan(2_000);
-        }).pipe(Effect.provide(harness.layer), Effect.scoped);
+          if (arm === "wait") {
+            expect(replacedAt).toBeGreaterThanOrEqual(1_000);
+            expect(replacedAt).toBeLessThan(2_000);
+          } else {
+            expect(replacedAt).toBeLessThan(1_000);
+          }
+        }).pipe(Effect.provide(harness.layer), Effect.scoped, Random.withSeed(seed));
       }),
     );
   });
