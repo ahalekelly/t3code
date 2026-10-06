@@ -59,6 +59,9 @@ const isSshConnectionProfile = Schema.is(SshConnectionProfile);
 // How long the focused environment may hold back the others' background
 // connection attempts, so an unreachable one cannot starve them.
 const FOCUSED_ENVIRONMENT_HEAD_START = "2 seconds";
+// How long the focused environment may go without a connection state change
+// before the others stop waiting, so a hung request releases them early.
+const FOCUSED_ENVIRONMENT_STALL = "1 second";
 
 function unsupportedState(
   entry: ConnectionCatalogEntry,
@@ -156,8 +159,9 @@ export class EnvironmentRegistry extends Context.Service<
     /**
      * Marks the environment the user is looking at for the lifetime of the
      * scope. While it is connecting or checking its session after a wakeup,
-     * the other environments hold their background connection attempts, for at
-     * most FOCUSED_ENVIRONMENT_HEAD_START. User-requested connects and retries
+     * the other environments hold their background connection attempts until
+     * it makes no progress for FOCUSED_ENVIRONMENT_STALL, and for at most
+     * FOCUSED_ENVIRONMENT_HEAD_START. User-requested connects and retries
      * never wait.
      */
     readonly focusEnvironment: (
@@ -379,7 +383,8 @@ export const make = Effect.gen(function* () {
     );
 
   // Resolves once no other environment is focused, or the focused one is
-  // neither connecting nor verifying its session, or the head start runs out.
+  // neither connecting nor verifying its session, or it stalls, or the head
+  // start runs out.
   const awaitTurn = (environmentId: EnvironmentId) =>
     SubscriptionRef.changes(focusedEnvironment).pipe(
       Stream.switchMap((focused) =>
@@ -387,6 +392,8 @@ export const make = Effect.gen(function* () {
           ? Stream.succeed(undefined)
           : SubscriptionRef.changes(serviceScopes).pipe(
               Stream.map((scopes) => scopes.get(focused.value)?.supervisor),
+              // Other registry changes must not restart the stall timer.
+              Stream.changesWith((a, b) => a === b),
               Stream.switchMap((supervisor) =>
                 supervisor === undefined
                   ? Stream.succeed(undefined)
@@ -394,8 +401,10 @@ export const make = Effect.gen(function* () {
                       SubscriptionRef.changes(supervisor.state),
                       SubscriptionRef.changes(supervisor.verifying),
                     ).pipe(
-                      Stream.filter(
-                        ([state, verifying]) => state.phase !== "connecting" && !verifying,
+                      Stream.switchMap(([state, verifying]) =>
+                        state.phase !== "connecting" && !verifying
+                          ? Stream.succeed(undefined)
+                          : Stream.fromEffect(Effect.sleep(FOCUSED_ENVIRONMENT_STALL)),
                       ),
                     ),
               ),
