@@ -273,6 +273,12 @@ const makeHarness = Effect.fn("TestEnvironmentThreads.makeHarness")(function* (o
   };
 });
 
+const awaitSubscriptionCount = Effect.fn("TestEnvironmentThreads.awaitSubscriptionCount")(
+  function* (harness: { readonly subscriptionCount: Ref.Ref<number> }, count: number) {
+    while ((yield* Ref.get(harness.subscriptionCount)) < count) yield* Effect.yieldNow;
+  },
+);
+
 const snapshot = (
   projection: OrchestrationV2ThreadProjection,
   snapshotSequence = 1,
@@ -1738,34 +1744,29 @@ describe("EnvironmentThreads", () => {
     }),
   );
 
-  it.effect("keeps replayed updates synchronizing until the completion marker arrives", () =>
+  it.effect("publishes a 20-event catch-up as one state change at its marker", () =>
     Effect.gen(function* () {
       const harness = yield* makeHarness({ cached: BASE_PROJECTION, completionMarker: true });
-      yield* awaitThreadState(
-        harness.observed,
-        (value) => value.status === "synchronizing" && Option.isSome(value.data),
-      );
+      yield* awaitSubscriptionCount(harness, 1);
       expect(yield* Ref.get(harness.lastRequestCompletionMarker)).toBe(true);
-
-      yield* Queue.offer(
-        harness.inputs,
-        titleUpdated("Caught-up title", CACHED_SNAPSHOT_SEQUENCE + 1),
-      );
-      const catchingUp = yield* awaitThreadState(
-        harness.observed,
-        (value) =>
-          value.status === "synchronizing" &&
-          Option.isSome(value.data) &&
-          value.data.value.thread.title === "Caught-up title",
-      );
-      expect(catchingUp.status).toBe("synchronizing");
-
+      yield* Queue.clear(harness.observed);
+      // Separate frames, as the server sends a replay.
+      for (let index = 1; index <= 20; index += 1) {
+        yield* Queue.offer(
+          harness.inputs,
+          titleUpdated(`Title ${index}`, CACHED_SNAPSHOT_SEQUENCE + index),
+        );
+        yield* Effect.yieldNow;
+      }
       yield* Queue.offer(harness.inputs, synchronized());
-      const live = yield* awaitThreadState(
-        harness.observed,
-        (value) => value.status === "live" && Option.isSome(value.data),
-      );
-      expect(Option.getOrThrow(live.data).thread.title).toBe("Caught-up title");
+      const live = yield* Queue.take(harness.observed);
+      expect(live.status).toBe("live");
+      expect(Option.getOrThrow(live.data).thread.title).toBe("Title 20");
+
+      // Live events after the marker apply as they arrive.
+      yield* Queue.offer(harness.inputs, titleUpdated("Live title", CACHED_SNAPSHOT_SEQUENCE + 21));
+      const next = yield* Queue.take(harness.observed);
+      expect(Option.getOrThrow(next.data).thread.title).toBe("Live title");
     }),
   );
 
