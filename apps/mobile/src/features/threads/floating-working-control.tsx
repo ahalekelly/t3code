@@ -1,3 +1,4 @@
+import type { SubagentPillSegment } from "@t3tools/client-runtime/state/thread-subagents";
 import { formatDuration } from "@t3tools/shared/orchestrationTiming";
 import { GlassContainer, GlassView } from "expo-glass-effect";
 import { type ReactNode, useEffect, useRef, useState } from "react";
@@ -14,6 +15,7 @@ import Animated, {
   FadeIn,
   FadeOut,
   ReduceMotion,
+  type SharedValue,
   useAnimatedStyle,
   useSharedValue,
   withTiming,
@@ -67,13 +69,32 @@ export function FloatingWorkingControl(props: {
   readonly devicePreview: { readonly count: number; readonly onPress: () => void } | null;
   readonly showScrollToEnd: boolean;
   readonly onScrollToEnd: () => void;
+  readonly agents: SubagentPillSegment | null;
+  readonly onOpenAgents: () => void;
+  readonly queuedCount: number;
+  readonly onOpenQueue: () => void;
+  /** Extra distance to rise above the anchor, e.g. an overlay card's coverage. */
+  readonly lift?: SharedValue<number>;
 }) {
   const { width: windowWidth } = useWindowDimensions();
   const [overlayWidth, setOverlayWidth] = useState(windowWidth);
-  const deviceControlWidth = props.devicePreview !== null ? CONTROL_HEIGHT : 0;
+  const [queueWidth, setQueueWidth] = useState(0);
+  const [agentsWidth, setAgentsWidth] = useState(0);
+  const hasQueue = props.queuedCount > 0;
+  const hasDevicePreview = props.devicePreview !== null;
+  const [deviceWidth, setDeviceWidth] = useState(0);
+  const agents = props.agents;
+  const hasAgents = agents !== null;
+  // Segments keep their measured width; only the status label absorbs the
+  // remainder, so a long "Working 12m 04s" truncates before a count does.
   const labelWidth = Math.max(
     0,
-    Math.min(overlayWidth, windowWidth) - CONTROL_HEIGHT - 16 - deviceControlWidth,
+    Math.min(overlayWidth, windowWidth) -
+      CONTROL_HEIGHT -
+      32 -
+      (hasQueue ? queueWidth : 0) -
+      (hasAgents ? agentsWidth : 0) -
+      (hasDevicePreview ? deviceWidth : 0),
   );
   const separationProgress = useSharedValue(props.showScrollToEnd ? 1 : 0);
 
@@ -81,6 +102,10 @@ export function FloatingWorkingControl(props: {
     separationProgress.value = withTiming(props.showScrollToEnd ? 1 : 0, CONTROL_TIMING);
   }, [props.showScrollToEnd, separationProgress]);
 
+  const lift = props.lift;
+  const liftStyle = useAnimatedStyle(() => ({
+    transform: [{ translateY: -(lift?.value ?? 0) }],
+  }));
   const arrowTransformStyle = useAnimatedStyle(() => ({
     transform: [{ translateX: -CONTROL_SEPARATION * (1 - separationProgress.value) }],
   }));
@@ -94,9 +119,6 @@ export function FloatingWorkingControl(props: {
   // and repeatedly retargets the animation as it grows.
   const capsuleWidth = useSharedValue<number | null>(null);
   const measuredWidthRef = useRef<number | null>(null);
-  // Without a device button beside it, an unmeasured status capsule would paint
-  // as an empty glass circle (native glass ignores opacity), so the label first
-  // measures in a hidden host and the capsule mounts once it has a width.
   const [labelMeasured, setLabelMeasured] = useState(false);
   const handleLabelLayout = (event: LayoutChangeEvent) => {
     const width = event.nativeEvent.layout.width;
@@ -110,44 +132,50 @@ export function FloatingWorkingControl(props: {
   };
   // Forget the width while no label is shown so the next one appears at its
   // own size instead of animating from the previous label's.
-  const hasStatus = props.status !== null;
   useEffect(() => {
-    if (!hasStatus) {
+    if (props.status === null) {
       measuredWidthRef.current = null;
       capsuleWidth.value = null;
     }
-  }, [capsuleWidth, hasStatus]);
-  if (!hasStatus && labelMeasured) setLabelMeasured(false);
-  const status = labelMeasured || props.devicePreview !== null ? props.status : null;
-  const measuringStatus = props.status !== null && status === null;
-  const hasCapsule = status !== null || props.devicePreview !== null;
+  }, [capsuleWidth, props.status]);
+  if (props.status === null && labelMeasured) setLabelMeasured(false);
+  // Alone in the capsule, an unmeasured status label would paint as an empty
+  // glass circle (native glass ignores opacity), so the label first measures in
+  // a hidden host and joins the capsule once it has a width.
+  const hasOtherSegment = hasQueue || hasAgents || hasDevicePreview;
+  const status = labelMeasured || hasOtherSegment ? props.status : null;
+  const measuringStatus = status === null ? props.status : null;
+  const hasStatus = status !== null;
+  const hasCapsule = hasStatus || hasOtherSegment;
   const capsuleStyle = useAnimatedStyle(() => ({
     transform: [{ translateX: CONTROL_SEPARATION * (1 - separationProgress.value) }],
   }));
+  // Zero until the first measurement lands, so the capsule never paints around
+  // a label it has not sized to yet.
   const capsuleSizerStyle = useAnimatedStyle(() => ({
-    width: (capsuleWidth.value ?? 0) + deviceControlWidth,
+    width: capsuleWidth.value ?? 0,
   }));
 
-  if (!hasCapsule && !props.showScrollToEnd && !measuringStatus) {
+  if (!hasCapsule && !props.showScrollToEnd && measuringStatus === null) {
     return null;
   }
 
-  // Only the connection label is a button (tap to reconnect); the others
-  // pass touches through to the feed like before.
+  // The queue, agents, and reconnect labels have separate tap targets.
   const statusInteractive = status?.kind === "connection";
-  const capsuleInteractive = statusInteractive || props.devicePreview !== null;
+  const capsuleInteractive = statusInteractive || hasQueue || hasAgents || hasDevicePreview;
   // The host stays centered on the capsule, but its measurement constraint
   // comes from the overlay, independent of the capsule's current width.
-  const capsuleContent =
-    status === null && props.devicePreview !== null ? (
-      <DevicePreviewButton {...props.devicePreview} compact={false} />
-    ) : status !== null ? (
-      <>
+  const statusContent =
+    status !== null ? (
+      <View
+        pointerEvents={status.kind === "connection" ? "box-none" : "none"}
+        className="h-11 items-center justify-center"
+      >
         <Animated.View className="h-11" style={capsuleSizerStyle} />
         <View
           pointerEvents={statusInteractive ? "box-none" : "none"}
           className="absolute h-11 items-center justify-center"
-          style={{ width: labelWidth, transform: [{ translateX: -deviceControlWidth / 2 }] }}
+          style={{ width: labelWidth }}
         >
           <FloatingStatusLabel
             key={
@@ -159,31 +187,72 @@ export function FloatingWorkingControl(props: {
             onLayout={handleLabelLayout}
           />
         </View>
-        {props.devicePreview !== null ? (
-          <>
-            <View
-              pointerEvents="none"
-              className="absolute h-4 w-px bg-border"
-              style={{ right: deviceControlWidth }}
-            />
-            <View className="absolute right-0">
-              <DevicePreviewButton {...props.devicePreview} />
-            </View>
-          </>
-        ) : null}
-      </>
+      </View>
     ) : null;
+
+  const capsuleContent = (
+    <View className="flex-row items-center">
+      {statusContent}
+      {props.devicePreview !== null ? (
+        <View
+          className="h-11 flex-row items-center"
+          onLayout={(event) => setDeviceWidth(event.nativeEvent.layout.width)}
+        >
+          {hasStatus ? <View className="h-4 w-px bg-border" /> : null}
+          <DevicePreviewButton
+            {...props.devicePreview}
+            compact={hasStatus || hasAgents || hasQueue}
+          />
+        </View>
+      ) : null}
+      {agents !== null ? (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={`Open agents, ${agents.accessibilityLabel}`}
+          accessibilityHint="Opens this turn's subagents"
+          onPress={props.onOpenAgents}
+          onLayout={(event) => setAgentsWidth(event.nativeEvent.layout.width)}
+          className="h-11 flex-row items-center gap-1.5 px-3 active:opacity-70"
+        >
+          {hasStatus || hasDevicePreview ? <View className="mr-1 h-4 w-px bg-border" /> : null}
+          <SymbolView name="person.2" size={13} tintColorClassName="accent-foreground-muted" />
+          <Text className="font-t3-medium text-xs tabular-nums" numberOfLines={1}>
+            {agents.label}
+          </Text>
+        </Pressable>
+      ) : null}
+      {hasQueue ? (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={`Open queue, ${props.queuedCount} messages`}
+          accessibilityHint="Opens queued messages for reordering, steering, or removal"
+          onPress={props.onOpenQueue}
+          onLayout={(event) => setQueueWidth(event.nativeEvent.layout.width)}
+          style={{ maxWidth: Math.min(overlayWidth, windowWidth) * 0.45 }}
+          className="h-11 flex-row items-center gap-2 px-3 active:opacity-70"
+        >
+          {hasStatus || hasDevicePreview || hasAgents ? (
+            <View className="mr-1 h-4 w-px bg-border" />
+          ) : null}
+          <SymbolView name="list.number" size={13} tintColorClassName="accent-foreground-muted" />
+          <Text className="shrink font-t3-medium text-xs tabular-nums" numberOfLines={1}>
+            {props.queuedCount} queued
+          </Text>
+        </Pressable>
+      ) : null}
+    </View>
+  );
 
   return (
     <Animated.View
       pointerEvents="box-none"
       className="absolute left-0 right-0 z-20 items-center"
-      style={{ top: -CONTROL_OVERLAY_OFFSET }}
+      style={[{ top: -CONTROL_OVERLAY_OFFSET }, liftStyle]}
       onLayout={(event) => setOverlayWidth(event.nativeEvent.layout.width)}
       entering={NATIVE_LIQUID_GLASS_SUPPORTED ? undefined : CONTROL_ENTERING}
       exiting={NATIVE_LIQUID_GLASS_SUPPORTED ? undefined : CONTROL_EXITING}
     >
-      {measuringStatus ? (
+      {measuringStatus !== null ? (
         <View
           pointerEvents="none"
           accessibilityElementsHidden
@@ -191,7 +260,7 @@ export function FloatingWorkingControl(props: {
           className="absolute h-11 items-center justify-center opacity-0"
           style={{ width: labelWidth }}
         >
-          <FloatingStatusLabel status={props.status} onLayout={handleLabelLayout} />
+          <FloatingStatusLabel status={measuringStatus} onLayout={handleLabelLayout} />
         </View>
       ) : null}
       {hasCapsule && NATIVE_LIQUID_GLASS_SUPPORTED ? (
@@ -336,6 +405,43 @@ function FloatingStatusLabel(props: {
       </StatusLabelRow>
     );
   }
+  if (props.status.kind === "background") {
+    return (
+      <StatusLabelRow
+        key="background"
+        accessibilityLabel={props.status.accessibilityLabel}
+        className="gap-2"
+        onLayout={props.onLayout}
+      >
+        {/* A dev server can run for hours after the agent is done, so only work
+            that will wake the agent gets the bolt. */}
+        <SymbolView
+          name={props.status.waiting ? { ios: "bolt", android: "bolt" } : "terminal"}
+          size={13}
+          tintColorClassName="foreground"
+          type="monochrome"
+        />
+        <Text className="shrink font-t3-medium text-xs text-foreground" numberOfLines={1}>
+          {props.status.label}
+        </Text>
+      </StatusLabelRow>
+    );
+  }
+  if (props.status.kind === "goal") {
+    return (
+      <StatusLabelRow
+        key="goal"
+        accessibilityLabel={props.status.accessibilityLabel}
+        className="gap-2"
+        onLayout={props.onLayout}
+      >
+        <SymbolView name="target" size={13} tintColorClassName="foreground" type="monochrome" />
+        <Text className="shrink font-t3-medium text-xs text-foreground" numberOfLines={1}>
+          {props.status.label}
+        </Text>
+      </StatusLabelRow>
+    );
+  }
   if (props.status.kind === "preparing") {
     return (
       <StatusLabelRow
@@ -369,7 +475,7 @@ function FloatingStatusLabel(props: {
 
 // Absolute rows cross-fade around the same center without affecting each other.
 function StatusLabelRow(props: {
-  readonly accessibilityLabel: string;
+  readonly accessibilityLabel?: string;
   readonly accessibilityRole?: "button";
   readonly className?: string;
   readonly children: ReactNode;
@@ -406,27 +512,27 @@ function WorkingDuration(props: {
   readonly startedAt: string;
   readonly onLayout: (event: LayoutChangeEvent) => void;
 }) {
-  const [nowMs, setNowMs] = useState(() => Date.now());
+  return (
+    <StatusLabelRow onLayout={props.onLayout}>
+      <WorkingTimer startedAt={props.startedAt} />
+    </StatusLabelRow>
+  );
+}
 
+export function WorkingTimer(props: { readonly startedAt: string }) {
+  const [nowMs, setNowMs] = useState(() => Date.now());
   useEffect(() => {
-    setNowMs(Date.now());
     const intervalId = setInterval(() => setNowMs(Date.now()), 1_000);
     return () => clearInterval(intervalId);
-  }, [props.startedAt]);
-
-  const duration = formatWorkingDuration(props.startedAt, nowMs);
-  const label = `Working for ${duration}`;
-
+  }, []);
   return (
-    <StatusLabelRow accessibilityLabel={label} onLayout={props.onLayout}>
-      <Text className="font-t3-medium text-xs text-foreground">Working for </Text>
-      <SystemText
-        className="text-xs text-foreground"
-        style={{ fontVariant: ["tabular-nums"], fontWeight: "500" }}
-      >
-        {duration}
-      </SystemText>
-    </StatusLabelRow>
+    <SystemText
+      className="shrink text-xs text-foreground"
+      numberOfLines={1}
+      style={{ fontVariant: ["tabular-nums"], fontWeight: "500" }}
+    >
+      Working {formatWorkingDuration(props.startedAt, nowMs)}
+    </SystemText>
   );
 }
 

@@ -14,9 +14,16 @@ export const VOICE_API_KEYS = {
   openai: { provider: "openai", label: "OpenAI", placeholder: "sk-..." },
   gemini: { provider: "gemini", label: "Gemini", placeholder: "AIza..." },
   elevenlabs: { provider: "elevenlabs", label: "ElevenLabs", placeholder: "sk_..." },
-  azureFree: { provider: "azure", label: "Azure Speech free (F0)", placeholder: "West US 2 F0 key" },
+  azureFree: {
+    provider: "azure",
+    label: "Azure Speech free (F0)",
+    placeholder: "West US 2 F0 key",
+  },
   azure: { provider: "azure", label: "Azure Speech (S0)", placeholder: "West US 2 S0 key" },
-} as const satisfies Record<string, { provider: VoiceApiProvider; label: string; placeholder: string }>;
+} as const satisfies Record<
+  string,
+  { provider: VoiceApiProvider; label: string; placeholder: string }
+>;
 export type VoiceApiKey = keyof typeof VOICE_API_KEYS;
 
 // Gemini 3.8 TTS studio voices.

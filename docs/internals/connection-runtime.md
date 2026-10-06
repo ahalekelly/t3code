@@ -10,20 +10,22 @@ several views need the same environment.
 
 The [supervisor](../../packages/client-runtime/src/connection/supervisor.ts) owns
 transport retry policy; resolving an endpoint and opening an RPC session are single
-attempts. Transient failures retry with capped backoff. Offline states and
-authentication failures wait for a wakeup instead of spending attempts on
-unchanged conditions.
+attempts. Transient failures retry with jittered exponential backoff, capped at
+five minutes, that resets only after a connection stays up. Without jitter, every
+client of a restarted server reconnects in the same second; with a short cap, a
+client that can never connect retries all day. Offline states and authentication
+failures wait for a wakeup instead of spending attempts on unchanged conditions.
 
-Foregrounding needs different treatment depending on the connection's state.
-It wakes a retry immediately, leaves an ordinary in-flight attempt alone, and
-probes an established session before replacing it. After a long mobile
-background suspension the OS may have killed the socket without reporting
-closure, so the probe races a fresh lease. A probe answer keeps the session and
-drops the fresh lease; a fresh lease that opens first replaces the session; a
-probe failure or session close hands over to the fresh lease if it is still
-opening. The phase stays connected until the old session is shown dead.
-Treating every resume as a reconnect discards healthy sockets and pays a full
-setup; probing alone leaves a dead socket stuck for the probe timeout.
+Foregrounding, an explicit retry, and an offline report probe the established
+session, and only a failed probe reconnects, without backoff. Offline reports are
+often wrong, for example for a loopback server. After a long mobile background
+suspension the OS may have killed the socket without reporting closure, so that
+probe gets one second: a live socket nearly always answers within it, and a fresh
+connection takes about as long. Foregrounding also wakes a pending retry
+immediately and leaves an ordinary in-flight attempt alone. A long suspension
+restarts an in-flight attempt. The fresh attempt after a long suspension, whether
+it restarts an attempt or replaces a dead session, runs even while the network
+reports offline.
 
 The [registry](../../packages/client-runtime/src/connection/registry.ts) scopes
 connections by environment. An involuntary disconnect retains the registration
@@ -33,9 +35,10 @@ to relay registrations; they must not discard directly paired environments.
 
 All environments share the client's one JS thread, so a mobile thread route
 focuses its environment and the others' background attempts wait until it is
-connected and its session verified, for at most two seconds. Their resume probes
-still start at once, since an answer drops the fresh lease they would otherwise
-open. User-requested connects and retries skip the wait. The registry delivers
+connected and its session verified, or it makes no progress for a second, for at
+most two seconds. Their resume probes still start at once; only a reconnect
+waits. User-requested connects and
+retries skip the wait. The registry delivers
 wakeups itself, focused supervisor first: each supervisor marks its session as
 verifying while it receives the wakeup, so the focused one is already busy when
 the others check. Separate wakeup subscriptions would let the others race past a

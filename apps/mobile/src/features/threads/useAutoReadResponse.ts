@@ -1,6 +1,5 @@
 import { useIsFocused } from "@react-navigation/native";
-import type { PendingApproval, PendingUserInput } from "@t3tools/client-runtime/pending-requests";
-import type { OrchestrationLatestTurn } from "@t3tools/contracts";
+import type { ThreadRunSummary } from "@t3tools/client-runtime/state/models";
 import { renderAssistantCitationsAsText } from "@t3tools/shared/assistantCitations";
 import { truncate } from "@t3tools/shared/String";
 import { activateKeepAwakeAsync, deactivateKeepAwake } from "expo-keep-awake";
@@ -9,7 +8,7 @@ import { Platform } from "react-native";
 
 import { autoReadResponse } from "../../lib/autoReadResponse";
 import { announce, responseSpeech } from "../../lib/responseSpeech";
-import type { ThreadFeedEntry } from "../../lib/threadActivity";
+import type { PendingApproval, PendingUserInput, ThreadFeedEntry } from "../../lib/threadActivity";
 import { useVoiceSettings } from "../../state/voiceSettings";
 
 const KEEP_AWAKE_TAG = "voice-reply";
@@ -23,7 +22,7 @@ export function useAutoReadResponse(
   scope: string,
   title: string,
   feed: readonly ThreadFeedEntry[],
-  turn: OrchestrationLatestTurn | null,
+  run: ThreadRunSummary | null,
   approval: PendingApproval | null,
   userInput: PendingUserInput | null,
 ) {
@@ -77,7 +76,7 @@ export function useAutoReadResponse(
       announce(`The agent has a question. ${truncate(question, 200)}`, "attention");
       return;
     }
-    const reply = autoReadResponse.takeReply(scope, messages, turn, voice.readThinkingUpdates);
+    const reply = autoReadResponse.takeReply(scope, messages, run, voice.readThinkingUpdates);
     if (reply) {
       void responseSpeech.read(
         { scope, messageId: reply.id },
@@ -87,5 +86,5 @@ export function useAutoReadResponse(
         title,
       );
     }
-  }, [approval, feed, focused, pending, scope, speaking, title, turn, userInput, voice]);
+  }, [approval, feed, focused, pending, run, scope, speaking, title, userInput, voice]);
 }

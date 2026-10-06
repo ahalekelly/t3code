@@ -1,38 +1,35 @@
 import { afterEach, describe, expect, it } from "vite-plus/test";
-import {
-  MessageId,
-  TurnId,
-  type OrchestrationLatestTurn,
-  type OrchestrationMessage,
-} from "@t3tools/contracts";
+import type { ThreadRunSummary } from "@t3tools/client-runtime/state/models";
+import { MessageId, RunId } from "@t3tools/contracts";
 
 import { autoReadResponse } from "./autoReadResponse";
 
+type Message = Parameters<typeof autoReadResponse.takeReply>[1][number];
+
 const scope = "environment:thread";
-const prompt: OrchestrationMessage = {
+const prompt: Message = {
   id: MessageId.make("voice-prompt"),
   role: "user",
   text: "Hello",
-  turnId: null,
+  runId: null,
   streaming: false,
   createdAt: "2026-09-15T11:00:00.000Z",
-  updatedAt: "2026-09-15T11:00:00.000Z",
 };
-const reply: OrchestrationMessage = {
+const reply: Message = {
   id: MessageId.make("reply"),
   role: "assistant",
   text: "Hi",
-  turnId: TurnId.make("turn"),
+  runId: RunId.make("run"),
   streaming: false,
   createdAt: "2026-09-15T11:00:01.000Z",
-  updatedAt: "2026-09-15T11:00:02.000Z",
 };
-const completed: OrchestrationLatestTurn = {
-  turnId: TurnId.make("turn"),
-  state: "completed",
+const replyFinishedAt = "2026-09-15T11:00:02.000Z";
+const completed: ThreadRunSummary = {
+  runId: RunId.make("run"),
+  status: "completed",
   requestedAt: prompt.createdAt,
   startedAt: prompt.createdAt,
-  completedAt: reply.updatedAt,
+  completedAt: replyFinishedAt,
   assistantMessageId: reply.id,
 };
 const request = () => autoReadResponse.request({ scope, messageId: prompt.id });
@@ -42,7 +39,7 @@ afterEach(() => autoReadResponse.cancelAll());
 describe("automatic voice replies", () => {
   it("reads written updates in order, then the final response without repeating it", () => {
     request();
-    const running = { ...completed, state: "running" as const, completedAt: null };
+    const running = { ...completed, status: "running" as const, completedAt: null };
     const update = { ...reply, id: MessageId.make("update"), text: "Checking the files" };
     const streaming = { ...update, streaming: true };
     expect(autoReadResponse.takeReply(scope, [prompt, streaming], running, true)).toEqual(
@@ -97,7 +94,7 @@ describe("automatic voice replies", () => {
     expect(autoReadResponse.getSnapshot(scope)?.messageId).toBe(prompt.id);
   });
 
-  it("waits for the full turn, reading a final response that is still streaming live", () => {
+  it("waits for the full run, reading a final response that is still streaming live", () => {
     request();
     expect(
       autoReadResponse.takeReply(
@@ -105,7 +102,7 @@ describe("automatic voice replies", () => {
         [prompt, reply],
         {
           ...completed,
-          state: "running",
+          status: "running",
           completedAt: null,
         },
         false,
@@ -127,7 +124,7 @@ describe("automatic voice replies", () => {
     ).toEqual(final);
   });
 
-  it("does not read an older turn while the voice message is queued", () => {
+  it("does not read an older run while the voice message is queued", () => {
     request();
     expect(
       autoReadResponse.takeReply(
@@ -145,15 +142,15 @@ describe("automatic voice replies", () => {
 
   it("cancels when a later prompt replaces the exchange", () => {
     request();
-    const later = { ...prompt, id: MessageId.make("typed-prompt"), createdAt: reply.updatedAt };
+    const later = { ...prompt, id: MessageId.make("typed-prompt"), createdAt: replyFinishedAt };
     expect(autoReadResponse.takeReply(scope, [prompt, reply, later], completed, false)).toBeNull();
     expect(autoReadResponse.getSnapshot(scope)).toBeNull();
   });
 
-  it.each(["error", "interrupted"] as const)("does not read a %s turn", (state) => {
+  it.each(["failed", "interrupted", "cancelled"] as const)("does not read a %s run", (status) => {
     request();
     expect(
-      autoReadResponse.takeReply(scope, [prompt, reply], { ...completed, state }, false),
+      autoReadResponse.takeReply(scope, [prompt, reply], { ...completed, status }, false),
     ).toBeNull();
     expect(autoReadResponse.getSnapshot(scope)).toBeNull();
   });

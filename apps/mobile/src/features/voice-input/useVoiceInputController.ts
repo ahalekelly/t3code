@@ -1,412 +1,88 @@
-import {
-  AudioModule,
-  RecordingPresets,
-  requestRecordingPermissionsAsync,
-  setAudioModeAsync,
-  setIsAudioActiveAsync,
-  type AudioRecorder,
-  type RecordingStatus,
-} from "expo-audio";
-import { File } from "expo-file-system";
-import * as Haptics from "expo-haptics";
-import { activateKeepAwakeAsync, deactivateKeepAwake } from "expo-keep-awake";
 import { useFocusEffect } from "@react-navigation/native";
-import { useCallback, useEffect, useId, useRef, useState } from "react";
-import { Alert, AppState, Platform } from "react-native";
-import { useSharedValue } from "react-native-reanimated";
-import { autoReadResponse } from "../../lib/autoReadResponse";
-import type { SpokenResponse } from "../../lib/autoReadResponse";
-import { nativeSpeech } from "../../lib/nativeSpeech";
-import { announce, playCue, responseSpeech } from "../../lib/responseSpeech";
-
-import type { ComposerEditorSelection } from "../../components/ComposerEditor";
-import { getLocalVoiceTranscriber } from "../../native/voiceTranscription";
-import { VOICE_API_PROVIDERS } from "../../lib/speechSettings";
-import type { CloudTranscriptionSource } from "../../lib/voiceTranscriptionSources";
-import { getNativeShowcaseScene } from "../showcase/nativeShowcaseScene";
-import { useVoiceSettings } from "../../state/voiceSettings";
-import { withDictationDisclaimer } from "./dictationDisclaimer";
-import { createCloudVoiceTranscriber } from "./cloudVoiceTranscriber";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { Alert } from "react-native";
 import {
-  VoiceInputController,
-  VoiceTranscriptionError,
-  VOICE_RECORDING_LIMIT_SECONDS,
   voiceInputBlocksSubmission,
   voiceInputFreezesEditor,
-  type VoiceDraftSnapshot,
   type VoiceInputState,
-  type VoiceTranscriber,
 } from "@t3tools/client-runtime/voice-input";
-import { normalizeVoiceInputDecibels, VOICE_WAVEFORM_SAMPLE_COUNT } from "./voiceInputMetering";
-import { toEpochNanos } from "../observability/appTraces";
-import { connectionTraceRecorder } from "../observability/tracing";
 
-const INITIAL_STATE: VoiceInputState = { phase: "idle", error: null, errorAction: null };
-/** Selecting a cloud source without its key is a setup mistake, not a reason to fall back. */
-function missingKeyTranscriber(source: CloudTranscriptionSource): VoiceTranscriber {
-  return {
-    prepare: async () => {
-      throw new VoiceTranscriptionError(
-        "unavailable",
-        `Add your ${VOICE_API_PROVIDERS[source].label} API key in Settings → Voice.`,
-      );
-    },
-  };
-}
-const VOICE_METERING_INTERVAL_MS = 80;
-// The native recorder takes the platform's options flattened, as useAudioRecorder passes them.
-const VOICE_RECORDING_OPTIONS = {
-  extension: RecordingPresets.HIGH_QUALITY.extension,
-  sampleRate: RecordingPresets.HIGH_QUALITY.sampleRate,
-  // Mono AAC at 64 kbps keeps speech clear at under 10 MB for the full recording limit.
-  numberOfChannels: 1,
-  bitRate: 64_000,
-  isMeteringEnabled: true,
-  ...(Platform.OS === "ios"
-    ? RecordingPresets.HIGH_QUALITY.ios
-    : RecordingPresets.HIGH_QUALITY.android),
-};
+import type { ComposerEditorSelection } from "../../components/ComposerEditor";
+import { autoReadResponse, type SpokenResponse } from "../../lib/autoReadResponse";
+import { announce, playCue } from "../../lib/responseSpeech";
+import { useGlobalVoiceInput } from "./VoiceInputProvider";
+import { createVoiceInputTarget } from "./voiceInputSession";
 
-type PreparationTimer = <T>(step: string, run: () => Promise<T>) => Promise<T>;
-
-type PreparationTrace = {
-  readonly start: number;
-  end: number | null;
-  outcome: VoiceInputState["phase"] | null;
-  pending: number;
-  readonly steps: Record<string, number>;
-};
-
-/**
- * Records a `client.voice.prepare` span per dictation start, from the tap until
- * recording starts or fails, with each step's duration. The span waits for steps
- * still running when the start ends early, such as a cancelled transcriber.
- */
-function createPreparationTracer() {
-  let current: PreparationTrace | null = null;
-  const record = (trace: PreparationTrace) => {
-    if (trace.end === null || trace.pending > 0) return;
-    connectionTraceRecorder.recordSpan(
-      "client.voice.prepare",
-      toEpochNanos(trace.start),
-      toEpochNanos(trace.end),
-      { ...trace.steps, "voice.outcome": trace.outcome },
-    );
-  };
-  const timed: PreparationTimer = async (step, run) => {
-    const trace = current;
-    if (trace === null) return run();
-    const start = performance.now();
-    trace.pending += 1;
-    try {
-      return await run();
-    } finally {
-      trace.steps[`voice.${step}_ms`] = Math.round(performance.now() - start);
-      trace.pending -= 1;
-      record(trace);
-    }
-  };
-  const phaseChanged = (phase: VoiceInputState["phase"]) => {
-    if (phase === "preparing") {
-      current = { start: performance.now(), end: null, outcome: null, pending: 0, steps: {} };
-      return;
-    }
-    const trace = current;
-    if (trace === null) return;
-    current = null;
-    trace.end = performance.now();
-    trace.outcome = phase;
-    record(trace);
-  };
-  return { timed, phaseChanged };
-}
-
-async function releaseVoiceRecordingAudio(): Promise<void> {
-  try {
-    await setAudioModeAsync({ allowsRecording: false });
-  } finally {
-    // Expo does not deactivate AVAudioSession when recording stops or its
-    // category changes. Explicit deactivation resumes interrupted app audio.
-    await setIsAudioActiveAsync(false);
-  }
-}
-
-async function configureVoiceRecordingAudio(timed: PreparationTimer): Promise<void> {
-  autoReadResponse.cancelAll();
-  if (Platform.OS === "ios") await responseSpeech.stop();
-  try {
-    await timed("audio_mode", () =>
-      setAudioModeAsync({
-        allowsRecording: true,
-        interruptionMode: "doNotMix",
-        playsInSilentMode: true,
-        shouldPlayInBackground: false,
-        // Keeps recording when the phone locks. Android cannot record.
-        allowsBackgroundRecording: Platform.OS === "ios",
-      }),
-    );
-    await timed("activate", () => setIsAudioActiveAsync(true));
-  } catch (error) {
-    try {
-      await releaseVoiceRecordingAudio();
-    } catch {
-      // Keep the setup error. The controller has not started a recorder yet.
-    }
-    throw error;
-  }
-}
+const IDLE_STATE: VoiceInputState = { phase: "idle", error: null, errorAction: null };
 
 export function useVoiceInputController(input: {
   readonly ownerKey: string | null;
-  readonly draftMessage: string;
+  /** Shown by the global dictation pill when this composer is off screen. */
+  readonly label: string;
+  readonly readDraftMessage: () => string | null;
   readonly selection: ComposerEditorSelection;
   readonly disabled?: boolean;
   readonly onChangeDraftMessage: (value: string) => void;
   readonly onChangeSelection: (selection: ComposerEditorSelection) => void;
-  readonly onSubmit: () => Promise<SpokenResponse | undefined>;
+  /** Sends the draft after a dictation finished with Send. */
+  readonly onSubmit?: () => Promise<SpokenResponse | undefined>;
 }) {
-  const [state, setState] = useState<VoiceInputState>(INITIAL_STATE);
-  const sendRequestedRef = useRef(false);
-  const pendingSendTextRef = useRef<string | null>(null);
-  const [elapsedSeconds, setElapsedSeconds] = useState(0);
-  const keepAwakeId = useId();
-  const keepAwakeSessionRef = useRef(0);
-  const elapsedSecondsRef = useRef(0);
-  const audioLevelsRef = useRef(Array<number>(VOICE_WAVEFORM_SAMPLE_COUNT).fill(0));
-  const audioLevels = useSharedValue(audioLevelsRef.current);
-  const controllerRef = useRef<VoiceInputController | null>(null);
-  const latestInputRef = useRef(input);
-  latestInputRef.current = input;
-  const voice = useVoiceSettings();
-  const readRepliesAloud = Platform.OS === "ios" && (!voice.loaded || voice.readRepliesAloud);
-  const readRepliesAloudRef = useRef(readRepliesAloud);
-  readRepliesAloudRef.current = readRepliesAloud;
-  const transcriptionSource = voice.transcriptionSource;
-  const transcriptionConfig = { source: transcriptionSource, apiKeys: voice.transcriptionKeys };
-  const transcriptionConfigRef = useRef(transcriptionConfig);
-  transcriptionConfigRef.current = transcriptionConfig;
-
-  const handleRecorderStatus = useCallback((status: RecordingStatus) => {
-    controllerRef.current?.handleRecorderStatus({
-      isFinished: status.isFinished,
-      hasError: status.hasError || status.mediaServicesDidReset === true,
-      error: status.error,
-      url: status.url,
-      interrupted: status.interrupted === true,
-    });
-  }, []);
-  // Creating the app's first native recorder blocks the JS thread for about
-  // 100 ms, so it waits for the first dictation instead of the composer mount.
-  const recorderRef = useRef<AudioRecorder | null>(null);
-  useEffect(
-    () => () => {
-      recorderRef.current?.release();
-      recorderRef.current = null;
-    },
-    [],
-  );
-  const preparedRecorder = useCallback(() => {
-    if (recorderRef.current === null) throw new Error("The voice recorder is not prepared.");
-    return recorderRef.current;
-  }, []);
-
-  if (!controllerRef.current) {
-    const { timed, phaseChanged } = createPreparationTracer();
-    controllerRef.current = new VoiceInputController({
-      recorder: {
-        get uri() {
-          return recorderRef.current?.uri ?? null;
-        },
-        prepareToRecordAsync: () =>
-          timed("recorder", () => {
-            if (recorderRef.current === null) {
-              recorderRef.current = new AudioModule.AudioRecorder(VOICE_RECORDING_OPTIONS);
-              recorderRef.current.addListener("recordingStatusUpdate", handleRecorderStatus);
-            }
-            return recorderRef.current.prepareToRecordAsync();
-          }),
-        record: (options) => preparedRecorder().record(options),
-        stop: async () => {
-          await recorderRef.current?.stop();
-        },
-      },
-      getTranscriber: () => {
-        const { source, apiKeys } = transcriptionConfigRef.current;
-        const transcriber =
-          source === "local"
-            ? getLocalVoiceTranscriber()
-            : apiKeys.length === 0
-              ? missingKeyTranscriber(source)
-              : createCloudVoiceTranscriber(source, apiKeys);
-        return (
-          transcriber && {
-            prepare: (options) => timed("transcriber", () => transcriber.prepare(options)),
-          }
-        );
-      },
-      requestPermission: async () => {
-        const permission = await timed("permission", requestRecordingPermissionsAsync);
-        return { granted: permission.granted, canAskAgain: permission.canAskAgain };
-      },
-      configureRecording: () => configureVoiceRecordingAudio(timed),
-      releaseRecording: releaseVoiceRecordingAudio,
-      deleteRecording: (uri) => new File(uri).delete(),
-      readDraft: (): VoiceDraftSnapshot | null => {
-        const current = latestInputRef.current;
-        if (!current.ownerKey) return null;
-        return {
-          ownerKey: current.ownerKey,
-          text: current.draftMessage,
-          selection: current.selection,
-        };
-      },
-      commitDraft: (text, selection) => {
-        const current = latestInputRef.current;
-        const committed = withDictationDisclaimer(
-          text,
-          sendRequestedRef.current && readRepliesAloudRef.current,
-        );
-        // The disclaimer lands after the caret, so the controller's selection holds.
-        current.onChangeSelection(selection);
-        current.onChangeDraftMessage(committed);
-        if (sendRequestedRef.current) {
-          sendRequestedRef.current = false;
-          pendingSendTextRef.current = committed;
-        }
-      },
-      onStateChange: (next) => {
-        phaseChanged(next.phase);
-        // Settling without a commit (cancel, empty transcript, stale draft,
-        // failed transcription) must not leave a later manual finish armed.
-        if (next.phase === "error" && sendRequestedRef.current && readRepliesAloudRef.current) {
-          announce(`The voice message was not sent. ${next.error ?? ""}`, "error");
-        }
-        if (next.phase === "error" || (next.phase === "idle" && !pendingSendTextRef.current)) {
-          sendRequestedRef.current = false;
-        }
-        setState(next);
-      },
-      onRecordingInterrupted: () => {
-        // What was captured lands in the draft for review instead of being sent.
-        sendRequestedRef.current = false;
-        void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-        playCue("error");
-      },
-      holdBackgroundTime: async () => {
-        const task = await nativeSpeech().beginBackgroundTask("Voice transcription");
-        return () => void nativeSpeech().endBackgroundTask(task);
-      },
-    });
-  }
-
-  const controller = controllerRef.current;
-  const previousOwnerRef = useRef(input.ownerKey);
+  const global = useGlobalVoiceInput();
+  const { setOwnerFocused, session, prepareCommit, readRepliesAloud } = global;
+  const latestInput = useRef(input);
+  latestInput.current = input;
+  const mounted = useRef(true);
+  // The committed text of a dictation finished with Send, until the draft shows it.
+  const [pendingSendText, setPendingSendText] = useState<string | null>(null);
   useEffect(() => {
-    if (previousOwnerRef.current === input.ownerKey) return;
-    previousOwnerRef.current = input.ownerKey;
-    controller.ownerChanged();
-  }, [controller, input.ownerKey]);
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
 
   useFocusEffect(
-    useCallback(
-      () => () => {
-        controller.dispose();
-      },
-      [controller],
-    ),
+    useCallback(() => {
+      const ownerKey = input.ownerKey;
+      if (!ownerKey) return;
+      setOwnerFocused(ownerKey, true);
+      return () => setOwnerFocused(ownerKey, false);
+    }, [input.ownerKey, setOwnerFocused]),
   );
 
-  useEffect(() => {
-    const subscription = AppState.addEventListener("change", (nextState) => {
-      // iOS reports `inactive` while its permission dialog is open. Only the
-      // real background state cancels preparation; recording continues.
-      if (nextState === "background") controller.appMovedToBackground();
+  const start = useCallback(() => {
+    const captured = latestInput.current;
+    if (!captured.ownerKey || captured.disabled) return;
+    void session.start({
+      ...createVoiceInputTarget(
+        captured.ownerKey,
+        captured.readDraftMessage,
+        (transcript, selection) => {
+          const { text, send } = prepareCommit(transcript);
+          captured.onChangeDraftMessage(text);
+          if (mounted.current && latestInput.current.ownerKey === captured.ownerKey) {
+            latestInput.current.onChangeSelection(selection);
+            if (send) setPendingSendText(text);
+          }
+        },
+        captured.selection,
+      ),
+      label: captured.label,
     });
-    return () => subscription.remove();
-  }, [controller]);
+  }, [prepareCommit, session]);
+  const state = global.ownerKey === input.ownerKey ? global.state : IDLE_STATE;
 
-  useEffect(() => () => controller.dispose(), [controller]);
-
+  // The transcript lands and the controller goes idle in one update, so the send
+  // waits for the composer to render the committed text instead of submitting a
+  // stale draft.
+  const draftShowsPendingSend =
+    pendingSendText !== null && input.readDraftMessage() === pendingSendText;
   useEffect(() => {
-    if (state.phase !== "recording") return;
-
-    const tag = `voice-input:${keepAwakeId}:${++keepAwakeSessionRef.current}`;
-    const activation = activateKeepAwakeAsync(tag);
-    void activation.catch(() => {});
-    return () => {
-      // Release after activation settles, even if the recording ends immediately.
-      void activation.then(() => deactivateKeepAwake(tag)).catch(() => {});
-    };
-  }, [keepAwakeId, state.phase]);
-
-  useEffect(() => {
-    if (state.phase !== "preparing" && state.phase !== "recording") return;
-
-    if (audioLevelsRef.current.some((level) => level !== 0)) {
-      audioLevelsRef.current = Array<number>(VOICE_WAVEFORM_SAMPLE_COUNT).fill(0);
-      audioLevels.value = audioLevelsRef.current;
-    }
-    if (elapsedSecondsRef.current !== 0) {
-      elapsedSecondsRef.current = 0;
-      setElapsedSeconds(0);
-    }
-    if (state.phase !== "recording") return;
-
-    const sampleRecording = () => {
-      if (controller.currentState.phase !== "recording") return;
-      const status = preparedRecorder().getStatus();
-      if (!status.isRecording) return;
-
-      const level = normalizeVoiceInputDecibels(status.metering);
-      const history = audioLevelsRef.current;
-      if (level !== 0 || history.some((sample) => sample !== 0)) {
-        const nextLevels = [...history.slice(1), level];
-        audioLevelsRef.current = nextLevels;
-        audioLevels.value = nextLevels;
-      }
-
-      const nextElapsedSeconds = Math.min(
-        VOICE_RECORDING_LIMIT_SECONDS,
-        Math.max(0, Math.floor(status.durationMillis / 1_000)),
-      );
-      if (nextElapsedSeconds !== elapsedSecondsRef.current) {
-        elapsedSecondsRef.current = nextElapsedSeconds;
-        setElapsedSeconds(nextElapsedSeconds);
-      }
-    };
-
-    // Nobody sees the meter while the phone is locked, so sampling pauses until the app is active.
-    let intervalId: ReturnType<typeof setInterval> | null = null;
-    const resume = () => {
-      if (intervalId !== null) return;
-      sampleRecording();
-      intervalId = setInterval(sampleRecording, VOICE_METERING_INTERVAL_MS);
-    };
-    const pause = () => {
-      if (intervalId === null) return;
-      clearInterval(intervalId);
-      intervalId = null;
-    };
-    if (AppState.currentState === "active") resume();
-    const subscription = AppState.addEventListener("change", (nextState) => {
-      if (nextState === "active") resume();
-      else pause();
-    });
-    return () => {
-      subscription.remove();
-      pause();
-    };
-  }, [audioLevels, controller, preparedRecorder, state.phase]);
-
-  // The controller commits the draft and goes idle in the same render, so the
-  // send waits for the composer to report the committed text back rather than
-  // firing against a stale submit closure.
-  useEffect(() => {
-    if (pendingSendTextRef.current === null) return;
-    if (state.phase !== "idle" || input.draftMessage !== pendingSendTextRef.current) return;
-    pendingSendTextRef.current = null;
-    void latestInputRef.current
-      .onSubmit()
+    if (!draftShowsPendingSend || state.phase !== "idle") return;
+    setPendingSendText(null);
+    const submit = latestInput.current.onSubmit;
+    if (!submit) return;
+    void submit()
       .then((prompt) => {
         if (!readRepliesAloud) return;
         if (!prompt) {
@@ -421,39 +97,21 @@ export function useVoiceInputController(input: {
         if (readRepliesAloud) announce(`The voice message was not sent. ${message}`, "error");
         Alert.alert("Could not send voice message", message);
       });
-  }, [input.draftMessage, latestInputRef, pendingSendTextRef, readRepliesAloud, state.phase]);
+  }, [draftShowsPendingSend, readRepliesAloud, state.phase]);
 
-  const start = useCallback(() => {
-    if (!latestInputRef.current.disabled) void controller.start();
-  }, [controller]);
-  const stop = useCallback(() => controller.stop(), [controller]);
-  const cancel = useCallback(() => controller.cancel(), [controller]);
-  const stopAndSend = useCallback(() => {
-    if (controller.currentState.phase !== "recording") return;
-    sendRequestedRef.current = true;
-    return controller.stop();
-  }, [controller]);
-  const transcribeAgain = useCallback(() => {
-    void controller.transcribeAgain();
-  }, [controller]);
-
+  const isBusy = voiceInputBlocksSubmission(state);
   return {
-    // Store screenshots show the dictation button even on simulators, whose
-    // on-device transcription is unavailable.
-    isAvailable:
-      (transcriptionSource === "local"
-        ? getLocalVoiceTranscriber() !== null
-        : voice.transcriptionKeys.length > 0) || getNativeShowcaseScene() !== null,
+    isAvailable: global.isAvailable && (!global.isBusy || global.ownerKey === input.ownerKey),
     state,
-    audioLevels,
-    elapsedSeconds,
-    isBusy: voiceInputBlocksSubmission(state),
+    audioLevels: global.audioLevels,
+    elapsedSeconds: global.elapsedSeconds,
+    isBusy,
     freezesEditor: voiceInputFreezesEditor(state),
-    blocksSubmission: voiceInputBlocksSubmission(state),
+    blocksSubmission: isBusy,
     start,
-    stop,
-    stopAndSend,
-    transcribeAgain,
-    cancel,
+    stop: global.stop,
+    stopAndSend: global.stopAndSend,
+    transcribeAgain: global.transcribeAgain,
+    cancel: global.cancel,
   };
 }

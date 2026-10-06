@@ -1,8 +1,10 @@
-import type { OrchestrationLatestTurn, OrchestrationMessage } from "@t3tools/contracts";
+import type { ThreadRunSummary } from "@t3tools/client-runtime/state/models";
+
+import type { ThreadFeedMessage } from "./threadActivity";
 
 type Message = Pick<
-  OrchestrationMessage,
-  "id" | "role" | "text" | "turnId" | "streaming" | "createdAt"
+  ThreadFeedMessage,
+  "id" | "role" | "text" | "runId" | "streaming" | "createdAt"
 >;
 
 /** A response being read, or the voice prompt whose replies should be read. */
@@ -46,41 +48,46 @@ export const autoReadResponse = {
   takeReply(
     scope: string,
     messages: readonly Message[],
-    turn: OrchestrationLatestTurn | null,
+    run: ThreadRunSummary | null,
     readUpdates: boolean,
   ) {
     const request = pending.get(scope);
-    if (!request || !turn) return null;
+    if (!request || !run) return null;
     const promptId = request.messageId;
     const prompt = messages.find((message) => message.id === promptId && message.role === "user");
     if (!prompt) return null;
-    // A later prompt replaces the hands-free exchange. An older running turn
+    // A later prompt replaces the hands-free exchange. An older running run
     // must finish without being mistaken for the reply to a queued voice prompt.
     if (messages.findLast((message) => message.role === "user")?.id !== promptId) {
       autoReadResponse.cancel(scope);
       return null;
     }
-    if (turn.startedAt === null || turn.startedAt < prompt.createdAt) return null;
-    if (turn.state === "error" || turn.state === "interrupted") {
+    if (run.startedAt === null || run.startedAt < prompt.createdAt) return null;
+    if (
+      run.status === "failed" ||
+      run.status === "interrupted" ||
+      run.status === "cancelled" ||
+      run.status === "rolled_back"
+    ) {
       autoReadResponse.cancel(scope);
       return null;
     }
     const replies = messages.filter(
-      (message) => message.role === "assistant" && message.turnId === turn.turnId,
+      (message) => message.role === "assistant" && message.runId === run.runId,
     );
     if (
-      turn.state === "completed" &&
-      turn.assistantMessageId !== null &&
-      !replies.some((message) => message.id === turn.assistantMessageId)
+      run.status === "completed" &&
+      run.assistantMessageId !== null &&
+      !replies.some((message) => message.id === run.assistantMessageId)
     )
       return null;
     const reply = readUpdates
       ? replies.find((message) => !request.spoken.has(message.id) && message.text.trim())
-      : turn.state === "completed"
+      : run.status === "completed"
         ? replies.at(-1)
         : undefined;
     if (!reply || request.spoken.has(reply.id) || !reply.text.trim()) {
-      if (turn.state === "completed") autoReadResponse.cancel(scope);
+      if (run.status === "completed") autoReadResponse.cancel(scope);
       return null;
     }
     pending.set(scope, { messageId: promptId, spoken: new Set([...request.spoken, reply.id]) });

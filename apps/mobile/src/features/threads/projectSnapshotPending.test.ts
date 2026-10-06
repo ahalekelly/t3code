@@ -49,10 +49,11 @@ describe("waiting for a linked project's environment", () => {
           ...empty,
           status: "cached",
           snapshot: Option.some({
+            schemaVersion: 1,
             snapshotSequence: 0,
             projects: [],
             threads: [],
-            updatedAt: "2026-09-15T12:00:00Z",
+            archivedThreads: [],
           }),
         },
       }),
