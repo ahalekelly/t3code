@@ -396,6 +396,8 @@ export const make = Effect.gen(function* () {
           ? Stream.succeed(undefined)
           : SubscriptionRef.changes(serviceScopes).pipe(
               Stream.map((scopes) => scopes.get(focused.value)?.supervisor),
+              // Other registry changes must not restart the stall timer.
+              Stream.changesWith((a, b) => a === b),
               Stream.switchMap((supervisor) =>
                 supervisor === undefined
                   ? Stream.succeed(undefined)

@@ -312,9 +312,10 @@ export const make = Effect.fn("EnvironmentSupervisor.make")(function* (
   // Whether the latest probe answers a long resume. If it goes unanswered, the
   // reconnect runs even while the network reports offline.
   const longResumeProbe = yield* Ref.make(false);
-  // Set by `connect` and `retryNow` until an attempt settles. It outlives an
-  // interrupted attempt because the request's own signal may restart the
-  // attempt it already started.
+  // Set by `connect` and `retryNow` until an attempt settles, the session
+  // answers the retry's probe, or `disconnect`. It outlives an interrupted
+  // attempt because the request's own signal may restart the attempt it
+  // already started.
   const userRequested = yield* Ref.make(false);
   const verifying = yield* SubscriptionRef.make(false);
   const state = yield* SubscriptionRef.make<SupervisorConnectionState>(
@@ -717,6 +718,7 @@ export const make = Effect.fn("EnvironmentSupervisor.make")(function* (
           }
           if (Exit.isSuccess(probeEvent.exit)) {
             yield* Ref.set(probeUnanswered, false);
+            yield* Ref.set(userRequested, false);
             yield* SubscriptionRef.set(verifying, false);
           }
           yield* probeEvent.exit;
@@ -1086,7 +1088,11 @@ export const make = Effect.fn("EnvironmentSupervisor.make")(function* (
     ...current,
     desired: true,
   })).pipe(
-    Effect.andThen(Ref.set(userRequested, true)),
+    // A connected supervisor ignores the request, so no attempt would clear it.
+    Effect.andThen(SubscriptionRef.get(state)),
+    Effect.flatMap(({ phase }) =>
+      phase === "connected" ? Effect.void : Ref.set(userRequested, true),
+    ),
     Effect.andThen(signal({ _tag: "ConnectRequested" })),
     Effect.withSpan("EnvironmentSupervisor.connect"),
   );
@@ -1095,6 +1101,7 @@ export const make = Effect.fn("EnvironmentSupervisor.make")(function* (
     ...current,
     desired: false,
   })).pipe(
+    Effect.andThen(Ref.set(userRequested, false)),
     Effect.andThen(signal({ _tag: "DisconnectRequested" })),
     Effect.withSpan("EnvironmentSupervisor.disconnect"),
   );

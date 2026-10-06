@@ -1710,6 +1710,42 @@ describe("EnvironmentRegistry", () => {
       }),
     );
 
+    it.effect("keeps the stall timer running across unrelated registry changes", () =>
+      Effect.gen(function* () {
+        const otherStartedAt = yield* Deferred.make<number>();
+        const harness = yield* makeHarness([TARGET, SECOND_TARGET, RELAY_TARGET], [], [], {
+          beforeSessionConnect: (environmentId) =>
+            environmentId === FOCUSED
+              ? Effect.never
+              : environmentId === OTHER
+                ? recordTime(otherStartedAt)
+                : Effect.void,
+        });
+
+        yield* Effect.gen(function* () {
+          const registry = yield* EnvironmentRegistry.EnvironmentRegistry;
+          yield* registry.focusEnvironment(FOCUSED);
+          yield* registry.start;
+          // Each toggle replaces the registry's service map.
+          let enabled = true;
+          yield* Effect.sleep("300 millis").pipe(
+            Effect.andThen(
+              Effect.suspend(() =>
+                registry.setEnabled(RELAY_TARGET.environmentId, (enabled = !enabled)),
+              ),
+            ),
+            Effect.forever,
+            Effect.forkScoped,
+          );
+
+          // Released by the stall, before the two-second head start runs out.
+          const startedAt = yield* stepClockUntil(otherStartedAt);
+          expect(startedAt).toBeGreaterThanOrEqual(1_000);
+          expect(startedAt).toBeLessThan(2_000);
+        }).pipe(Effect.provide(harness.layer), Effect.scoped);
+      }),
+    );
+
     it.effect("holds the others for the head start while the focused environment progresses", () =>
       Effect.gen(function* () {
         const otherStartedAt = yield* Deferred.make<number>();
