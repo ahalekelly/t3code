@@ -142,8 +142,11 @@ export interface EnvironmentSupervisorOptions {
    * Awaited before every connection attempt the user did not request, so the
    * registry can let the environment on screen connect first.
    */
-  readonly awaitTurn?: Effect.Effect<void>;
+  readonly awaitTurn?: Effect.Effect<FocusWaitArm>;
 }
+
+/** Fork-only A/B arm of the focused-environment wait; remove after measuring. */
+export type FocusWaitArm = "wait" | "skip";
 
 /**
  * Delay before the next attempt after `failureCount` consecutive failures
@@ -295,7 +298,17 @@ export const make = Effect.fn("EnvironmentSupervisor.make")(function* (
 
   const connectivity = yield* Connectivity.Connectivity;
   const driver = yield* ConnectionDriver.ConnectionDriver;
-  const awaitTurn = options?.awaitTurn ?? Effect.void;
+  const awaitTurn = options?.awaitTurn ?? Effect.succeed<FocusWaitArm>("wait");
+  // Fork-only: records the A/B arm and the wait on the attempt's spans.
+  const afterTurn = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
+    Effect.timed(awaitTurn).pipe(
+      Effect.flatMap(([waited, arm]) =>
+        Effect.annotateSpans(effect, {
+          "connection.focus_wait.arm": arm,
+          "connection.focus_wait.ms": Duration.toMillis(waited),
+        }),
+      ),
+    );
   const initialIntent: SupervisorIntent = {
     desired: options?.initiallyDesired ?? false,
     network: yield* connectivity.status,
@@ -795,7 +808,7 @@ export const make = Effect.fn("EnvironmentSupervisor.make")(function* (
     ]);
     // The setup time starts once this environment's turn comes.
     const establishment = yield* Effect.raceFirst(
-      (yield* Ref.get(userRequested)) ? establish : Effect.andThen(awaitTurn, establish),
+      (yield* Ref.get(userRequested)) ? establish : afterTurn(establish),
       waitForEstablishmentInterrupt().pipe(
         Effect.map((resetRetry): EstablishmentEvent => ({
           _tag: "Interrupted",
