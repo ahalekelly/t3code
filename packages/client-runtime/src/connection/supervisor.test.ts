@@ -1113,6 +1113,58 @@ describe("EnvironmentSupervisor", () => {
     }),
   );
 
+  it.effect("waits its turn for a reconnect after a connect request while connected", () =>
+    Effect.gen(function* () {
+      const turns = yield* Ref.make(0);
+      const harness = yield* makeHarness();
+      const supervisor = yield* EnvironmentSupervisor.make(TARGET_ENTRY, {
+        initiallyDesired: true,
+        awaitTurn: Ref.update(turns, (count) => count + 1).pipe(Effect.as("wait" as const)),
+      }).pipe(Effect.provide(harness.dependencies));
+
+      yield* awaitState(supervisor.state, (state) => state.phase === "connected");
+      yield* Effect.yieldNow;
+      yield* supervisor.connect;
+      yield* harness.closeLatestSession();
+      yield* TestClock.adjust("2 seconds");
+      yield* awaitState(
+        supervisor.state,
+        (state) => state.phase === "connected" && state.generation === 2,
+      );
+
+      expect(yield* Ref.get(turns)).toBe(2);
+    }).pipe(Effect.provide(TestClock.layer())),
+  );
+
+  it.effect("does not let a connect request drop a pending retry's skip of the wait", () =>
+    Effect.gen(function* () {
+      const turns = yield* Ref.make(0);
+      const probeAnswer = yield* Deferred.make<void>();
+      const harness = yield* makeHarness({
+        probe: (attempt) =>
+          attempt === 1
+            ? Deferred.await(probeAnswer).pipe(Effect.andThen(Effect.fail(transient("Stale."))))
+            : Effect.void,
+      });
+      const supervisor = yield* EnvironmentSupervisor.make(TARGET_ENTRY, {
+        initiallyDesired: true,
+        awaitTurn: Ref.update(turns, (count) => count + 1).pipe(Effect.as("wait" as const)),
+      }).pipe(Effect.provide(harness.dependencies));
+
+      yield* awaitState(supervisor.state, (state) => state.phase === "connected");
+      yield* Effect.yieldNow;
+      yield* supervisor.retryNow;
+      yield* supervisor.connect;
+      yield* Deferred.succeed(probeAnswer, undefined);
+      yield* awaitState(
+        supervisor.state,
+        (state) => state.phase === "connected" && state.generation === 2,
+      );
+
+      expect(yield* Ref.get(turns)).toBe(1);
+    }),
+  );
+
   it.effect("keeps a mobile session that answers its long-resume probe", () =>
     Effect.gen(function* () {
       const probeCount = yield* Ref.make(0);
