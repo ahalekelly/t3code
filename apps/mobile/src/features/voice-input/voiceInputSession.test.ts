@@ -13,6 +13,7 @@ const audio = vi.hoisted(() => ({
   setMode: vi.fn(async (_mode: unknown) => {}),
   setActive: vi.fn(async (_active: boolean) => {}),
 }));
+vi.mock("react-native", () => ({ Platform: { OS: "ios" } }));
 vi.mock("expo-audio", () => ({
   AudioModule: {},
   setAudioModeAsync: audio.setMode,
@@ -264,6 +265,7 @@ describe("global voice input", () => {
       hasError: false,
       error: null,
       url: recorder.uri,
+      interrupted: false,
     });
     expect(commit).toHaveBeenCalledWith("first spoken text", { start: 17, end: 17 });
     expect(session.controller.currentState.phase).toBe("idle");
@@ -296,6 +298,33 @@ describe("global voice input", () => {
     expect(session.controller.currentState.error).toContain("draft changed");
     expect(unsubscribe).toHaveBeenCalledTimes(1);
     registry.dispose();
+  });
+
+  it("transcribes a failed recording again on retry, and records anew on start", async () => {
+    const { session, recorder, prepare } = createSession();
+    const transcribe = vi
+      .fn<PreparedVoiceTranscription["transcribe"]>()
+      .mockRejectedValueOnce(new Error("offline"))
+      .mockResolvedValue("spoken text");
+    prepare.mockImplementation(async () => ({ locale: "en-US", transcribe }));
+    const commit = vi.fn();
+    const target = createTarget("first", () => "first", commit, { start: 5, end: 5 });
+    await session.start(target);
+    await session.controller.stop();
+    expect(session.getSnapshot().canTranscribeAgain).toBe(true);
+
+    await session.retry();
+    expect(recorder.record).toHaveBeenCalledOnce();
+    expect(commit).toHaveBeenCalledWith("first spoken text", { start: 17, end: 17 });
+    expect(session.getSnapshot().canTranscribeAgain).toBe(false);
+
+    transcribe.mockRejectedValueOnce(new Error("offline"));
+    await session.start(target);
+    await session.controller.stop();
+    await session.start(target);
+    expect(recorder.record).toHaveBeenCalledTimes(3);
+    expect(session.getSnapshot().canTranscribeAgain).toBe(false);
+    session.controller.cancel();
   });
 
   it("stops recording when its queued edit is discarded", async () => {
