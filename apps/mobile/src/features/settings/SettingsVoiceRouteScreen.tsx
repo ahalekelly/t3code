@@ -1,6 +1,6 @@
 import { useAtomSet, useAtomValue } from "@effect/atom-react";
 import { useNavigation } from "@react-navigation/native";
-import { AsyncResult } from "effect/unstable/reactivity";
+import { AsyncResult } from "effect/reactivity";
 import { useState } from "react";
 import { Alert, Platform, Pressable, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -170,7 +170,8 @@ export function SettingsVoiceRouteScreen() {
             // Android only transcribes; reading aloud is iOS-only.
             .filter(
               (key) =>
-                Platform.OS === "ios" || VOICE_API_KEYS[key].provider in VOICE_TRANSCRIPTION_SOURCE_LABELS,
+                Platform.OS === "ios" ||
+                VOICE_API_KEYS[key].provider in VOICE_TRANSCRIPTION_SOURCE_LABELS,
             )
             .map((key) => (
               <ApiKeyField key={key} slot={key} />
@@ -178,7 +179,8 @@ export function SettingsVoiceRouteScreen() {
         </SettingsSection>
         <Text className="px-2 text-sm leading-normal text-foreground-muted">
           Keys stay in this device's keychain. Azure keys come from Speech resources in West US 2;
-          the free F0 key is used until its monthly quota runs out, then the S0 key until it refills.
+          the free F0 key is used until its monthly quota runs out, then the S0 key until it
+          refills.
         </Text>
       </ScrollView>
     </View>

@@ -19,14 +19,6 @@ interface SelectionChangeEvent extends TargetedEvent {
   end: CodegenTypes.Int32;
 }
 
-/** The view drew `shownLength` of `textLength` characters; see T3MarkdownText.mm. */
-interface TextCutoffEvent extends TargetedEvent {
-  textLength: CodegenTypes.Int32;
-  shownLength: CodegenTypes.Int32;
-  frameHeight: CodegenTypes.Double;
-  neededHeight: CodegenTypes.Double;
-}
-
 type EllipsizeMode = "head" | "middle" | "tail" | "clip";
 
 interface NativeProps extends ViewProps {
@@ -51,7 +43,6 @@ interface NativeProps extends ViewProps {
    * ```
    */
   onSelectionChange?: CodegenTypes.BubblingEventHandler<SelectionChangeEvent>;
-  onTextCutoff?: CodegenTypes.BubblingEventHandler<TextCutoffEvent>;
 }
 
 export default codegenNativeComponent<NativeProps>("T3MarkdownText", {

@@ -114,7 +114,9 @@ describe("createCloudVoiceTranscriber", () => {
       const transcribeOnce = async () =>
         (await transcriber.prepare({ signal })).transcribe("file:///voice.m4a", { signal });
       const keysUsed = () =>
-        mocks.upload.mock.calls.map(([, options]) => options.headers?.["Ocp-Apim-Subscription-Key"]);
+        mocks.upload.mock.calls.map(
+          ([, options]) => options.headers?.["Ocp-Apim-Subscription-Key"],
+        );
 
       await transcribeOnce();
       await transcribeOnce();
@@ -139,7 +141,9 @@ describe("createCloudVoiceTranscriber", () => {
       const transcribeOnce = async () =>
         (await transcriber.prepare({ signal })).transcribe("file:///voice.m4a", { signal });
       const keysUsed = () =>
-        mocks.upload.mock.calls.map(([, options]) => options.headers?.["Ocp-Apim-Subscription-Key"]);
+        mocks.upload.mock.calls.map(
+          ([, options]) => options.headers?.["Ocp-Apim-Subscription-Key"],
+        );
 
       await transcribeOnce();
       vi.setSystemTime(new Date("2026-10-01T23:59:59Z"));

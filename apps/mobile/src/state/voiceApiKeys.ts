@@ -1,6 +1,6 @@
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
-import { AsyncResult, Atom } from "effect/unstable/reactivity";
+import { AsyncResult, Atom } from "effect/reactivity";
 
 import { MobileSecureStorage } from "../persistence/mobile-secure-storage";
 import {
@@ -17,9 +17,7 @@ const storageKey = (key: VoiceApiKey) => `t3code.voice.${key}-api-key`;
 
 const storedApiKeyAtom = Atom.family((key: VoiceApiKey) =>
   voiceApiKeysRuntime
-    .atom(
-      MobileSecureStorage.pipe(Effect.flatMap((storage) => storage.getItem(storageKey(key)))),
-    )
+    .atom(MobileSecureStorage.pipe(Effect.flatMap((storage) => storage.getItem(storageKey(key)))))
     .pipe(Atom.keepAlive, Atom.withLabel(`mobile:voice:${key}-api-key:stored`)),
 );
 
@@ -36,9 +34,7 @@ const writtenApiKeyAtom = Atom.family((key: VoiceApiKey) =>
 export const voiceApiKeyAtom = Atom.family((key: VoiceApiKey) =>
   Atom.make((get) => {
     const written = get(writtenApiKeyAtom(key));
-    return Option.isSome(written)
-      ? AsyncResult.success(written.value)
-      : get(storedApiKeyAtom(key));
+    return Option.isSome(written) ? AsyncResult.success(written.value) : get(storedApiKeyAtom(key));
   }).pipe(Atom.keepAlive, Atom.withLabel(`mobile:voice:${key}-api-key`)),
 );
 

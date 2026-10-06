@@ -2,15 +2,15 @@ import type { EnvironmentId } from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
-import * as Encoding from "effect/Encoding";
+import * as Hex from "effect/encoding/Hex";
 import * as Exit from "effect/Exit";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Stream from "effect/Stream";
 import * as SubscriptionRef from "effect/SubscriptionRef";
 import * as Tracer from "effect/Tracer";
-import { HttpClient } from "effect/unstable/http";
-import { OtlpResource, type OtlpTracer } from "effect/unstable/observability";
+import { HttpClient } from "effect/http";
+import { OtlpResource, type OtlpTracer } from "effect/observability";
 
 import { RemoteEnvironmentAuthorization } from "../authorization/service.ts";
 import { connectionProjectionPhase, type PreparedConnection } from "../connection/model.ts";
@@ -201,8 +201,8 @@ function rootSpan(
   attributes: Record<string, unknown>,
 ): OtlpSpan {
   return {
-    traceId: Encoding.randomHex(32),
-    spanId: Encoding.randomHex(16),
+    traceId: Hex.random(32),
+    spanId: Hex.random(16),
     name,
     kind: OTLP_SPAN_KIND.internal,
     startTimeUnixNano: String(startTime),

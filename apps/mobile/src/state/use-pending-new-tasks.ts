@@ -1,6 +1,6 @@
 import { useAtomValue } from "@effect/atom-react";
 import * as Equivalence from "effect/Equivalence";
-import { Atom } from "effect/unstable/reactivity";
+import { Atom } from "effect/reactivity";
 import { useMemo } from "react";
 
 import { isNewTaskDraftKey } from "./new-task-draft-key";
