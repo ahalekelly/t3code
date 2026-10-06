@@ -1,6 +1,9 @@
 diff --git a/cpp/md4c/md4c.c b/cpp/md4c/md4c.c
 --- a/cpp/md4c/md4c.c
 +++ b/cpp/md4c/md4c.c
+@@ -3308 +3308 @@ md_collect_marks(MD_CTX* ctx, const MD_LINE* lines, MD_SIZE n_lines, int table_m
+-                if(tmp - off <= 2) {
++                if((ch == _T('$') && tmp - off <= 2) || (ch == _T('~') && tmp - off == 2)) {
 @@ -3908,10 +3908,10 @@
          int min_components;
          const MD_CHAR optional_end_char;
