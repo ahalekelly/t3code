@@ -47,6 +47,10 @@ const establishmentTimeout = Duration.fromInputUnsafe(CONNECTION_ESTABLISHMENT_T
 const synchronizationTimeout = Duration.fromInputUnsafe("75 seconds");
 const CONNECTION_PROBE_TIMEOUT = "15 seconds";
 const QUICK_CONNECTION_PROBE_TIMEOUT = "3 seconds";
+// Mobile operating systems often kill a suspended socket without a close
+// event, but a live one nearly always answers within a second of a long
+// resume, so a slower answer is treated as dead.
+const LONG_RESUME_PROBE_TIMEOUT = "1 second";
 const BACKOFF_RESET_AFTER_MS = 30_000;
 const BETTER_ROUTE_CHECK_INTERVAL = "60 seconds";
 // A better route that answered the check but then failed to connect is not
@@ -263,6 +267,9 @@ export const make = Effect.fn("EnvironmentSupervisor.make")(function* (
   const signals = yield* Queue.unbounded<SupervisorSignal>();
   const resetRetryState = yield* Ref.make(false);
   const probeUnanswered = yield* Ref.make(false);
+  // Whether the latest probe answers a long resume. If it goes unanswered, the
+  // reconnect runs even while the network reports offline.
+  const longResumeProbe = yield* Ref.make(false);
   const state = yield* SubscriptionRef.make<SupervisorConnectionState>(
     !initialIntent.desired
       ? availableState(initialIntent, 0)
@@ -550,18 +557,35 @@ export const make = Effect.fn("EnvironmentSupervisor.make")(function* (
     if (next._tag !== "Wakeup") {
       return undefined;
     }
-    if (next.reason === "application-active-reconnect") {
-      // Mobile operating systems often kill a suspended socket without a close
-      // event. A probe would show a dead socket as "Resuming" until it times
-      // out, so a long background resume replaces the session at once.
-      return "reset" as const;
-    }
     // Only a session over T3 Connect holds the old account's credential.
     if (next.reason === "credentials-changed" && isRelayLease(lease)) {
       yield* logManagedRelayAccountChange;
       return "end" as const;
     }
     return undefined;
+  });
+
+  const isLongResume = (next: SupervisorSignal) =>
+    next._tag === "Wakeup" && next.reason === "application-active-reconnect";
+
+  // Records whether a long resume kept its socket, so the keep rate and the
+  // probe's answer time show in client traces.
+  const traceLongResume = Effect.fnUntraced(function* (
+    outcome: "kept" | "replaced",
+    resumedAt: bigint,
+  ) {
+    const probeMs = Number(((yield* Clock.monotonicTimeNanos) - resumedAt) / 1_000_000n);
+    yield* Effect.void.pipe(
+      Effect.withSpan("EnvironmentSupervisor.longResume", {
+        root: true,
+        attributes: {
+          "environment.id": target.environmentId,
+          "environment.label": target.label,
+          "connection.long_resume": outcome,
+          "connection.long_resume.probe_ms": probeMs,
+        },
+      }),
+    );
   });
 
   const probeTimeoutFor = (next: SupervisorSignal): Duration.Input | undefined => {
@@ -573,6 +597,9 @@ export const make = Effect.fn("EnvironmentSupervisor.make")(function* (
       case "Wakeup":
         if (next.reason === "application-active") {
           return CONNECTION_PROBE_TIMEOUT;
+        }
+        if (next.reason === "application-active-reconnect") {
+          return LONG_RESUME_PROBE_TIMEOUT;
         }
         return next.reason === "application-active-probe" || next.reason === "network-changed"
           ? QUICK_CONNECTION_PROBE_TIMEOUT
@@ -623,7 +650,10 @@ export const make = Effect.fn("EnvironmentSupervisor.make")(function* (
       }
       yield* Ref.set(probeUnanswered, true);
       const probe = yield* Effect.forkChild(lease.session.probe);
-      let deadline = (yield* Clock.monotonicTimeNanos) + Duration.toNanosUnsafe(probeTimeout);
+      const probeStartedAt = yield* Clock.monotonicTimeNanos;
+      let deadline = probeStartedAt + Duration.toNanosUnsafe(probeTimeout);
+      let longResumeAt = isLongResume(next) ? probeStartedAt : undefined;
+      yield* Ref.set(longResumeProbe, longResumeAt !== undefined);
       for (;;) {
         const remaining = deadline - (yield* Clock.monotonicTimeNanos);
         const probeEvent = yield* Effect.raceAllFirst([
@@ -637,12 +667,19 @@ export const make = Effect.fn("EnvironmentSupervisor.make")(function* (
         ]);
         if (probeEvent._tag === "TimedOut") {
           yield* Fiber.interrupt(probe);
+          if (longResumeAt !== undefined) yield* traceLongResume("replaced", longResumeAt);
           return yield* new ConnectionTransientError({
             reason: "timeout",
             detail: `${target.label} did not respond to a connection health check.`,
           });
         }
         if (probeEvent._tag === "ProbeCompleted") {
+          if (longResumeAt !== undefined) {
+            yield* traceLongResume(
+              Exit.isSuccess(probeEvent.exit) ? "kept" : "replaced",
+              longResumeAt,
+            );
+          }
           if (Exit.isSuccess(probeEvent.exit)) {
             yield* Ref.set(probeUnanswered, false);
           }
@@ -653,6 +690,10 @@ export const make = Effect.fn("EnvironmentSupervisor.make")(function* (
         if (endDuringProbe !== undefined) {
           yield* Fiber.interrupt(probe);
           return endDuringProbe === "reset";
+        }
+        if (longResumeAt === undefined && isLongResume(probeEvent.signal)) {
+          longResumeAt = yield* Clock.monotonicTimeNanos;
+          yield* Ref.set(longResumeProbe, true);
         }
         const signalTimeout = probeTimeoutFor(probeEvent.signal);
         if (signalTimeout !== undefined) {
@@ -914,6 +955,7 @@ export const make = Effect.fn("EnvironmentSupervisor.make")(function* (
       );
       replacing = false;
       const failedProbe = yield* Ref.getAndSet(probeUnanswered, false);
+      const failedLongResume = yield* Ref.getAndSet(longResumeProbe, false);
       if (outcome.established) {
         generation = nextGeneration;
         // A session came up, so no earlier failure describes the connection.
@@ -959,6 +1001,7 @@ export const make = Effect.fn("EnvironmentSupervisor.make")(function* (
 
       if (failedProbe) {
         resetRetryLadder();
+        replacing = failedLongResume;
         yield* setState(connectingState(yield* Ref.get(intent), generation, 1, latestFailure));
         continue;
       }
