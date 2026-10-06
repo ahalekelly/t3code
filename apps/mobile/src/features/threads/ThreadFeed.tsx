@@ -103,6 +103,8 @@ import { isDuoDevice } from "../../lib/device-type";
 import {
   memo,
   useCallback,
+  createContext,
+  useContext,
   useEffect,
   useEffectEvent,
   useLayoutEffect,
@@ -126,6 +128,7 @@ import {
   type ColorValue,
   useWindowDimensions,
   View,
+  type ViewInstance,
 } from "react-native";
 import { Image as ExpoImage } from "expo-image";
 import { useResolveClassNames } from "uniwind";
@@ -140,7 +143,7 @@ import { MARKDOWN_IMAGE_MAX_WIDTH, resolveMarkdownImageDisplaySize } from "./mar
 import { FilePreviewModal, type FilePreviewSource } from "../../components/ui/FilePreviewModal";
 import { inlineFilePreviewKind, isPdfFile } from "../../lib/filePreview";
 import { ThreadInlineFilePreview } from "./ThreadInlineFilePreview";
-import { flattenThemeColor } from "../../lib/mobileTheme";
+import { flattenThemeColor, themeColorWithAlpha } from "../../lib/mobileTheme";
 import { PresentationSource } from "../../components/ui/NativePresentation";
 import { NativeScrollViewMarker } from "../../native/NativeScrollViewMarker";
 import Animated, { FadeIn, FadeInDown, type SharedValue } from "react-native-reanimated";
@@ -157,6 +160,7 @@ import {
   type MarkdownImageRenderer,
   type MarkdownImageSourceResolver,
   type MarkdownLinkCustomization,
+  type MarkdownSpeechBlocks,
   type NativeMarkdownTextStyle,
   type SelectableMarkdownSkill,
 } from "../../native/SelectableMarkdownText";
@@ -172,6 +176,9 @@ import { Menu } from "../../components/ui/Menu";
 import { useAndroidControlSizing } from "../../components/ui/useAndroidControlSizing";
 import { useBarInset, useContentTopInset } from "../../components/ui/useBarInset";
 import { copyPromptLink } from "../prompt-links/prompt-link-actions";
+import { autoReadResponse } from "../../lib/autoReadResponse";
+import { ReadResponseButton } from "./ReadResponseButton";
+import { responseSpeech, useSpokenBlock } from "../../lib/responseSpeech";
 import { parseReviewCommentMessageSegments } from "../review/reviewCommentSelection";
 import {
   ReviewCommentCard,
@@ -1082,6 +1089,8 @@ interface MarkdownStyleSet {
   readonly nativeTextStyle: NativeMarkdownTextStyle;
 }
 
+const RevealSpokenBlockContext = createContext<(view: ViewInstance) => void>(() => {});
+
 const ARTIFACT_TEMPLATE_SYMBOL_BY_KIND: Record<
   CodexArtifactTemplate["artifactKind"],
   AppSymbolName
@@ -1133,6 +1142,8 @@ function ArtifactTemplateCard(props: {
 }
 
 const AssistantMarkdownContent = memo(function AssistantMarkdownContent(props: {
+  readonly speechScope?: string | undefined;
+  readonly speechMessageId?: string | undefined;
   readonly markdown: string;
   readonly environmentId: EnvironmentId;
   readonly markdownStyles: MarkdownStyleSet;
@@ -1144,6 +1155,21 @@ const AssistantMarkdownContent = memo(function AssistantMarkdownContent(props: {
   const models = useModelMentions(props.environmentId, props.markdown);
   const liveMarkdown = useLiveThreadLinkLabels(props.markdown, props.environmentId);
   const threadIcons = useThreadChipIcons(props.environmentId, liveMarkdown);
+  const spokenBlock = useSpokenBlock(props.speechScope ?? "", props.speechMessageId ?? "");
+  const revealBlock = useContext(RevealSpokenBlockContext);
+  const highlightColor = themeColorWithAlpha(useUniwindTheme()["--color-focus"], 0.14);
+  const speech = useMemo(
+    () =>
+      spokenBlock === undefined
+        ? undefined
+        : {
+            activeBlock: spokenBlock,
+            highlightColor,
+            onPressBlock: (block: number) => void responseSpeech.seekToBlock(block),
+            revealBlock,
+          },
+    [highlightColor, revealBlock, spokenBlock],
+  );
   const linkHandlers: MarkdownLinkHandlers = {
     ...props.linkHandlers,
     linkCustomization: (href) =>
@@ -1159,6 +1185,7 @@ const AssistantMarkdownContent = memo(function AssistantMarkdownContent(props: {
       renderImage={props.renderImage}
       skills={props.skills}
       models={models}
+      speech={speech}
     />
   );
 });
@@ -1172,6 +1199,7 @@ function AssistantMarkdownBlocks(props: {
   readonly renderImage: MarkdownImageRenderer;
   readonly skills?: ReadonlyArray<SelectableMarkdownSkill> | undefined;
   readonly models: ReturnType<typeof useModelMentions>;
+  readonly speech?: MarkdownSpeechBlocks | undefined;
 }) {
   const blocks = useMemo(
     () =>
@@ -1182,6 +1210,12 @@ function AssistantMarkdownBlocks(props: {
       ),
     [props.markdown],
   );
+  // Folds and artifact templates split the message, so their block indices would not match the reading.
+  const [onlyBlock] = blocks;
+  const speech =
+    blocks.length === 1 && onlyBlock?.kind !== "details" && onlyBlock?.segments.length === 1
+      ? props.speech
+      : undefined;
   return blocks.map((block) => {
     if (block.kind === "details") {
       return (
@@ -1190,7 +1224,7 @@ function AssistantMarkdownBlocks(props: {
           summary={block.summary}
           initiallyOpen={block.open}
         >
-          <AssistantMarkdownBlocks {...props} markdown={block.body} />
+          <AssistantMarkdownBlocks {...props} markdown={block.body} speech={undefined} />
         </MarkdownDetailsFold>
       );
     }
@@ -1215,6 +1249,7 @@ function AssistantMarkdownBlocks(props: {
           textStyle={props.markdownStyles.nativeTextStyle}
           {...props.linkHandlers}
           renderImage={props.renderImage}
+          speech={speech}
         />
       );
     });
@@ -2234,6 +2269,12 @@ function renderFeedEntry(
         {renderedText.trim().length > 0 ? (
           <MarkdownImageAvailableWidthContext value={props.markdownContentWidth}>
             <AssistantMarkdownContent
+              speechScope={
+                Platform.OS === "ios"
+                  ? scopedThreadKey(props.environmentId, props.threadId)
+                  : undefined
+              }
+              speechMessageId={message.id}
               markdown={renderedText}
               environmentId={props.environmentId}
               markdownStyles={styles}
@@ -2256,8 +2297,12 @@ function renderFeedEntry(
             onOpenTurnDiff={props.onOpenTurnDiff}
           />
         ) : null}
-        {showAssistantMeta ? (
-          <View className="mt-1 flex-row items-center gap-1">
+        <View
+          className={
+            showAssistantMeta ? "mt-1 flex-row items-center gap-1" : "flex-row items-center gap-1"
+          }
+        >
+          {showAssistantMeta ? (
             <CopyTextButton
               accessibilityLabel="Copy message"
               text={renderedText}
@@ -2265,21 +2310,33 @@ function renderFeedEntry(
               buttonSize={props.replyActionSize.button}
               iconSize={props.replyActionSize.icon}
             />
-            {message.projectedItem ? (
-              <AssistantForkButton
-                environmentId={props.environmentId}
-                iconColor={iconSubtleColor}
-                buttonSize={props.replyActionSize.button}
-                iconSize={props.replyActionSize.icon}
-                projectedItem={message.projectedItem}
-                sourceTitle={props.threadTitle}
-              />
-            ) : null}
+          ) : null}
+          {showAssistantMeta && message.projectedItem ? (
+            <AssistantForkButton
+              environmentId={props.environmentId}
+              iconColor={iconSubtleColor}
+              buttonSize={props.replyActionSize.button}
+              iconSize={props.replyActionSize.icon}
+              projectedItem={message.projectedItem}
+              sourceTitle={props.threadTitle}
+            />
+          ) : null}
+          {Platform.OS === "ios" && renderedText.trim().length > 0 ? (
+            <ReadResponseButton
+              scope={scopedThreadKey(props.environmentId, props.threadId)}
+              messageId={message.id}
+              title={props.threadTitle}
+              text={renderedText}
+              canStart={showAssistantMeta}
+              tintColor={iconSubtleColor}
+            />
+          ) : null}
+          {showAssistantMeta ? (
             <Text className="font-t3-medium text-xs tabular-nums text-foreground-secondary">
               {timestampLabel}
             </Text>
-          </View>
-        ) : null}
+          ) : null}
+        </View>
       </Animated.View>
     );
   }
@@ -2686,6 +2743,15 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
       });
     },
     [navigation, props.environmentId, props.threadId],
+  );
+  useFocusEffect(
+    useCallback(() => {
+      const scope = scopedThreadKey(props.environmentId, props.threadId);
+      return () => {
+        autoReadResponse.cancel(scope);
+        if (responseSpeech.getSnapshot()?.response.scope === scope) void responseSpeech.stop();
+      };
+    }, [props.environmentId, props.threadId]),
   );
   const { themeAppearance } = useAppearancePreferences();
   const copyFeedbackTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -3646,6 +3712,23 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
     </DisclosureRow>
   );
 
+  const listFrameRef = useRef<ViewInstance>(null);
+  const revealSpokenBlock = useCallback(
+    (view: ViewInstance) => {
+      const list = listRef.current;
+      if (!list || !listFrameRef.current || list.getState().scrollVelocity !== 0) return;
+      listFrameRef.current.measureInWindow((_listX, listY, _listWidth, listHeight) => {
+        view.measureInWindow((_x, y, _width, height) => {
+          const top = listY + anchorTopInset + 12;
+          const bottom = listY + listHeight - bottomContentInset - 12;
+          if (y >= top && (y + height <= bottom || y - top < 1)) return;
+          void list.scrollToOffset({ offset: list.getState().scroll + y - top, animated: true });
+        });
+      });
+    },
+    [anchorTopInset, bottomContentInset, listRef],
+  );
+
   if (props.contentPresentation.kind === "unavailable" && props.queuedMessages.length === 0) {
     return (
       <ThreadFeedPlaceholder
@@ -3658,13 +3741,14 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
     );
   }
 
-  return (
+  const feed = (
     <PresentationSource identifier={fileShareSourceIdentifier} style={{ flex: 1 }}>
       <View className="flex-1" onLayout={handleViewportLayout}>
         {/* In a split, rows only re-wrap in the render that hands the list its new width. A native
             column resize would re-wrap them first, and the list would place the taller or shorter
             rows at their old offsets until their measurements came back. */}
         <View
+          ref={listFrameRef}
           className="flex-1"
           style={splitLayout && viewportWidth > 0 ? { width: viewportWidth } : undefined}
         >
@@ -3781,6 +3865,7 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
       </View>
     </PresentationSource>
   );
+  return <RevealSpokenBlockContext value={revealSpokenBlock}>{feed}</RevealSpokenBlockContext>;
 });
 
 function ThreadFeedLoadEarlierControl(props: ThreadFeedHistoryControls) {
