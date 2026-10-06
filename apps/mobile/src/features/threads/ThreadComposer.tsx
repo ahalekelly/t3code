@@ -57,13 +57,11 @@ import { armAgentAwarenessLiveActivityForLocalWork } from "../agent-awareness/re
 import { scopedThreadKey } from "../../lib/scopedEntities";
 import {
   getComposerDraftSnapshot,
-  composerDraftsAtom,
   setComposerDraftText,
   composerContextImportsAtom,
   countComposerDraftAttachmentsAfterSelection,
   useComposerDraft,
 } from "../../state/use-composer-drafts";
-import { appAtomRegistry } from "../../state/atom-registry";
 import type { ComposerDocumentAttachment } from "../../lib/composerContext";
 import { useProject, useThreadShells } from "../../state/entities";
 import { useMentionableEnvironments } from "../../state/environments";
@@ -108,6 +106,7 @@ import {
   ComposerDictationCancelAction,
   ComposerDictationDraftContent,
   ComposerDictationPrimaryAction,
+  ComposerDictationSendAction,
   ComposerDictationStartAction,
   ComposerDictationStatus,
   ComposerDictationToolbar,
@@ -565,10 +564,10 @@ export const ThreadComposer = function ThreadComposer(props: ThreadComposerProps
     ownerKey: composerDraftKey,
     label: props.selectedThread.title || "Untitled thread",
     readDraftMessage: () => getComposerDraftSnapshot(composerDraftKey).text,
-    subscribeToDraftChanges: (onChange) => appAtomRegistry.subscribe(composerDraftsAtom, onChange),
     selection: composerMenu.selection,
     onChangeDraftMessage: (text) => setComposerDraftText(composerDraftKey, text),
     onChangeSelection: composerMenu.onSelectionChange,
+    onSubmit: () => handleSend(),
   });
   const isSubmissionLocked =
     props.interactionLocked === true || queuedEdit?.saving === true || voiceInput.blocksSubmission;
@@ -701,6 +700,7 @@ export const ThreadComposer = function ThreadComposer(props: ThreadComposerProps
       threadTitle: props.selectedThread.title,
       projectTitle: props.environmentLabel ?? "T3 Code",
     });
+    return { scope: threadKey, messageId: sent.value };
   };
 
   const lockedProviderInstanceId = props.canSwitchProvider
@@ -1143,6 +1143,7 @@ export const ThreadComposer = function ThreadComposer(props: ThreadComposerProps
                   phase={voiceInput.state.phase}
                   presentation={voicePresentation}
                   onDismissError={voiceInput.cancel}
+                  onTranscribeAgain={voiceInput.transcribeAgain}
                 />
                 <View className="shrink-0 flex-row items-center">
                   <ComposerDictationPrimaryAction
@@ -1155,7 +1156,12 @@ export const ThreadComposer = function ThreadComposer(props: ThreadComposerProps
                     onConfirm={voiceInput.stop}
                     onCancel={voiceInput.cancel}
                   />
-                  {showStopAction ? (
+                  {voicePresentation.trailingAction === "confirm" ? (
+                    <ComposerDictationSendAction
+                      presentation={voicePresentation}
+                      onSend={voiceInput.stopAndSend}
+                    />
+                  ) : showStopAction ? (
                     <ComposerActionButton
                       size={usesLargeControls ? "large" : "regular"}
                       accessibilityLabel="Stop agent"

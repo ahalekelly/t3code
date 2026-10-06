@@ -168,6 +168,7 @@ import type {
   ThreadFeedLatestRun,
 } from "../../lib/threadActivity";
 import { PendingApprovalCard } from "./PendingApprovalCard";
+import { SpeechPlaybackBar } from "./SpeechPlaybackBar";
 import { ComposerErrorNotice } from "./ComposerErrorNotice";
 import { ComposerFeedback } from "./ComposerFeedback";
 import { ComposerUsageLimits } from "./ComposerUsageLimits";
@@ -190,6 +191,7 @@ import {
   ThreadComposer,
 } from "./ThreadComposer";
 import { ComposerPopoverHost } from "./ComposerPopoverHost";
+import { useAutoReadResponse } from "./useAutoReadResponse";
 import { ThreadFeed, type ThreadFeedHandle, type ThreadFeedHistoryControls } from "./ThreadFeed";
 import { useThreadTurnSubagents } from "./ThreadAgentsSheet";
 import { ComposerQueuedEditBanner } from "./ComposerQueuedEdit";
@@ -456,6 +458,14 @@ function ThreadDetailBody(props: ThreadDetailScreenProps) {
     environmentId: props.environmentId,
     threadId: props.selectedThread.id,
   });
+  useAutoReadResponse(
+    selectedThreadKey,
+    props.selectedThread.title,
+    props.selectedThreadFeed,
+    props.selectedThread.latestRun,
+    props.activePendingApproval,
+    props.activePendingUserInput,
+  );
   const composerError = useAtomValue(threadComposerErrorsAtom)[selectedThreadKey]?.message ?? null;
   const queuedCount = useThreadQueuedCount(props.selectedThreadDetailRef);
   const turnSubagents = useThreadTurnSubagents(props.selectedThreadDetailRef);
@@ -1381,6 +1391,7 @@ function ThreadDetailBody(props: ThreadDetailScreenProps) {
               environmentId={props.environmentId}
               threadId={props.selectedThread.id}
               detailRef={props.selectedThreadDetailRef}
+              threadTitle={props.selectedThread.title}
               workspaceRoot={props.threadCwd}
               feed={props.selectedThreadFeed}
               pendingHandoff={props.pendingHandoff}
@@ -1394,7 +1405,6 @@ function ThreadDetailBody(props: ThreadDetailScreenProps) {
                 isProviderSubagent || pendingMessageEditBlocked ? null : handleEditPendingMessage
               }
               contentPresentation={props.contentPresentation}
-              threadTitle={props.selectedThread.title}
               latestRun={props.activityRun}
               activeWorkStartedAt={props.activeWorkStartedAt}
               runlessWorkActive={props.runlessWorkActive ?? false}
@@ -1504,6 +1514,7 @@ function ThreadDetailBody(props: ThreadDetailScreenProps) {
                       });
                     }}
                   />
+                  {Platform.OS === "ios" ? <SpeechPlaybackBar scope={selectedThreadKey} /> : null}
                   {props.queuedRunEdit !== null ? (
                     <Animated.View
                       className="shrink-0"
