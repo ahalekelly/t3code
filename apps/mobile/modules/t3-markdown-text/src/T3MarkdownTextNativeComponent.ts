@@ -1,14 +1,7 @@
-import codegenNativeComponent from "react-native/Libraries/Utilities/codegenNativeComponent";
-import type { ViewProps } from "react-native";
-import type {
-  BubblingEventHandler,
-  Double,
-  Int32,
-  WithDefault,
-} from "react-native/Libraries/Types/CodegenTypes";
+import { codegenNativeComponent, type CodegenTypes, type ViewProps } from "react-native";
 
 interface TargetedEvent {
-  target: Int32;
+  target: CodegenTypes.Int32;
 }
 
 interface TextLayoutEvent extends TargetedEvent {
@@ -22,27 +15,27 @@ interface TextLayoutEvent extends TargetedEvent {
  * @property end - The end index of the selected range (0-based, exclusive)
  */
 interface SelectionChangeEvent extends TargetedEvent {
-  start: Int32;
-  end: Int32;
+  start: CodegenTypes.Int32;
+  end: CodegenTypes.Int32;
 }
 
 /** The view drew `shownLength` of `textLength` characters; see T3MarkdownText.mm. */
 interface TextCutoffEvent extends TargetedEvent {
-  textLength: Int32;
-  shownLength: Int32;
-  frameHeight: Double;
-  neededHeight: Double;
+  textLength: CodegenTypes.Int32;
+  shownLength: CodegenTypes.Int32;
+  frameHeight: CodegenTypes.Double;
+  neededHeight: CodegenTypes.Double;
 }
 
 type EllipsizeMode = "head" | "middle" | "tail" | "clip";
 
 interface NativeProps extends ViewProps {
   contextClipboardConfig?: string;
-  numberOfLines?: Int32;
-  allowFontScaling?: WithDefault<boolean, true>;
-  ellipsizeMode?: WithDefault<EllipsizeMode, "tail">;
+  numberOfLines?: CodegenTypes.Int32;
+  allowFontScaling?: CodegenTypes.WithDefault<boolean, true>;
+  ellipsizeMode?: CodegenTypes.WithDefault<EllipsizeMode, "tail">;
   selectable?: boolean;
-  onTextLayout?: BubblingEventHandler<TextLayoutEvent>;
+  onTextLayout?: CodegenTypes.BubblingEventHandler<TextLayoutEvent>;
   /**
    * Callback fired when the text selection changes.
    *
@@ -57,8 +50,8 @@ interface NativeProps extends ViewProps {
    * </MarkdownTextPrimitive>
    * ```
    */
-  onSelectionChange?: BubblingEventHandler<SelectionChangeEvent>;
-  onTextCutoff?: BubblingEventHandler<TextCutoffEvent>;
+  onSelectionChange?: CodegenTypes.BubblingEventHandler<SelectionChangeEvent>;
+  onTextCutoff?: CodegenTypes.BubblingEventHandler<TextCutoffEvent>;
 }
 
 export default codegenNativeComponent<NativeProps>("T3MarkdownText", {

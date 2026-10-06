@@ -1,4 +1,4 @@
-import type { View } from "react-native";
+import type { ViewInstance } from "react-native";
 
 export interface NativeMarkdownTextStyle {
   readonly selectionColor?: string;
@@ -84,7 +84,7 @@ export interface MarkdownSpeechBlocks {
   readonly highlightColor: string;
   readonly onPressBlock: (block: number) => void;
   /** Called with the active block's view so the host can scroll it into sight. */
-  readonly revealBlock: (view: View) => void;
+  readonly revealBlock: (view: ViewInstance) => void;
 }
 
 export interface SelectableMarkdownTextProps {

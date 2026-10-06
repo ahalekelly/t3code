@@ -1,11 +1,12 @@
 import { type ReactNode, useEffect, useMemo, useRef } from "react";
-import { type GestureResponderEvent, StyleSheet, View } from "react-native";
+import { type GestureResponderEvent, StyleSheet, View, type ViewInstance } from "react-native";
 import { parseMarkdownWithOptions } from "react-native-nitro-markdown/headless";
 
 import {
   nativeMarkdownChunkSpacing,
   nativeMarkdownDocumentChunks,
   nativeMarkdownDocumentRuns,
+  nativeMarkdownWithAuthoredWindowsPaths,
   nativeMarkdownWithPreservedSoftBreaks,
 } from "./nativeMarkdownText";
 import { MarkdownImageRendererContext, NativeMarkdownBlock } from "./NativeMarkdownBlock";
@@ -55,11 +56,10 @@ export function SelectableMarkdownText({
 }: SelectableMarkdownTextProps) {
   const separateBlocks = speech !== undefined;
   const chunks = useMemo(() => {
-    const parsedDocument = parseMarkdownWithOptions(markdown, {
-      gfm: true,
-      html: true,
-      math: false,
-    });
+    const parsedDocument = nativeMarkdownWithAuthoredWindowsPaths(
+      parseMarkdownWithOptions(markdown, { gfm: true, html: true, math: false }),
+      markdown,
+    );
     const document = preserveSoftBreaks
       ? nativeMarkdownWithPreservedSoftBreaks(parsedDocument)
       : parsedDocument;
@@ -140,7 +140,7 @@ function SpeechBlock(props: {
   readonly speech: MarkdownSpeechBlocks;
   readonly children: ReactNode;
 }) {
-  const ref = useRef<View>(null);
+  const ref = useRef<ViewInstance>(null);
   const touch = useRef<{ x: number; y: number; time: number } | null>(null);
   const active = props.speech.activeBlock === props.index;
   const { revealBlock } = props.speech;

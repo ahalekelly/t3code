@@ -82,6 +82,7 @@ import {
   type ColorValue,
   useWindowDimensions,
   View,
+  type ViewInstance,
 } from "react-native";
 import { FilePreviewModal, type FilePreviewSource } from "../../components/FilePreviewModal";
 import { isPdfFile } from "../../lib/filePreview";
@@ -627,7 +628,7 @@ interface MarkdownStyleSet {
 const failedMarkdownFaviconHosts = new Set<string>();
 const MarkdownLinkLabelContext = createContext(false);
 /** Scrolls the paragraph being read into view. */
-const RevealSpokenBlockContext = createContext<(view: View) => void>(() => {});
+const RevealSpokenBlockContext = createContext<(view: ViewInstance) => void>(() => {});
 const markdownLinkStyles = StyleSheet.create({
   inlineIcon: {
     width: 14,
@@ -2901,9 +2902,9 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
   );
 
   // Keep the paragraph being read on screen unless the user is scrolling.
-  const listFrameRef = useRef<View>(null);
+  const listFrameRef = useRef<ViewInstance>(null);
   const revealSpokenBlock = useCallback(
-    (view: View) => {
+    (view: ViewInstance) => {
       const list = props.listRef.current;
       if (!list || !listFrameRef.current || userScrollSessionRef.current) return;
       listFrameRef.current.measureInWindow((_listX, listY, _listWidth, listHeight) => {
@@ -3007,9 +3008,7 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
                   }
             }
             maintainVisibleContentPosition={
-              endFollowEnabled && !disclosureToggleSettling
-                ? false
-                : maintainVisibleContentPosition
+              endFollowEnabled && !disclosureToggleSettling ? false : maintainVisibleContentPosition
             }
             data={presentedFeed}
             extraData={listAppearanceData}
@@ -3070,9 +3069,7 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
                     className="items-center py-2"
                   >
                     <Text className="text-xs text-foreground-secondary">
-                      {props.loadEarlier.loading
-                        ? "Loading earlier turns…"
-                        : "Load earlier turns"}
+                      {props.loadEarlier.loading ? "Loading earlier turns…" : "Load earlier turns"}
                     </Text>
                   </Pressable>
                 ) : null}

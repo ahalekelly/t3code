@@ -18,6 +18,22 @@ On iOS, customize your Lock Screen, replace a bottom-corner control with T3 Code
 T3 once to load your projects. Hold the control to open an empty composer; existing
 drafts stay saved. The same control is available in Control Center.
 
+### Start without a project
+
+A thread does not need a project. To start one without a project, click **or
+start without a project** under a new thread's heading, pick **No project** from
+the project menu in that heading or from **New thread in...** in the command
+palette, or press `mod+alt+n`. On mobile, pick **No project** from the project
+list. To move a draft into a project, pick the project in the heading.
+
+Each thread without a project works in its own folder under `~/.t3/scratch` (the
+`scratch` folder of your T3 data directory), named after its date, the first words
+of its first message, and a short id, like
+`2026-09-25-convert-these-pngs-to-webp-a1b2c3d4`. Deleting a thread keeps its
+folder, so the files the agent wrote stay until you delete them. Branch, worktree, and diff controls stay hidden because
+these folders are not Git repositories. This is unavailable when the data
+directory itself sits inside a Git checkout.
+
 ### Start in the background
 
 In a desktop browser or the desktop app, press `Cmd+Enter` on macOS or `Ctrl+Enter`
@@ -88,6 +104,16 @@ continues to use settlement time.
 If dragging is unavailable for one environment, update the T3 Code server running in that
 environment. Pinned and active reordering require server support. Threads from older servers keep
 their default order until the server is updated.
+
+### Fold working threads (beta)
+
+On web and desktop, turn on **Settings → General → Working section (beta)** to move threads that
+are working or monitoring into a collapsed **Working** section at the bottom of the sidebar. A
+thread returns to the top of the active list when it finishes, fails, or needs an approval or
+answer. Pinned threads stay in the pinned section.
+
+While this is on, the active list is ordered by when each thread last came back to you, so you
+cannot drag to reorder it. Your saved order returns when you turn it off.
 
 ## Settle finished work
 
