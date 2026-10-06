@@ -43,7 +43,7 @@ import { scopedThreadKey } from "../../lib/scopedEntities";
 import { NATIVE_LIQUID_GLASS_SUPPORTED } from "../../native/native-glass";
 import { connectionTone } from "../connection/connectionTone";
 import {
-  useRemoteConnections,
+  useReconnectEnvironment,
   useRemoteConnectionStatus,
   useRemoteEnvironmentRuntime,
 } from "../../state/use-remote-environment-registry";
@@ -73,7 +73,10 @@ import { resolveMergeBackTargetThreadId } from "@t3tools/client-runtime/state/th
 import { resolveLatestMergeBackRun } from "@t3tools/client-runtime/state/thread-workflows";
 import { threadEnvironment } from "../../state/threads";
 import { environmentCatalog } from "../../connection/catalog";
-import { projectThreadContentPresentation } from "./threadContentPresentation";
+import {
+  projectThreadContentPresentation,
+  READY_THREAD_CONTENT,
+} from "./threadContentPresentation";
 import { useAppearancePreferences } from "../settings/appearance/AppearancePreferencesProvider";
 import {
   useAdaptiveWorkspaceLayout,
@@ -267,7 +270,7 @@ export function ThreadRouteScreen(props: ThreadRouteScreenProps) {
   );
   const routeEnvironmentRuntime = useRemoteEnvironmentRuntime(environmentId);
   const routeEnvironmentShellState = useEnvironmentShellReadiness(environmentId);
-  const { onReconnectEnvironment } = useRemoteConnections();
+  const onReconnectEnvironment = useReconnectEnvironment();
   const navigation = useNavigation();
   const routeConnectionState =
     routeEnvironmentRuntime?.connectionState ?? (environmentId ? "available" : connectionState);
@@ -336,7 +339,7 @@ function ThreadRouteContent(
   const { fileInspector, layout, panes, showAuxiliaryPane, toggleAuxiliaryPane } =
     useAdaptiveWorkspaceLayout();
   const { connectionState } = useRemoteConnectionStatus();
-  const { onReconnectEnvironment } = useRemoteConnections();
+  const onReconnectEnvironment = useReconnectEnvironment();
   const {
     selectedThread,
     selectedThreadCreation,
@@ -984,7 +987,7 @@ function ThreadRouteContent(
   // not-found error for that window is expected, not a load failure.
   const contentPresentation =
     creationState !== null
-      ? { kind: "ready" as const }
+      ? READY_THREAD_CONTENT
       : projectThreadContentPresentation({
           hasDetail: selectedThreadDetail !== null,
           detailError: Option.getOrNull(selectedThreadDetailState.error),

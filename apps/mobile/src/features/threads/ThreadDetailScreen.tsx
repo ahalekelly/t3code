@@ -952,42 +952,39 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
     selectedThreadKey,
   ]);
 
-  const handleSendMessage = useCallback(
-    async (followUp?: ActiveTurnComposerAction) => {
-      const targetThreadKey = selectedThreadKey;
-      const hasUserMessage = selectedThreadFeed.some(
-        (entry) => entry.type === "message" && entry.message.role === "user",
-      );
-      const messageId = await props.onSendMessage(followUp);
-      if (messageId === null || selectedThreadKeyRef.current !== targetThreadKey) {
-        return messageId;
-      }
-
-      // A sent message makes the snapshot stale; a refused send leaves it in place.
-      clearUsageLimitsFor(targetThreadKey);
-
-      setSubmittedMessageId(messageId);
-      setAnchorMessageId(
-        resolveThreadFeedSubmissionAnchor({
-          currentAnchorMessageId: anchorMessageId,
-          submittedMessageId: messageId,
-          hasStartedTurn: props.selectedThread.latestRun !== null,
-          hasUserMessage,
-          queuedMessageCount: props.selectedThreadQueueCount,
-        }),
-      );
-      composerEditorRef.current?.blur();
+  const sendMessage = async (followUp?: ActiveTurnComposerAction) => {
+    const targetThreadKey = selectedThreadKey;
+    const hasUserMessage = selectedThreadFeed.some(
+      (entry) => entry.type === "message" && entry.message.role === "user",
+    );
+    const messageId = await props.onSendMessage(followUp);
+    if (messageId === null || selectedThreadKeyRef.current !== targetThreadKey) {
       return messageId;
-    },
-    [
-      anchorMessageId,
-      clearUsageLimitsFor,
-      props.onSendMessage,
-      props.selectedThread.latestRun,
-      props.selectedThreadQueueCount,
-      selectedThreadFeed,
-      selectedThreadKey,
-    ],
+    }
+
+    // A sent message makes the snapshot stale; a refused send leaves it in place.
+    clearUsageLimitsFor(targetThreadKey);
+
+    setSubmittedMessageId(messageId);
+    setAnchorMessageId(
+      resolveThreadFeedSubmissionAnchor({
+        currentAnchorMessageId: anchorMessageId,
+        submittedMessageId: messageId,
+        hasStartedTurn: props.selectedThread.latestRun !== null,
+        hasUserMessage,
+        queuedMessageCount: props.selectedThreadQueueCount,
+      }),
+    );
+    composerEditorRef.current?.blur();
+    return messageId;
+  };
+  // The feed changes on every streamed event, so the memoized composer gets a
+  // stable handler that runs the latest render's send.
+  const sendMessageRef = useRef(sendMessage);
+  sendMessageRef.current = sendMessage;
+  const handleSendMessage = useCallback(
+    (followUp?: ActiveTurnComposerAction) => sendMessageRef.current(followUp),
+    [],
   );
 
   const handleEditPendingMessage = useCallback(async (message: QueuedThreadMessage) => {
