@@ -33,9 +33,15 @@ function getNativeErrorCode(error: unknown): string | undefined {
   return typeof error.code === "string" ? error.code : undefined;
 }
 
+// Device support is fixed for the process, and composers ask on every render.
+// The native check ignores the locale (it returns `SpeechTranscriber.isAvailable`),
+// so one cached answer covers every locale; `prepare` reports unsupported ones.
+let localTranscriptionAvailable: boolean | null = null;
+
 export function getLocalVoiceTranscriber(): VoiceTranscriber | null {
   const locale = getDeviceLocale();
-  if (!AppleTranscription.isAvailable(locale)) return null;
+  localTranscriptionAvailable ??= AppleTranscription.isAvailable(locale);
+  if (!localTranscriptionAvailable) return null;
   return { prepare: (options) => prepareVoiceTranscription(locale, options) };
 }
 
