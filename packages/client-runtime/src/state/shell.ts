@@ -25,7 +25,7 @@ import * as ConnectionWakeups from "../connection/wakeups.ts";
 import { safeErrorLogAttributes } from "../errors/safeLog.ts";
 import * as Persistence from "../platform/persistence.ts";
 import { runCachePersistence } from "./cachePersistence.ts";
-import { subscribeDynamic } from "../rpc/client.ts";
+import { subscribeDynamicWithInput } from "../rpc/client.ts";
 import type { RpcSession } from "../rpc/session.ts";
 import * as ShellSnapshotLoader from "./shellSnapshotHttp.ts";
 import { applyShellStreamEvent, mergeShellSnapshotProjects } from "./shellReducer.ts";
@@ -231,6 +231,30 @@ export const makeEnvironmentShellState = Effect.fn("EnvironmentShellState.make")
     }
   });
 
+  // Stream.switchMap can still deliver items a replaced attempt buffered, so
+  // only the current attempt's items apply. The dropped ones never applied, so
+  // the cursor the new attempt reads makes the server replay them. Starting an
+  // attempt and applying a batch both run under applyLock, so a batch lands
+  // wholly before or after an attempt starts.
+  const applyLock = yield* Semaphore.make(1);
+  let attempt: unknown;
+  const startAttempt = applyLock.withPermits(1)(
+    Effect.sync(() => {
+      attempt = undefined;
+    }),
+  );
+  const receiveItems = (
+    received: ReadonlyArray<readonly [input: unknown, item: OrchestrationV2ShellStreamItem]>,
+  ) =>
+    applyLock.withPermits(1)(
+      Effect.suspend(() => {
+        // Skip applyItems for an empty batch: it would write a stale
+        // awaitingCompletion over the one a starting attempt sets unlocked.
+        const items = received.flatMap(([input, item]) => (input === attempt ? [item] : []));
+        return items.length === 0 ? Effect.void : applyItems(items);
+      }),
+    );
+
   const foregroundResubscriptions = Option.match(wakeups, {
     onNone: () => Stream.never,
     onSome: (service) =>
@@ -276,9 +300,10 @@ export const makeEnvironmentShellState = Effect.fn("EnvironmentShellState.make")
 
   yield* setSynchronizing;
   yield* Effect.forkScoped(
-    subscribeDynamic(
+    subscribeDynamicWithInput(
       ORCHESTRATION_V2_WS_METHODS.subscribeShell,
       Effect.fn("EnvironmentShellState.makeSubscribeInput")(function* (session) {
+        yield* startAttempt;
         yield* Ref.set(activeSubscriptionSession, session);
         const supportsCompletionMarker = yield* session.initialConfig.pipe(
           Effect.map((config) => config.shellResumeCompletionMarker === true),
@@ -323,7 +348,9 @@ export const makeEnvironmentShellState = Effect.fn("EnvironmentShellState.make")
         // If the authoritative refresh failed, omit the cached cursor so the
         // socket fallback sends a complete snapshot for this new session.
         if (!canResume || Option.isNone(current.snapshot)) {
-          return supportsCompletionMarker ? { requestCompletionMarker: true as const } : {};
+          const input = supportsCompletionMarker ? { requestCompletionMarker: true as const } : {};
+          attempt = input;
+          return input;
         }
         if (!supportsCompletionMarker) {
           // Without a completion marker there is no synchronized signal for a
@@ -334,17 +361,19 @@ export const makeEnvironmentShellState = Effect.fn("EnvironmentShellState.make")
             error: Option.none(),
           }));
         }
-        return {
+        const input = {
           afterSequence: current.snapshot.value.snapshotSequence,
           ...(supportsCompletionMarker ? { requestCompletionMarker: true as const } : {}),
         };
+        attempt = input;
+        return input;
       }),
       {
         onExpectedFailure: (cause) => setStreamError(Cause.squash(cause)),
         retryExpectedFailureAfter: "250 millis",
         resubscribe: foregroundResubscriptions,
       },
-    ).pipe(Stream.runForEachArray(applyItems)),
+    ).pipe(Stream.runForEachArray(receiveItems)),
   );
   yield* SubscriptionRef.changes(supervisor.state).pipe(
     Stream.runForEach((connectionState) => {
