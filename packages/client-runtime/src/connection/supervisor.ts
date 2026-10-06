@@ -40,6 +40,10 @@ const CONNECTION_PROBE_TIMEOUT = "15 seconds";
 // Mobile resumes, explicit retries, and offline events want a fast answer:
 // the user is waiting, or the network may be gone.
 const QUICK_CONNECTION_PROBE_TIMEOUT = "3 seconds";
+// Mobile operating systems often kill a suspended socket without a close
+// event, but a live one nearly always answers within a second of a long
+// resume, so a slower answer is treated as dead.
+const LONG_RESUME_PROBE_TIMEOUT = "1 second";
 const BACKOFF_RESET_AFTER_MS = 30_000;
 // While connected over a fallback route, how often to look for a better one.
 // Network changes and returning to the app also trigger a check.
@@ -279,6 +283,9 @@ export const make = Effect.fn("EnvironmentSupervisor.make")(function* (
   // closed or failed before answering, so the follow-up reconnect skips the
   // first backoff rung instead of sleeping.
   const probeUnanswered = yield* Ref.make(false);
+  // Whether the latest probe answers a long resume. If it goes unanswered, the
+  // reconnect runs even while the network reports offline.
+  const longResumeProbe = yield* Ref.make(false);
   const state = yield* SubscriptionRef.make<SupervisorConnectionState>(
     !initialIntent.desired
       ? availableState(initialIntent, 0)
@@ -538,19 +545,13 @@ export const make = Effect.fn("EnvironmentSupervisor.make")(function* (
       return "end" as const;
     }
     if (next._tag === "BetterRouteAvailable") {
-      // Replaced like a long resume: the new attempt prefers the better route
-      // and its session takes over the durable subscriptions.
+      // The new attempt prefers the better route and its session takes over
+      // the durable subscriptions.
       yield* Ref.set(preferredRouteId, Option.some(next.routeId));
       return "reset" as const;
     }
     if (next._tag !== "Wakeup") {
       return undefined;
-    }
-    if (next.reason === "application-active-reconnect") {
-      // Mobile operating systems often kill a suspended socket without a close
-      // event. A probe would show a dead socket as "Resuming" until it times
-      // out, so a long background resume replaces the session at once.
-      return "reset" as const;
     }
     // Only a session over T3 Connect holds the old account's credential.
     if (next.reason === "credentials-changed" && isRelayLease(lease)) {
@@ -558,6 +559,29 @@ export const make = Effect.fn("EnvironmentSupervisor.make")(function* (
       return "end" as const;
     }
     return undefined;
+  });
+
+  const isLongResume = (next: SupervisorSignal) =>
+    next._tag === "Wakeup" && next.reason === "application-active-reconnect";
+
+  // Records whether a long resume kept its socket, so the keep rate and the
+  // probe's answer time show in client traces.
+  const traceLongResume = Effect.fnUntraced(function* (
+    outcome: "kept" | "replaced",
+    resumedAt: bigint,
+  ) {
+    const probeMs = Number(((yield* Clock.monotonicTimeNanos) - resumedAt) / 1_000_000n);
+    yield* Effect.void.pipe(
+      Effect.withSpan("EnvironmentSupervisor.longResume", {
+        root: true,
+        attributes: {
+          "environment.id": target.environmentId,
+          "environment.label": target.label,
+          "connection.long_resume": outcome,
+          "connection.long_resume.probe_ms": probeMs,
+        },
+      }),
+    );
   });
 
   // How long a signal waits for the live session to answer a probe, or
@@ -571,6 +595,9 @@ export const make = Effect.fn("EnvironmentSupervisor.make")(function* (
       case "Wakeup":
         if (next.reason === "application-active") {
           return CONNECTION_PROBE_TIMEOUT;
+        }
+        if (next.reason === "application-active-reconnect") {
+          return LONG_RESUME_PROBE_TIMEOUT;
         }
         // A socket opened on the previous network may now be unroutable.
         return next.reason === "application-active-probe" || next.reason === "network-changed"
@@ -587,9 +614,8 @@ export const make = Effect.fn("EnvironmentSupervisor.make")(function* (
   // the retry ladder. Returning to the app, an explicit retry, and the network
   // reporting offline all probe the live session instead of replacing it, so a
   // healthy socket is not torn down (the offline report is often wrong, for
-  // example for a loopback server). Only a long mobile resume replaces the
-  // session without a probe. A failed probe fails this effect, and the
-  // supervisor reconnects.
+  // example for a loopback server). A failed probe fails this effect, and the
+  // supervisor reconnects without backoff.
   const monitorConnectedLease = Effect.fnUntraced(function* (
     lease: ConnectionDriver.EnvironmentConnectionLease,
   ) {
@@ -627,7 +653,10 @@ export const make = Effect.fn("EnvironmentSupervisor.make")(function* (
       yield* Ref.set(probeUnanswered, true);
       const probe = yield* Effect.forkChild(lease.session.probe);
       // Monotonic nanoseconds, so a wall-clock correction cannot move the deadline.
-      let deadline = (yield* Clock.monotonicTimeNanos) + Duration.toNanosUnsafe(probeTimeout);
+      const probeStartedAt = yield* Clock.monotonicTimeNanos;
+      let deadline = probeStartedAt + Duration.toNanosUnsafe(probeTimeout);
+      let longResumeAt = isLongResume(next) ? probeStartedAt : undefined;
+      yield* Ref.set(longResumeProbe, longResumeAt !== undefined);
       for (;;) {
         const remaining = deadline - (yield* Clock.monotonicTimeNanos);
         const probeEvent = yield* Effect.raceAllFirst([
@@ -641,12 +670,19 @@ export const make = Effect.fn("EnvironmentSupervisor.make")(function* (
         ]);
         if (probeEvent._tag === "TimedOut") {
           yield* Fiber.interrupt(probe);
+          if (longResumeAt !== undefined) yield* traceLongResume("replaced", longResumeAt);
           return yield* new ConnectionTransientError({
             reason: "timeout",
             detail: `${target.label} did not respond to a connection health check.`,
           });
         }
         if (probeEvent._tag === "ProbeCompleted") {
+          if (longResumeAt !== undefined) {
+            yield* traceLongResume(
+              Exit.isSuccess(probeEvent.exit) ? "kept" : "replaced",
+              longResumeAt,
+            );
+          }
           if (Exit.isSuccess(probeEvent.exit)) {
             yield* Ref.set(probeUnanswered, false);
           }
@@ -657,6 +693,10 @@ export const make = Effect.fn("EnvironmentSupervisor.make")(function* (
         if (endDuringProbe !== undefined) {
           yield* Fiber.interrupt(probe);
           return endDuringProbe === "reset";
+        }
+        if (longResumeAt === undefined && isLongResume(probeEvent.signal)) {
+          longResumeAt = yield* Clock.monotonicTimeNanos;
+          yield* Ref.set(longResumeProbe, true);
         }
         // A retry or an offline report during a desktop foreground probe wants
         // its quicker answer, so it shortens the running probe.
@@ -868,9 +908,10 @@ export const make = Effect.fn("EnvironmentSupervisor.make")(function* (
       failureCount = 0;
       pendingRetry = Option.none();
     };
-    // Set after a long resume ends an attempt or a session. The fresh attempt
-    // runs even while the network reports offline: the report is often wrong,
-    // and the replaced session must not leave the client offline.
+    // Set after a long resume ends an attempt or finds the session dead, or a
+    // better route ends a session. The fresh attempt runs even while the
+    // network reports offline: the report is often wrong, and the replacement
+    // must not leave the client offline.
     let replacing = false;
 
     for (;;) {
@@ -907,6 +948,7 @@ export const make = Effect.fn("EnvironmentSupervisor.make")(function* (
       // Consumed on every iteration so a stale marker can never leak into a
       // later, unrelated failure.
       const failedProbe = yield* Ref.getAndSet(probeUnanswered, false);
+      const failedLongResume = yield* Ref.getAndSet(longResumeProbe, false);
       if (outcome.established) {
         generation = nextGeneration;
         if (outcome.stable) {
@@ -951,6 +993,7 @@ export const make = Effect.fn("EnvironmentSupervisor.make")(function* (
         // of sleeping the first backoff rung. Only this first attempt skips the
         // ladder; if it fails too, normal backoff resumes.
         resetRetryLadder();
+        replacing = failedLongResume;
         yield* setState(connectingState(yield* Ref.get(intent), generation, 1, error));
         continue;
       }
