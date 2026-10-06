@@ -634,9 +634,7 @@ public final class T3ComposerEditorView: ExpoView, UITextViewDelegate, UITextDro
       return
     }
     didAutoFocus = true
-    DispatchQueue.main.async { [weak self] in
-      self?.textView.becomeFirstResponder()
-    }
+    textView.becomeFirstResponder()
   }
 
   func setControlledDocumentJson(_ documentJson: String) {

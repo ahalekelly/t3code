@@ -58,6 +58,11 @@ public final class T3NativeControlsModule: Module {
   // UIKit presenters are main-actor isolated rather than run on the JS thread
   // the macro would otherwise pick.
   @JS
+  func syncNewChatControlProjects(json: String) throws {
+    try NewChatControlStore.sync(json)
+  }
+
+  @JS
   @MainActor
   func dismissVideo(identifier: String) async {
     dismissVideoPresentation(identifier: identifier)

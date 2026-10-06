@@ -2,7 +2,6 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { Alert } from "react-native";
 
 import type {
-  EnvironmentId,
   ModelSelection,
   ProjectReadFileResult,
   ProviderInteractionMode,
@@ -12,6 +11,8 @@ import type {
 } from "@t3tools/contracts";
 import {
   CommandId,
+  EnvironmentId,
+  ProjectId,
   DEFAULT_PROVIDER_INTERACTION_MODE,
   DEFAULT_RUNTIME_MODE,
   DEFAULT_SERVER_SETTINGS,
@@ -198,7 +199,7 @@ type NewTaskFlowContextValue = {
   readonly selectedProviderStatus: ServerProvider | null;
   readonly providerGroups: ReadonlyArray<ProviderGroup>;
   readonly filteredBranches: ReadonlyArray<VcsRef>;
-  readonly reset: () => void;
+  readonly startNewDraft: (project: EnvironmentProject) => void;
   readonly setProject: (project: EnvironmentProject) => void;
   /**
    * Binds the composer to an existing new-task draft (a row in the thread
@@ -254,8 +255,23 @@ type NewTaskFlowContextValue = {
 
 const NewTaskFlowContext = React.createContext<NewTaskFlowContextValue | null>(null);
 
-export function NewTaskFlowProvider(props: React.PropsWithChildren) {
+export function NewTaskFlowProvider(
+  props: React.PropsWithChildren<{
+    initialProjectRef:
+      | {
+          readonly environmentId?: string | string[];
+          readonly projectId?: string | string[];
+        }
+      | undefined;
+  }>,
+) {
   const projects = useProjects();
+  const initialEnvironmentId = Array.isArray(props.initialProjectRef?.environmentId)
+    ? props.initialProjectRef.environmentId[0]
+    : props.initialProjectRef?.environmentId;
+  const initialProjectId = Array.isArray(props.initialProjectRef?.projectId)
+    ? props.initialProjectRef.projectId[0]
+    : props.initialProjectRef?.projectId;
   const threads = useThreadShells();
   const { savedConnectionsById } = useSavedRemoteConnections();
   const groupingSettings = useMobileProjectGroupingSettings();
@@ -278,14 +294,14 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
   );
 
   const [selectedEnvironmentIdOverride, setSelectedEnvironmentId] = useState<EnvironmentId | null>(
-    null,
+    () => (initialEnvironmentId ? EnvironmentId.make(initialEnvironmentId) : null),
   );
-  const selectedEnvironmentId =
-    selectedEnvironmentIdOverride !== null &&
-    projects.some((project) => project.environmentId === selectedEnvironmentIdOverride)
-      ? selectedEnvironmentIdOverride
-      : (projects[0]?.environmentId ?? null);
-  const [selectedProjectKey, setSelectedProjectKey] = useState<string | null>(null);
+  const selectedEnvironmentId = selectedEnvironmentIdOverride ?? projects[0]?.environmentId ?? null;
+  const [selectedProjectKey, setSelectedProjectKey] = useState<string | null>(() =>
+    initialEnvironmentId && initialProjectId
+      ? scopedProjectKey(EnvironmentId.make(initialEnvironmentId), ProjectId.make(initialProjectId))
+      : null,
+  );
   // The new-task draft the composer is bound to. Null until a project is
   // chosen; each New Task entry mints its own, so a project can hold several.
   const [activeDraftKey, setActiveDraftKey] = useState<string | null>(null);
@@ -300,25 +316,6 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
   // Outbox revision this editor session may write after its predecessor save.
   // Unrelated accepted writes still beat the dismissed session's CAS.
   const editingRevisionRef = useRef(Promise.resolve(0));
-
-  const reset = useCallback(() => {
-    setSelectedEnvironmentId(null);
-    setSelectedProjectKey(null);
-    setActiveDraftKey(null);
-    setSubmitting(false);
-    setBranchQuery("");
-    setExpandedProvider(null);
-    pendingLocalBranchSyncDraftKeysRef.current.clear();
-    const editing = editingPendingTaskRef.current;
-    editingPendingTaskRef.current = null;
-    setEditingPendingTask(null);
-    if (editing) {
-      if (activeEditingMessageId === editing.messageId) {
-        activeEditingMessageId = null;
-      }
-      releaseEditingQueuedMessage(editing.messageId);
-    }
-  }, []);
 
   const projectsForEnvironment = useMemo(
     () =>
@@ -364,7 +361,9 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
     selectedProjectKey ===
       scopedProjectKey(editingPendingProject.environmentId, editingPendingProject.id)
       ? editingPendingProject
-      : (projectsForEnvironment[0] ?? null));
+      : selectedProjectKey === null
+        ? (projectsForEnvironment[0] ?? null)
+        : null);
 
   const selectedEnvironmentServerConfig = useEnvironmentServerConfig(
     selectedProject?.environmentId ?? null,
@@ -1257,6 +1256,21 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
   const cancelEditingPendingTask = useCallback(() => {
     editingFlushRef.current?.();
   }, []);
+  const startNewDraft = useCallback(
+    (project: EnvironmentProject) => {
+      cancelEditingPendingTask();
+      setSelectedEnvironmentId(project.environmentId);
+      setSelectedProjectKey(scopedProjectKey(project.environmentId, project.id));
+      setActiveDraftKey(
+        createNewTaskDraft({ environmentId: project.environmentId, projectId: project.id }),
+      );
+      setSubmitting(false);
+      setBranchQuery("");
+      setExpandedProvider(null);
+      pendingLocalBranchSyncDraftKeysRef.current.clear();
+    },
+    [cancelEditingPendingTask],
+  );
   useEffect(
     () => () => {
       editingFlushRef.current?.();
@@ -1300,7 +1314,7 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
       selectedProviderStatus,
       providerGroups,
       filteredBranches,
-      reset,
+      startNewDraft,
       setProject,
       openDraft,
       selectEnvironment,
@@ -1354,7 +1368,7 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
       prompt,
       providerGroups,
       replaceAttachments,
-      reset,
+      startNewDraft,
       runtimeMode,
       selectedBranchName,
       hasMoreBranches,
