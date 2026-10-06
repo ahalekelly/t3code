@@ -7,7 +7,7 @@ import { vi } from "vite-plus/test";
 import { remoteHttpClientLayer } from "@t3tools/client-runtime/rpc";
 import { withRelayClientTracing } from "@t3tools/shared/relayTracing";
 
-import { makeTracingLayer } from "./tracing";
+import { makeTracing } from "./tracing";
 
 vi.mock("expo-constants", () => ({
   default: {
@@ -19,7 +19,7 @@ vi.mock("expo-constants", () => ({
 
 it.effect("exports spans through the scoped mobile OTLP layer", () => {
   const fetchFn = vi.fn<typeof fetch>(async () => new Response(null, { status: 202 }));
-  const tracingLayer = makeTracingLayer(
+  const tracingLayer = makeTracing(
     {
       tracesUrl: "https://api.axiom.test/v1/traces",
       tracesDataset: "mobile-traces",
@@ -29,7 +29,7 @@ it.effect("exports spans through the scoped mobile OTLP layer", () => {
       appVariant: "test",
       serviceVersion: "1.2.3",
     },
-  ).pipe(Layer.provide(remoteHttpClientLayer(fetchFn)));
+  ).layer.pipe(Layer.provide(remoteHttpClientLayer(fetchFn)));
   const tracedApplication = Layer.effectDiscard(
     Effect.void.pipe(Effect.withSpan("mobile.test.span"), withRelayClientTracing),
   ).pipe(Layer.provide(tracingLayer));
@@ -55,7 +55,7 @@ it.effect("exports spans through the scoped mobile OTLP layer", () => {
 
 it.effect("does not let OTLP serialization failures alter application effects", () => {
   const fetchFn = vi.fn<typeof fetch>(async () => new Response(null, { status: 202 }));
-  const tracingLayer = makeTracingLayer(
+  const tracingLayer = makeTracing(
     {
       tracesUrl: "https://api.axiom.test/v1/traces",
       tracesDataset: "mobile-traces",
@@ -65,7 +65,7 @@ it.effect("does not let OTLP serialization failures alter application effects", 
       appVariant: "test",
       serviceVersion: "1.2.3",
     },
-  ).pipe(Layer.provide(remoteHttpClientLayer(fetchFn)));
+  ).layer.pipe(Layer.provide(remoteHttpClientLayer(fetchFn)));
   const failure = { durationNanos: 1n };
   const tracedApplication = Layer.effectDiscard(
     Effect.fail(failure).pipe(

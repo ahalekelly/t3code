@@ -59,6 +59,16 @@ config.resolver = {
   },
 };
 
+// React calls <Profiler> onRender only in its profiling renderer, so release
+// builds swap it in to trace react.commit spans. Its timing costs little.
+config.resolver.resolveRequest = (context, moduleName, platform) => {
+  const resolution = context.resolveRequest(context, moduleName, platform);
+  if (resolution.type === "sourceFile" && resolution.filePath.endsWith("/ReactFabric-prod.js")) {
+    return { ...resolution, filePath: resolution.filePath.replace(/-prod\.js$/, "-profiling.js") };
+  }
+  return resolution;
+};
+
 async function writeFileIfChanged(filePath, contents) {
   try {
     if ((await fs.promises.readFile(filePath, "utf8")) === contents) return;

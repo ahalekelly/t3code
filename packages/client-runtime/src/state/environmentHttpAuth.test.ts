@@ -288,6 +288,23 @@ describe("authenticated environment HTTP requests", () => {
     }),
   );
 
+  it.effect.each(LOADERS.filter((loader) => loader.path.startsWith("/api/orchestration/")))(
+    "decodes a declared error for $name and retries the rejected credential",
+    (loader) =>
+      Effect.gen(function* () {
+        const harness = makeHarness((requestNumber) =>
+          requestNumber === 1 ? credentialRejectedResponse() : Response.json(loader.response),
+        );
+        const result = yield* loader.load(harness.input).pipe(Effect.provide(harness.httpLayer));
+
+        expect(result).toEqual(loader.response);
+        expect(harness.calls.map((call) => new URL(call.url).origin)).toEqual([
+          CURRENT_ORIGIN,
+          RENEWED_ORIGIN,
+        ]);
+      }),
+  );
+
   it.effect("retries a rejected diff once with a new token, endpoint, and proof", () =>
     Effect.gen(function* () {
       const harness = makeHarness((requestNumber) =>

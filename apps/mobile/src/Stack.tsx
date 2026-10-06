@@ -55,6 +55,7 @@ import { ThreadRouteScreen } from "./features/threads/ThreadRouteScreen";
 import { ConnectionsRouteScreen } from "./features/connection/ConnectionsRouteScreen";
 import { ConnectionsNewRouteScreen } from "./features/connection/ConnectionsNewRouteScreen";
 import { HomeRouteScreen } from "./features/home/HomeRouteScreen";
+import { withRenderTrace } from "./features/observability/appTraces";
 import { AddProjectDestinationRoute } from "./features/projects/AddProjectDestinationRoute";
 import { AddProjectLocalRoute } from "./features/projects/AddProjectLocalRoute";
 import { AddProjectNewRoute } from "./features/projects/AddProjectNewRoute";
@@ -687,7 +688,7 @@ const RootStackConfig = createNativeStackNavigator({
   },
   screens: {
     Home: createNativeStackScreen({
-      screen: HomeRouteScreen,
+      screen: withRenderTrace("home", HomeRouteScreen),
       linking: "",
       options: {
         ...GLASS_HEADER_OPTIONS,
@@ -697,7 +698,7 @@ const RootStackConfig = createNativeStackNavigator({
       },
     }),
     Thread: createNativeStackScreen({
-      screen: ThreadRouteScreen,
+      screen: withRenderTrace("thread", ThreadRouteScreen),
       linking: THREAD_LINKING_PREFIX,
       options: GLASS_HEADER_OPTIONS,
     }),

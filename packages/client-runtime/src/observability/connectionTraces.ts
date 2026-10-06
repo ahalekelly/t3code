@@ -75,6 +75,16 @@ export class ConnectionTraceRecorder extends Context.Service<
     /** Drops the spans of a delivered `pending` payload. */
     readonly acknowledge: (through: number) => void;
     /**
+     * Records a root span timed outside Effect, such as a React commit. Times are
+     * epoch nanoseconds, like Effect's clock.
+     */
+    readonly recordSpan: (
+      name: string,
+      startTime: bigint,
+      endTime: bigint,
+      attributes: Record<string, unknown>,
+    ) => void;
+    /**
      * Records a `client.jsThread.stall` span whenever a 50 ms timer fires ≥ 50 ms
      * late; runs until interrupted. Concurrent callers share one timer.
      */
@@ -184,17 +194,20 @@ class RecordedSpan implements Tracer.Span {
   }
 }
 
-function stallSpan(startTime: bigint, endTime: bigint): OtlpSpan {
+function rootSpan(
+  name: string,
+  startTime: bigint,
+  endTime: bigint,
+  attributes: Record<string, unknown>,
+): OtlpSpan {
   return {
     traceId: Hex.random(32),
     spanId: Hex.random(16),
-    name: "client.jsThread.stall",
+    name,
     kind: OTLP_SPAN_KIND.internal,
     startTimeUnixNano: String(startTime),
     endTimeUnixNano: String(endTime),
-    attributes: OtlpResource.entriesToAttributes([
-      ["client.stall_ms", Number(endTime - startTime) / 1_000_000],
-    ]),
+    attributes: OtlpResource.entriesToAttributes(Object.entries(attributes)),
     droppedAttributesCount: 0,
     events: [],
     droppedEventsCount: 0,
@@ -231,7 +244,11 @@ export function makeConnectionTraceRecorder(
       const now = clock.currentTimeNanosUnsafe();
       const late = now - expected;
       if (late >= STALL_INTERVAL_NANOS && late <= MAX_STALL_NANOS) {
-        push(stallSpan(expected, now));
+        push(
+          rootSpan("client.jsThread.stall", expected, now, {
+            "client.stall_ms": Number(late) / 1_000_000,
+          }),
+        );
       }
       expected = now + STALL_INTERVAL_NANOS;
       stallTimer = setTimeout(tick, STALL_INTERVAL_MS);
@@ -245,6 +262,8 @@ export function makeConnectionTraceRecorder(
         span: (options) => new RecordedSpan(options, delegate.span(options), push),
         ...(delegate.context ? { context: delegate.context } : {}),
       }),
+    recordSpan: (name, startTime, endTime, attributes) =>
+      push(rootSpan(name, startTime, endTime, attributes)),
     pending: () => {
       const first = firstPending();
       if (first === recorded) {
