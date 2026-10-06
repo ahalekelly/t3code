@@ -1,3 +1,5 @@
+import type { ViewInstance } from "react-native";
+
 export interface NativeMarkdownTextStyle {
   readonly selectionColor?: string;
   readonly selectionHandleColor?: string;
@@ -75,6 +77,16 @@ export interface MarkdownFileContextMenu {
   readonly actions: ReadonlyArray<MarkdownFileContextMenuAction>;
 }
 
+/** Present while the message is read aloud: each top-level block becomes tappable. */
+export interface MarkdownSpeechBlocks {
+  /** Index of the top-level block being read, or null before audio starts. */
+  readonly activeBlock: number | null;
+  readonly highlightColor: string;
+  readonly onPressBlock: (block: number) => void;
+  /** Called with the active block's view so the host can scroll it into sight. */
+  readonly revealBlock: (view: ViewInstance) => void;
+}
+
 export interface SelectableMarkdownTextProps {
   readonly markdown: string;
   /** Opaque context payload supplied by the host for native selection copy. */
@@ -89,4 +101,5 @@ export interface SelectableMarkdownTextProps {
   readonly renderImage?: MarkdownImageRenderer;
   readonly marginTop?: number;
   readonly marginBottom?: number;
+  readonly speech?: MarkdownSpeechBlocks;
 }

@@ -72,6 +72,7 @@ import { useComposerCommandMenu } from "./use-composer-command-menu";
 import {
   ComposerDictationCancelAction,
   ComposerDictationPrimaryAction,
+  ComposerDictationSendAction,
   ComposerDictationStatus,
   ComposerDictationToolbar,
 } from "../voice-input/ComposerDictationControl";
@@ -81,6 +82,9 @@ import {
   useThreadSettingsSheetPresentation,
   type NavigationWithFinishTransitioning,
 } from "./use-thread-settings-sheet-presentation";
+
+import type { SpokenResponse } from "../../lib/autoReadResponse";
+import { scopedThreadKey } from "../../lib/scopedEntities";
 import { makeTurnCommandMetadata } from "../../lib/commandMetadata";
 import {
   convertPastedImagesToAttachments,
@@ -96,7 +100,6 @@ import {
   captureComposerDraftInsertion,
   countComposerDraftAttachmentsAfterSelection,
   getComposerDraftSnapshot,
-  composerDraftsAtom,
   mergeComposerDraftContent,
   restoreComposerDraftSnapshot,
   updateComposerDraftSettings,
@@ -501,11 +504,11 @@ export function NewTaskDraftScreen(props: {
     ownerKey: flow.draftKey,
     label: selectedProject ? `New task in ${selectedProject.title}` : "New task",
     readDraftMessage: () => (flow.draftKey ? getComposerDraftSnapshot(flow.draftKey).text : null),
-    subscribeToDraftChanges: (onChange) => appAtomRegistry.subscribe(composerDraftsAtom, onChange),
     selection: composerMenu.selection,
     disabled: isIncomingShareTransferPending || isImportingShare || flow.submitting,
     onChangeDraftMessage: flow.setPrompt,
     onChangeSelection: composerMenu.onSelectionChange,
+    onSubmit: () => handleStart(),
   });
   const voicePresentation = resolveVoiceComposerPresentation(
     voiceInput.state,
@@ -1209,7 +1212,7 @@ export function NewTaskDraftScreen(props: {
     [composerMenu, flow, selectedEnvironmentServerConfig],
   );
 
-  async function handleStart(): Promise<void> {
+  async function handleStart(): Promise<SpokenResponse | undefined> {
     if (voiceInput.blocksSubmission || pendingPastedTextAttachmentCountRef.current > 0) return;
     const selectedProject = flow.selectedProject;
     const draftKey = flow.draftKey;
@@ -1355,6 +1358,10 @@ export function NewTaskDraftScreen(props: {
           }),
     );
     scheduleUnusedComposerAttachmentCleanup(draftSnapshot.attachments);
+    return {
+      scope: scopedThreadKey(message.environmentId, message.threadId),
+      messageId: message.messageId,
+    };
   }
 
   const isAndroid = Platform.OS === "android";
@@ -1715,6 +1722,7 @@ export function NewTaskDraftScreen(props: {
                   phase={voiceInput.state.phase}
                   presentation={voicePresentation}
                   onDismissError={voiceInput.cancel}
+                  onTranscribeAgain={voiceInput.transcribeAgain}
                 />
               ) : (
                 <>
@@ -1781,7 +1789,12 @@ export function NewTaskDraftScreen(props: {
                 onConfirm={voiceInput.stop}
                 onCancel={voiceInput.cancel}
               />
-              {voicePresentation.showsSend ? (
+              {voicePresentation.trailingAction === "confirm" ? (
+                <ComposerDictationSendAction
+                  presentation={voicePresentation}
+                  onSend={voiceInput.stopAndSend}
+                />
+              ) : voicePresentation.showsSend ? (
                 <ComposerActionButton
                   accessibilityLabel={
                     attachmentBlockReason ??

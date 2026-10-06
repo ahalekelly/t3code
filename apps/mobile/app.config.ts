@@ -464,6 +464,7 @@ const config: ExpoConfig = {
     "./plugins/withWidgetLogoAsset.cjs",
     "./plugins/withNewChatControl.cjs",
     widgetsPlugin,
+    "./plugins/withResponseSpeech.cjs",
     "./plugins/withAndroidCleartextTraffic.cjs",
     "./plugins/withAndroidGradleHeap.cjs",
     "./plugins/withAndroidInputBackground.cjs",

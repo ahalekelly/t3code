@@ -7,6 +7,16 @@ import * as Schema from "effect/Schema";
 import * as Semaphore from "effect/Semaphore";
 import type { ProviderInstanceId, SidebarProjectGroupingMode } from "@t3tools/contracts";
 import type { ComposerEnterBehavior } from "../lib/composerEnterBehavior";
+import {
+  VOICE_TRANSCRIPTION_SOURCE_LABELS,
+  type VoiceTranscriptionSource,
+} from "../lib/voiceTranscriptionSources";
+import {
+  SPEECH_MODELS,
+  SPEECH_PACES,
+  type SpeechModel,
+  type SpeechPace,
+} from "../lib/speechSettings";
 import type { FollowUpBehavior } from "../lib/followUpBehavior";
 import { MOBILE_THEME_IDS, type MobileThemeId, type MobileThemeMode } from "../lib/mobileTheme";
 import * as MobileDatabase from "./mobile-database";
@@ -51,6 +61,16 @@ export interface Preferences {
   /** Fresh keys reset both shelves to collapsed when users update. */
   readonly threadListSettledShelfExpanded?: boolean;
   readonly threadListSnoozedShelfExpanded?: boolean;
+  /** Unset means on-device; any OpenAI source needs the key kept in the keychain. */
+  readonly voiceTranscriptionSource?: VoiceTranscriptionSource;
+  readonly responseSpeechModel?: SpeechModel;
+  /** Read-aloud voice; one that the selected model lacks falls back to its default. */
+  readonly responseSpeechVoice?: string;
+  readonly responseSpeechPace?: SpeechPace;
+  /** Delivery prompt for read-aloud; unset uses the default. */
+  readonly responseSpeechInstructions?: string;
+  readonly readVoiceRepliesAloud?: boolean;
+  readonly readThinkingUpdatesAloud?: boolean;
   readonly threadListWorkingShelfExpanded?: boolean;
 }
 
@@ -114,6 +134,13 @@ function sanitizePreferences(parsed: Preferences): Preferences {
     modelFavorites?: Preferences["modelFavorites"];
     threadListSettledShelfExpanded?: boolean;
     threadListSnoozedShelfExpanded?: boolean;
+    voiceTranscriptionSource?: VoiceTranscriptionSource;
+    responseSpeechModel?: SpeechModel;
+    responseSpeechVoice?: string;
+    responseSpeechPace?: SpeechPace;
+    responseSpeechInstructions?: string;
+    readVoiceRepliesAloud?: boolean;
+    readThinkingUpdatesAloud?: boolean;
     threadListWorkingShelfExpanded?: boolean;
   } = {};
 
@@ -204,6 +231,36 @@ function sanitizePreferences(parsed: Preferences): Preferences {
   }
   if (typeof parsed.threadListSnoozedShelfExpanded === "boolean") {
     preferences.threadListSnoozedShelfExpanded = parsed.threadListSnoozedShelfExpanded;
+  }
+  if (
+    typeof parsed.voiceTranscriptionSource === "string" &&
+    parsed.voiceTranscriptionSource in VOICE_TRANSCRIPTION_SOURCE_LABELS
+  ) {
+    preferences.voiceTranscriptionSource = parsed.voiceTranscriptionSource;
+  }
+  if (
+    typeof parsed.responseSpeechModel === "string" &&
+    parsed.responseSpeechModel in SPEECH_MODELS
+  ) {
+    preferences.responseSpeechModel = parsed.responseSpeechModel;
+  }
+  if (typeof parsed.responseSpeechVoice === "string") {
+    preferences.responseSpeechVoice = parsed.responseSpeechVoice;
+  }
+  if (
+    typeof parsed.responseSpeechPace === "number" &&
+    (SPEECH_PACES as readonly number[]).includes(parsed.responseSpeechPace)
+  ) {
+    preferences.responseSpeechPace = parsed.responseSpeechPace as SpeechPace;
+  }
+  if (typeof parsed.responseSpeechInstructions === "string") {
+    preferences.responseSpeechInstructions = parsed.responseSpeechInstructions;
+  }
+  if (typeof parsed.readVoiceRepliesAloud === "boolean") {
+    preferences.readVoiceRepliesAloud = parsed.readVoiceRepliesAloud;
+  }
+  if (typeof parsed.readThinkingUpdatesAloud === "boolean") {
+    preferences.readThinkingUpdatesAloud = parsed.readThinkingUpdatesAloud;
   }
   if (typeof parsed.threadListWorkingShelfExpanded === "boolean") {
     preferences.threadListWorkingShelfExpanded = parsed.threadListWorkingShelfExpanded;
