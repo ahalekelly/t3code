@@ -1,7 +1,8 @@
 import { createContext, use, type ComponentProps } from "react";
 import { Platform } from "react-native";
+import { KeyboardAwareScrollView } from "react-native-keyboard-controller";
 import { cn } from "../../lib/cn";
-import { NativeScrollView as ScrollView } from "../../native/NativeScrollViewMarker";
+import { NativeScrollViewMarker } from "../../native/NativeScrollViewMarker";
 
 export const ScreenScrollViewBottomInset = createContext(0);
 /**
@@ -10,11 +11,12 @@ export const ScreenScrollViewBottomInset = createContext(0);
  */
 export const ScreenScrollViewSurface = createContext<string | undefined>(undefined);
 
-export function ScreenScrollView(props: ComponentProps<typeof ScrollView>) {
+export function ScreenScrollView(props: ComponentProps<typeof KeyboardAwareScrollView>) {
   const bottomInset = use(ScreenScrollViewBottomInset);
   const surface = use(ScreenScrollViewSurface);
-  return (
-    <ScrollView
+  const scrollView = (
+    <KeyboardAwareScrollView
+      bottomOffset={16}
       {...props}
       className={Platform.OS === "ios" && surface ? cn(surface, props.className) : props.className}
       contentInset={
@@ -31,5 +33,10 @@ export function ScreenScrollView(props: ComponentProps<typeof ScrollView>) {
         },
       ]}
     />
+  );
+  return Platform.OS === "ios" ? (
+    <NativeScrollViewMarker style={{ flex: 1 }}>{scrollView}</NativeScrollViewMarker>
+  ) : (
+    scrollView
   );
 }
