@@ -5,6 +5,7 @@ import * as Equal from "effect/Equal";
 import * as Exit from "effect/Exit";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
+import * as Random from "effect/Random";
 import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
 import * as Scope from "effect/Scope";
@@ -221,6 +222,9 @@ export const make = Effect.gen(function* () {
   const leaseLocksGuard = yield* Semaphore.make(1);
   const started = yield* Ref.make(false);
   const focusedEnvironment = yield* SubscriptionRef.make(Option.none<EnvironmentId>());
+  // Fork-only A/B measurement: each wakeup flips whether background attempts
+  // skip the focused-environment wait. Remove after measuring.
+  const skipFocusWait = yield* Ref.make(false);
 
   const withLeaseLock = <A, E, R>(
     environmentId: EnvironmentId,
@@ -304,7 +308,7 @@ export const make = Effect.gen(function* () {
   // Resolves once no other environment is focused, or the focused one is
   // neither connecting nor verifying its session, or it stalls, or the head
   // start runs out.
-  const awaitTurn = (environmentId: EnvironmentId) =>
+  const awaitFocused = (environmentId: EnvironmentId) =>
     SubscriptionRef.changes(focusedEnvironment).pipe(
       Stream.switchMap((focused) =>
         Option.isNone(focused) || focused.value === environmentId
@@ -329,7 +333,13 @@ export const make = Effect.gen(function* () {
       ),
       Stream.runHead,
       Effect.timeoutOption(FOCUSED_ENVIRONMENT_HEAD_START),
-      Effect.asVoid,
+    );
+
+  const awaitTurn = (environmentId: EnvironmentId) =>
+    Ref.get(skipFocusWait).pipe(
+      Effect.flatMap((skip): Effect.Effect<EnvironmentSupervisor.FocusWaitArm> =>
+        skip ? Effect.succeed("skip") : awaitFocused(environmentId).pipe(Effect.as("wait")),
+      ),
     );
 
   const createServiceScope = Effect.fn("EnvironmentRegistry.createServiceScope")(
@@ -894,6 +904,7 @@ export const make = Effect.gen(function* () {
   yield* wakeups.changes.pipe(
     Stream.runForEach((reason) =>
       Effect.gen(function* () {
+        yield* Ref.set(skipFocusWait, yield* Random.nextBoolean);
         const focused = Option.getOrNull(yield* SubscriptionRef.get(focusedEnvironment));
         const supervisors = [...(yield* SubscriptionRef.get(serviceScopes)).values()].map(
           (service) => service.supervisor,

@@ -15,6 +15,7 @@ import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Queue from "effect/Queue";
+import * as Random from "effect/Random";
 import * as Ref from "effect/Ref";
 import * as Result from "effect/Result";
 import * as Scheduler from "effect/Scheduler";
@@ -1691,45 +1692,55 @@ describe("EnvironmentRegistry", () => {
       }),
     );
 
-    it.effect("probes the others at once on resume but defers their fresh connections", () =>
-      Effect.gen(function* () {
-        const wakeups = yield* Queue.unbounded<ConnectionWakeups.ConnectionWakeup>();
-        const connects = yield* Ref.make(new Map<EnvironmentId, number>());
-        const otherProbedAt = yield* Deferred.make<number>();
-        const otherFreshAt = yield* Deferred.make<number>();
-        const harness = yield* makeHarness([TARGET, SECOND_TARGET], [], [], {
-          wakeups: Stream.fromQueue(wakeups),
-          probe: (environmentId) =>
-            environmentId === FOCUSED
-              ? Effect.never
-              : recordTime(otherProbedAt).pipe(Effect.andThen(Effect.never)),
-          beforeSessionConnect: (environmentId) =>
-            Effect.gen(function* () {
-              const count = yield* Ref.modify(connects, (current) => {
-                const next = (current.get(environmentId) ?? 0) + 1;
-                return [next, new Map(current).set(environmentId, next)];
-              });
-              if (count === 1) return;
-              yield* environmentId === FOCUSED
-                ? Effect.sleep("1 second")
-                : recordTime(otherFreshAt);
-            }),
-        });
+    // Fork-only A/B: the seed picks the wakeup's arm ("c" waits, "a" skips).
+    it.effect.each([
+      { arm: "wait", seed: "c" },
+      { arm: "skip", seed: "a" },
+    ])(
+      "probes the others at once on resume; the $arm arm defers their fresh connections",
+      ({ arm, seed }) =>
+        Effect.gen(function* () {
+          const wakeups = yield* Queue.unbounded<ConnectionWakeups.ConnectionWakeup>();
+          const connects = yield* Ref.make(new Map<EnvironmentId, number>());
+          const otherProbedAt = yield* Deferred.make<number>();
+          const otherFreshAt = yield* Deferred.make<number>();
+          const harness = yield* makeHarness([TARGET, SECOND_TARGET], [], [], {
+            wakeups: Stream.fromQueue(wakeups),
+            probe: (environmentId) =>
+              environmentId === FOCUSED
+                ? Effect.never
+                : recordTime(otherProbedAt).pipe(Effect.andThen(Effect.never)),
+            beforeSessionConnect: (environmentId) =>
+              Effect.gen(function* () {
+                const count = yield* Ref.modify(connects, (current) => {
+                  const next = (current.get(environmentId) ?? 0) + 1;
+                  return [next, new Map(current).set(environmentId, next)];
+                });
+                if (count === 1) return;
+                yield* environmentId === FOCUSED
+                  ? Effect.sleep("1 second")
+                  : recordTime(otherFreshAt);
+              }),
+          });
 
-        yield* Effect.gen(function* () {
-          const registry = yield* EnvironmentRegistry.EnvironmentRegistry;
-          yield* registry.start;
-          yield* awaitConnectionState(registry, FOCUSED, (state) => state.phase === "connected");
-          yield* awaitConnectionState(registry, OTHER, (state) => state.phase === "connected");
-          yield* registry.focusEnvironment(FOCUSED);
-          yield* Queue.offer(wakeups, "application-active-reconnect");
+          yield* Effect.gen(function* () {
+            const registry = yield* EnvironmentRegistry.EnvironmentRegistry;
+            yield* registry.start;
+            yield* awaitConnectionState(registry, FOCUSED, (state) => state.phase === "connected");
+            yield* awaitConnectionState(registry, OTHER, (state) => state.phase === "connected");
+            yield* registry.focusEnvironment(FOCUSED);
+            yield* Queue.offer(wakeups, "application-active-reconnect");
 
-          const freshAt = yield* stepClockUntil(otherFreshAt);
-          expect(yield* Deferred.await(otherProbedAt)).toBeLessThan(1_000);
-          expect(freshAt).toBeGreaterThanOrEqual(1_000);
-          expect(freshAt).toBeLessThan(2_000);
-        }).pipe(Effect.provide(harness.layer), Effect.scoped);
-      }),
+            const freshAt = yield* stepClockUntil(otherFreshAt);
+            expect(yield* Deferred.await(otherProbedAt)).toBeLessThan(1_000);
+            if (arm === "wait") {
+              expect(freshAt).toBeGreaterThanOrEqual(1_000);
+              expect(freshAt).toBeLessThan(2_000);
+            } else {
+              expect(freshAt).toBeLessThan(1_000);
+            }
+          }).pipe(Effect.provide(harness.layer), Effect.scoped, Random.withSeed(seed));
+        }),
     );
   });
 });
