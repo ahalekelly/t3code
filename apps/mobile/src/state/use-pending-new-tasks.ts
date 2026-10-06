@@ -1,4 +1,5 @@
 import { useAtomValue } from "@effect/atom-react";
+import * as Equivalence from "effect/Equivalence";
 import { Atom } from "effect/reactivity";
 import { useMemo } from "react";
 
@@ -24,13 +25,7 @@ const newTaskDraftsAtom = Atom.make((get): DraftsByKey =>
     Object.entries(get(composerDraftsAtom)).filter(([draftKey]) => isNewTaskDraftKey(draftKey)),
   ),
 ).pipe(
-  Atom.withEquality((previous: DraftsByKey, next: DraftsByKey) => {
-    const keys = Object.keys(next);
-    return (
-      keys.length === Object.keys(previous).length &&
-      keys.every((draftKey) => previous[draftKey] === next[draftKey])
-    );
-  }),
+  Atom.withEquality(Equivalence.Record(Equivalence.strictEqual())),
   Atom.withLabel("mobile:new-task-drafts"),
 );
 
