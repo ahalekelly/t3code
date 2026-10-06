@@ -2,6 +2,7 @@ import { withRelayClientTracing } from "@t3tools/shared/relayTracing";
 import * as Cause from "effect/Cause";
 import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
+import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Fiber from "effect/Fiber";
@@ -105,8 +106,11 @@ export interface EnvironmentSupervisorOptions {
    * Awaited before every connection attempt the user did not request, so the
    * registry can let the environment on screen connect first.
    */
-  readonly awaitTurn?: Effect.Effect<void>;
+  readonly awaitTurn?: Effect.Effect<FocusWaitArm>;
 }
+
+/** Fork-only A/B arm of the focused-environment wait; remove after measuring. */
+export type FocusWaitArm = "wait" | "skip";
 
 function retryDelayMs(failureCount: number): number {
   return RETRY_DELAYS_MS[Math.min(failureCount, RETRY_DELAYS_MS.length - 1)] ?? 16_000;
@@ -226,7 +230,17 @@ export const make = Effect.fn("EnvironmentSupervisor.make")(function* (
 
   const connectivity = yield* Connectivity.Connectivity;
   const driver = yield* ConnectionDriver.ConnectionDriver;
-  const awaitTurn = options?.awaitTurn ?? Effect.void;
+  const awaitTurn = options?.awaitTurn ?? Effect.succeed<FocusWaitArm>("wait");
+  // Fork-only: records the A/B arm and the wait on the attempt's spans.
+  const afterTurn = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
+    Effect.timed(awaitTurn).pipe(
+      Effect.flatMap(([waited, arm]) =>
+        Effect.annotateSpans(effect, {
+          "connection.focus_wait.arm": arm,
+          "connection.focus_wait.ms": Duration.toMillis(waited),
+        }),
+      ),
+    );
   const supervisorScope = yield* Effect.scope;
   const initialIntent: SupervisorIntent = {
     desired: options?.initiallyDesired ?? false,
@@ -483,19 +497,16 @@ export const make = Effect.fn("EnvironmentSupervisor.make")(function* (
 
     let progress: ConnectionDriver.ConnectionDriverProgress = { stage: "preparing" };
     let deadSessionError: ConnectionAttemptError | null = null;
-    const fresh = yield* awaitTurn.pipe(
-      Effect.andThen(
-        openLease(1, generation + 1, Option.none(), true, (next) =>
-          Effect.suspend(() => {
-            progress = next;
-            return deadSessionError === null
-              ? Effect.void
-              : reportProgress(1, generation + 1, deadSessionError, next);
-          }),
-        ),
+    const fresh = yield* afterTurn(
+      openLease(1, generation + 1, Option.none(), true, (next) =>
+        Effect.suspend(() => {
+          progress = next;
+          return deadSessionError === null
+            ? Effect.void
+            : reportProgress(1, generation + 1, deadSessionError, next);
+        }),
       ),
-      Effect.forkChild,
-    );
+    ).pipe(Effect.forkChild);
     // Uninterruptible so a fresh lease winning meanwhile cannot cut the
     // release of the dead session short.
     const sessionDied = (error: ConnectionAttemptError) =>
@@ -656,9 +667,9 @@ export const make = Effect.fn("EnvironmentSupervisor.make")(function* (
     const open = openLease(attempt, nextGeneration, pendingRetry, false, (progress) =>
       reportProgress(attempt, nextGeneration, lastFailure, progress),
     );
-    const opening = yield* (
-      (yield* Ref.get(userRequested)) ? open : Effect.andThen(awaitTurn, open)
-    ).pipe(Effect.forkChild);
+    const opening = yield* ((yield* Ref.get(userRequested)) ? open : afterTurn(open)).pipe(
+      Effect.forkChild,
+    );
     const establishment = yield* Effect.raceFirst(
       Fiber.await(opening).pipe(Effect.map((exit) => ({ _tag: "Completed" as const, exit }))),
       waitForEstablishmentInterrupt().pipe(
