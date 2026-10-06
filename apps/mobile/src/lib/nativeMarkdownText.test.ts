@@ -815,6 +815,33 @@ describe("nativeMarkdownDocumentChunks", () => {
     ]);
   });
 
+  it("gives each top-level block its own chunk while reading aloud", () => {
+    const paragraph = (content: string): MarkdownNode => ({
+      type: "paragraph",
+      children: [{ type: "text", content }],
+    });
+    const document: MarkdownNode = {
+      type: "document",
+      children: [
+        paragraph("One"),
+        paragraph("Two"),
+        { type: "code_block", content: "x" },
+        paragraph("Three"),
+      ],
+    };
+    expect(nativeMarkdownDocumentChunks(document).map((chunk) => chunk.kind)).toEqual([
+      "selectable",
+      "rich",
+      "selectable",
+    ]);
+    expect(nativeMarkdownDocumentChunks(document, true).map((chunk) => chunk.kind)).toEqual([
+      "selectable",
+      "selectable",
+      "rich",
+      "selectable",
+    ]);
+  });
+
   it("keeps headings and plain lists in one selectable document", () => {
     const document: MarkdownNode = {
       type: "document",

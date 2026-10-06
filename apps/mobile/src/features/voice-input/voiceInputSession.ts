@@ -11,7 +11,6 @@ export type VoiceInputTarget = {
   readonly label?: string;
   readonly readDraft: () => VoiceDraftSnapshot | null;
   readonly commitDraft: VoiceInputControllerDependencies["commitDraft"];
-  readonly subscribe: () => () => void;
 };
 
 export function createVoiceInputTarget(
@@ -19,45 +18,24 @@ export function createVoiceInputTarget(
   readText: () => string | null,
   commitDraft: VoiceInputTarget["commitDraft"],
   selection: VoiceDraftSnapshot["selection"],
-  subscribeToChanges: (onChange: () => void) => () => void,
 ): VoiceInputTarget {
-  let revision = 0;
   return {
     ownerKey,
     readDraft: () => {
       const text = readText();
-      if (text === null) return null;
-      return { ownerKey, text, selection, revision };
+      return text === null ? null : { ownerKey, text, selection };
     },
     commitDraft,
-    subscribe: () => {
-      let previousText = readText();
-      return subscribeToChanges(() => {
-        const text = readText();
-        if (text !== previousText) {
-          previousText = text;
-          revision += 1;
-        }
-      });
-    },
   };
 }
 
 export class VoiceInputSession {
   readonly controller: VoiceInputController;
   private target: VoiceInputTarget | null = null;
-  private unsubscribe: (() => void) | null = null;
 
   constructor(dependencies: Omit<VoiceInputControllerDependencies, "readDraft" | "commitDraft">) {
     this.controller = new VoiceInputController({
       ...dependencies,
-      onStateChange: (state) => {
-        if (!voiceInputBlocksSubmission(state)) {
-          this.unsubscribe?.();
-          this.unsubscribe = null;
-        }
-        dependencies.onStateChange(state);
-      },
       readDraft: () => this.target?.readDraft() ?? null,
       commitDraft: (text, selection) => this.target?.commitDraft(text, selection),
     });
@@ -82,7 +60,6 @@ export class VoiceInputSession {
   start(target: VoiceInputTarget): Promise<void> {
     if (voiceInputBlocksSubmission(this.controller.currentState)) return Promise.resolve();
     this.target = target;
-    this.unsubscribe = target.subscribe();
     return this.controller.start();
   }
 }

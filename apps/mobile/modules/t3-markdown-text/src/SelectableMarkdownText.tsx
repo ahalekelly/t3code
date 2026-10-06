@@ -1,5 +1,5 @@
-import { useMemo } from "react";
-import { View } from "react-native";
+import { type ReactNode, useEffect, useMemo, useRef } from "react";
+import { type GestureResponderEvent, StyleSheet, View, type ViewInstance } from "react-native";
 import { parseMarkdownWithOptions } from "react-native-nitro-markdown/headless";
 
 import {
@@ -17,6 +17,7 @@ import {
   type MarkdownFileContextMenuHandlers,
 } from "./NativeMarkdownSelectableText";
 import type {
+  MarkdownSpeechBlocks,
   SelectableMarkdownSkill,
   SelectableMarkdownTextProps,
 } from "./SelectableMarkdownText.types";
@@ -24,6 +25,7 @@ import type {
 const EMPTY_SKILLS: ReadonlyArray<SelectableMarkdownSkill> = [];
 
 export type {
+  MarkdownSpeechBlocks,
   MarkdownCodeHighlighter,
   MarkdownHighlightedToken,
   MarkdownImageRenderer,
@@ -50,7 +52,9 @@ export function SelectableMarkdownText({
   renderImage,
   marginTop = 0,
   marginBottom = 0,
+  speech,
 }: SelectableMarkdownTextProps) {
+  const separateBlocks = speech !== undefined;
   const chunks = useMemo(() => {
     const parsedDocument = nativeMarkdownWithAuthoredWindowsPaths(
       parseMarkdownWithOptions(markdown, { gfm: true, html: true, math: false }),
@@ -59,7 +63,7 @@ export function SelectableMarkdownText({
     const document = preserveSoftBreaks
       ? nativeMarkdownWithPreservedSoftBreaks(parsedDocument)
       : parsedDocument;
-    return nativeMarkdownDocumentChunks(document).map((chunk) =>
+    return nativeMarkdownDocumentChunks(document, separateBlocks).map((chunk) =>
       chunk.kind === "selectable"
         ? {
             ...chunk,
@@ -67,7 +71,7 @@ export function SelectableMarkdownText({
           }
         : chunk,
     );
-  }, [markdown, preserveSoftBreaks, skills]);
+  }, [markdown, preserveSoftBreaks, separateBlocks, skills]);
 
   const fileContextMenuHandlers = useMemo<MarkdownFileContextMenuHandlers | null>(
     () =>
@@ -109,7 +113,13 @@ export function SelectableMarkdownText({
                   key={chunk.key}
                   style={{ paddingTop: nativeMarkdownChunkSpacing(chunks[index - 1], chunk) }}
                 >
-                  {content}
+                  {speech ? (
+                    <SpeechBlock index={index} speech={speech}>
+                      {content}
+                    </SpeechBlock>
+                  ) : (
+                    content
+                  )}
                 </View>
               );
             })}
@@ -119,3 +129,61 @@ export function SelectableMarkdownText({
     </MarkdownContextClipboardContext.Provider>
   );
 }
+
+/**
+ * One chunk per top-level block while reading, so the index matches the spoken block.
+ * A tap reads from the block. It watches raw touches instead of claiming them, so
+ * links, text selection, and horizontal scrolling inside the block keep working.
+ */
+function SpeechBlock(props: {
+  readonly index: number;
+  readonly speech: MarkdownSpeechBlocks;
+  readonly children: ReactNode;
+}) {
+  const ref = useRef<ViewInstance>(null);
+  const touch = useRef<{ x: number; y: number; time: number } | null>(null);
+  const active = props.speech.activeBlock === props.index;
+  const { revealBlock } = props.speech;
+  useEffect(() => {
+    if (active && ref.current) revealBlock(ref.current);
+  }, [active, revealBlock]);
+  const onTouchEnd = (event: GestureResponderEvent) => {
+    const start = touch.current;
+    touch.current = null;
+    const { pageX, pageY, timestamp } = event.nativeEvent;
+    if (
+      start &&
+      timestamp - start.time < 300 &&
+      Math.hypot(pageX - start.x, pageY - start.y) < 10
+    ) {
+      props.speech.onPressBlock(props.index);
+    }
+  };
+  return (
+    <View
+      ref={ref}
+      style={[styles.speechBlock, active && { backgroundColor: props.speech.highlightColor }]}
+      onTouchStart={(event) => {
+        const { pageX, pageY, timestamp, touches } = event.nativeEvent;
+        touch.current = touches.length === 1 ? { x: pageX, y: pageY, time: timestamp } : null;
+      }}
+      onTouchEnd={onTouchEnd}
+      onTouchCancel={() => {
+        touch.current = null;
+      }}
+    >
+      {props.children}
+    </View>
+  );
+}
+
+// Negative margins keep the text where it sits outside reading mode.
+const styles = StyleSheet.create({
+  speechBlock: {
+    borderRadius: 8,
+    marginHorizontal: -6,
+    marginVertical: -3,
+    paddingHorizontal: 6,
+    paddingVertical: 3,
+  },
+});

@@ -8,6 +8,7 @@ import {
   type RecordingStatus,
 } from "expo-audio";
 import { File } from "expo-file-system";
+import * as Haptics from "expo-haptics";
 import { activateKeepAwakeAsync, deactivateKeepAwake } from "expo-keep-awake";
 import {
   createContext,
@@ -22,13 +23,23 @@ import {
 import { AppState, Platform } from "react-native";
 import { useSharedValue } from "react-native-reanimated";
 
+import { autoReadResponse } from "../../lib/autoReadResponse";
+import { nativeSpeech } from "../../lib/nativeSpeech";
+import { announce, playCue, responseSpeech } from "../../lib/responseSpeech";
+import { VOICE_API_PROVIDERS } from "../../lib/speechSettings";
+import type { CloudTranscriptionSource } from "../../lib/voiceTranscriptionSources";
 import { getLocalVoiceTranscriber } from "../../native/voiceTranscription";
+import { useVoiceSettings } from "../../state/voiceSettings";
 import { getNativeShowcaseScene } from "../showcase/nativeShowcaseScene";
 import {
+  VoiceTranscriptionError,
   VOICE_RECORDING_LIMIT_SECONDS,
   voiceInputBlocksSubmission,
   type VoiceInputState,
+  type VoiceTranscriber,
 } from "@t3tools/client-runtime/voice-input";
+import { createCloudVoiceTranscriber } from "./cloudVoiceTranscriber";
+import { withDictationDisclaimer } from "./dictationDisclaimer";
 import { createLazyVoiceRecorder, type LazyVoiceRecorder } from "./lazyVoiceRecorder";
 import { normalizeVoiceInputDecibels, VOICE_WAVEFORM_SAMPLE_COUNT } from "./voiceInputMetering";
 import { VoiceInputSession } from "./voiceInputSession";
@@ -42,11 +53,24 @@ const { ios: IOS_RECORDING_OPTIONS, android: ANDROID_RECORDING_OPTIONS } =
 const VOICE_RECORDING_OPTIONS = {
   extension: RecordingPresets.HIGH_QUALITY.extension,
   sampleRate: RecordingPresets.HIGH_QUALITY.sampleRate,
-  numberOfChannels: RecordingPresets.HIGH_QUALITY.numberOfChannels,
-  bitRate: RecordingPresets.HIGH_QUALITY.bitRate,
+  // Mono AAC at 64 kbps keeps speech clear at under 10 MB for the full recording limit.
+  numberOfChannels: 1,
+  bitRate: 64_000,
   isMeteringEnabled: true,
   ...(Platform.OS === "ios" ? IOS_RECORDING_OPTIONS : ANDROID_RECORDING_OPTIONS),
 };
+
+/** Selecting a cloud source without its key is a setup mistake, not a reason to fall back. */
+function missingKeyTranscriber(source: CloudTranscriptionSource): VoiceTranscriber {
+  return {
+    prepare: async () => {
+      throw new VoiceTranscriptionError(
+        "unavailable",
+        `Add your ${VOICE_API_PROVIDERS[source].label} API key in Settings → Voice.`,
+      );
+    },
+  };
+}
 
 async function releaseVoiceRecordingAudio(): Promise<void> {
   try {
@@ -59,12 +83,16 @@ async function releaseVoiceRecordingAudio(): Promise<void> {
 }
 
 async function configureVoiceRecordingAudio(): Promise<void> {
+  autoReadResponse.cancelAll();
+  if (Platform.OS === "ios") await responseSpeech.stop();
   try {
     await setAudioModeAsync({
       allowsRecording: true,
       interruptionMode: "doNotMix",
       playsInSilentMode: true,
       shouldPlayInBackground: false,
+      // Keeps recording when the phone locks. Android cannot record.
+      allowsBackgroundRecording: Platform.OS === "ios",
     });
     await setIsAudioActiveAsync(true);
   } catch (error) {
@@ -113,24 +141,41 @@ function useVoiceInputRuntime() {
   const audioLevels = useSharedValue(audioLevelsRef.current);
   const sessionRef = useRef<VoiceInputSession | null>(null);
   const recorderRef = useRef<LazyVoiceRecorder<RecorderState> | null>(null);
+  const sendRequestedRef = useRef(false);
+  const voice = useVoiceSettings();
+  const readRepliesAloud = Platform.OS === "ios" && (!voice.loaded || voice.readRepliesAloud);
+  const readRepliesAloudRef = useRef(readRepliesAloud);
+  readRepliesAloudRef.current = readRepliesAloud;
+  const transcriptionConfig = {
+    source: voice.transcriptionSource,
+    apiKeys: voice.transcriptionKeys,
+  };
+  const transcriptionConfigRef = useRef(transcriptionConfig);
+  transcriptionConfigRef.current = transcriptionConfig;
 
   if (!sessionRef.current || !recorderRef.current) {
     // The native recorder is created when dictation starts, not on app launch.
     const recorder = createLazyVoiceRecorder({
       create: () => new AudioModule.AudioRecorder(VOICE_RECORDING_OPTIONS),
       onStatus: (status: RecordingStatus) => {
-        sessionRef.current?.controller.handleRecorderStatus({
+        void sessionRef.current?.controller.handleRecorderStatus({
           isFinished: status.isFinished,
           hasError: status.hasError || status.mediaServicesDidReset === true,
           error: status.error,
           url: status.url,
+          interrupted: status.interrupted === true,
         });
       },
     });
     recorderRef.current = recorder;
     sessionRef.current = new VoiceInputSession({
       recorder,
-      getTranscriber: getLocalVoiceTranscriber,
+      getTranscriber: () => {
+        const { source, apiKeys } = transcriptionConfigRef.current;
+        if (source === "local") return getLocalVoiceTranscriber();
+        if (apiKeys.length === 0) return missingKeyTranscriber(source);
+        return createCloudVoiceTranscriber(source, apiKeys);
+      },
       requestPermission: async () => {
         const permission = await requestRecordingPermissionsAsync();
         return { granted: permission.granted, canAskAgain: permission.canAskAgain };
@@ -138,12 +183,35 @@ function useVoiceInputRuntime() {
       configureRecording: configureVoiceRecordingAudio,
       releaseRecording: releaseVoiceRecordingAudio,
       deleteRecording: (uri) => new File(uri).delete(),
-      onStateChange: (nextState) =>
+      onStateChange: (nextState) => {
+        // Settling without a commit (cancel, empty transcript, failed
+        // transcription) must not leave a later manual finish armed.
+        if (nextState.phase === "error" || nextState.phase === "idle") {
+          if (
+            nextState.phase === "error" &&
+            sendRequestedRef.current &&
+            readRepliesAloudRef.current
+          ) {
+            announce(`The voice message was not sent. ${nextState.error ?? ""}`, "error");
+          }
+          sendRequestedRef.current = false;
+        }
         setState({
           state: nextState,
           ownerKey: sessionRef.current?.ownerKey ?? null,
           label: sessionRef.current?.label ?? null,
-        }),
+        });
+      },
+      onRecordingInterrupted: () => {
+        // What was captured lands in the draft for review instead of being sent.
+        sendRequestedRef.current = false;
+        void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+        playCue("error");
+      },
+      holdBackgroundTime: async () => {
+        const task = await nativeSpeech().beginBackgroundTask("Voice transcription");
+        return () => void nativeSpeech().endBackgroundTask(task);
+      },
     });
   }
 
@@ -218,18 +286,54 @@ function useVoiceInputRuntime() {
       }
     };
 
-    sampleRecording();
-    const intervalId = setInterval(sampleRecording, VOICE_METERING_INTERVAL_MS);
-    return () => clearInterval(intervalId);
+    // Nobody sees the meter while the phone is locked, so sampling pauses until the app is active.
+    let intervalId: ReturnType<typeof setInterval> | null = null;
+    const resume = () => {
+      if (intervalId !== null) return;
+      sampleRecording();
+      intervalId = setInterval(sampleRecording, VOICE_METERING_INTERVAL_MS);
+    };
+    const pause = () => {
+      if (intervalId === null) return;
+      clearInterval(intervalId);
+      intervalId = null;
+    };
+    if (AppState.currentState === "active") resume();
+    const subscription = AppState.addEventListener("change", (nextState) => {
+      if (nextState === "active") resume();
+      else pause();
+    });
+    return () => {
+      subscription.remove();
+      pause();
+    };
   }, [audioLevels, controller, recorder, state.phase]);
 
   const stop = useCallback(() => controller.stop(), [controller]);
   const cancel = useCallback(() => controller.cancel(), [controller]);
+  const stopAndSend = useCallback(() => {
+    if (controller.currentState.phase !== "recording") return;
+    sendRequestedRef.current = true;
+    return controller.stop();
+  }, [controller]);
+  const transcribeAgain = useCallback(() => {
+    void controller.transcribeAgain();
+  }, [controller]);
+  /** Applies a transcript about to land; `send` reports whether it was finished with Send. */
+  const prepareCommit = useCallback((text: string) => {
+    const send = sendRequestedRef.current;
+    sendRequestedRef.current = false;
+    return { text: withDictationDisclaimer(text, send && readRepliesAloudRef.current), send };
+  }, []);
 
   return {
     // Store screenshots show the dictation button even on simulators, whose
     // on-device transcription is unavailable.
-    isAvailable: getLocalVoiceTranscriber() !== null || getNativeShowcaseScene() !== null,
+    isAvailable:
+      (voice.transcriptionSource === "local"
+        ? getLocalVoiceTranscriber() !== null
+        : voice.transcriptionKeys.length > 0) || getNativeShowcaseScene() !== null,
+    readRepliesAloud,
     state,
     audioLevels,
     elapsedSeconds,
@@ -240,6 +344,9 @@ function useVoiceInputRuntime() {
     setOwnerFocused,
     session,
     stop,
+    stopAndSend,
+    transcribeAgain,
+    prepareCommit,
     cancel,
   };
 }

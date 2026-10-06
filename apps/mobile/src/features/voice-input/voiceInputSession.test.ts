@@ -1,6 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import type { PreparedVoiceTranscription } from "@t3tools/client-runtime/voice-input";
-import { Atom, AtomRegistry } from "effect/reactivity";
 import { resetVoiceInputGlobalsForTests } from "../../../../../packages/client-runtime/src/voice-input/controller";
 
 import {
@@ -15,7 +14,7 @@ function createTarget(
   commit: VoiceInputTarget["commitDraft"],
   selection: { start: number; end: number },
 ) {
-  return createVoiceInputTarget(ownerKey, readText, commit, selection, () => () => {});
+  return createVoiceInputTarget(ownerKey, readText, commit, selection);
 }
 
 function createSession() {
@@ -37,6 +36,8 @@ function createSession() {
     releaseRecording: vi.fn(async () => {}),
     deleteRecording: vi.fn(),
     onStateChange: vi.fn(),
+    onRecordingInterrupted: vi.fn(),
+    holdBackgroundTime: async () => () => {},
   });
   return { session, recorder, prepare };
 }
@@ -139,19 +140,16 @@ describe("global voice input", () => {
     },
   );
 
-  it.each(["changed", "removed"] as const)(
-    "does not overwrite a %s starting draft",
-    async (change) => {
-      const { session } = createSession();
-      let text: string | null = "first";
-      const commit = vi.fn();
-      await session.start(createTarget("first", () => text, commit, { start: 5, end: 5 }));
-      text = change === "removed" ? null : "edited prompt";
-      await session.controller.stop();
-      expect(commit).not.toHaveBeenCalled();
-      expect(session.controller.currentState.error).toContain("draft changed");
-    },
-  );
+  it("does not commit to a removed starting draft", async () => {
+    const { session } = createSession();
+    let text: string | null = "first";
+    const commit = vi.fn();
+    await session.start(createTarget("first", () => text, commit, { start: 5, end: 5 }));
+    text = null;
+    await session.controller.stop();
+    expect(commit).not.toHaveBeenCalled();
+    expect(session.controller.currentState.error).toContain("no longer available");
+  });
 
   it("finishes the original draft at the recording limit while it is off screen", async () => {
     const { session, recorder } = createSession();
@@ -162,38 +160,10 @@ describe("global voice input", () => {
       hasError: false,
       error: null,
       url: recorder.uri,
+      interrupted: false,
     });
     expect(commit).toHaveBeenCalledWith("first spoken text", { start: 17, end: 17 });
     expect(session.controller.currentState.phase).toBe("idle");
-  });
-
-  it("rejects a transcript when its off-screen draft changes and returns to the original text", async () => {
-    const registry = AtomRegistry.make();
-    const draft = Atom.make("hello world");
-    const unsubscribe = vi.fn();
-    const { session } = createSession();
-    const commit = vi.fn();
-    const target = createVoiceInputTarget(
-      "first",
-      () => registry.get(draft),
-      commit,
-      { start: 6, end: 6 },
-      (onChange) => {
-        const stop = registry.subscribe(draft, onChange);
-        return () => {
-          stop();
-          unsubscribe();
-        };
-      },
-    );
-    await session.start(target);
-    registry.set(draft, "changed");
-    registry.set(draft, "hello world");
-    await session.controller.stop();
-    expect(commit).not.toHaveBeenCalled();
-    expect(session.controller.currentState.error).toContain("draft changed");
-    expect(unsubscribe).toHaveBeenCalledTimes(1);
-    registry.dispose();
   });
 
   it("stops recording when its queued edit is discarded", async () => {
@@ -213,22 +183,6 @@ describe("global voice input", () => {
     });
     expect(commit).not.toHaveBeenCalled();
   });
-
-  it.each(["complete", "cancel"] as const)(
-    "releases draft observation after %s",
-    async (finish) => {
-      const { session } = createSession();
-      const unsubscribe = vi.fn();
-      const subscribe = vi.fn(() => unsubscribe);
-      await session.start(
-        createVoiceInputTarget("first", () => "first", vi.fn(), { start: 5, end: 5 }, subscribe),
-      );
-      expect(subscribe).toHaveBeenCalledTimes(1);
-      if (finish === "complete") await session.controller.stop();
-      else session.cancel("first");
-      expect(unsubscribe).toHaveBeenCalledTimes(1);
-    },
-  );
 
   it("keeps another prompt's recording when a queued edit is discarded", async () => {
     const { session, recorder } = createSession();
