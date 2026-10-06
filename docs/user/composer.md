@@ -182,20 +182,29 @@ and use **Attach again** or remove the missing file before sending.
 On supported iPhones with iOS 26 or later and Android devices with Android 12 or
 later, use the composer's microphone to record, then confirm to transcribe. Text is
 inserted where your selection was when recording started, ready for you to review
-and edit before sending.
+and edit before sending. On iPhone, the send button beside the check mark transcribes
+and sends the message right away, skipping the review. A tone confirms the send, and
+the reply is read aloud automatically while you stay in the thread; the agent is asked
+to write it for listening. Approvals and questions are announced, and failures are
+spoken. The screen stays awake until the reply finishes. Turn off **Read voice
+replies aloud** in **Settings → Voice** to disable this. Enable **Read thinking
+updates** there to hear written progress messages as the agent works; each starts
+reading while it is still being written.
 
-Voice input uses on-device speech transcription: Apple's on iOS, and compatible
-Google speech services on Android. When it is unavailable for the device or its
-language, the composer has no microphone button and **Settings → Microphone** says
-voice input isn't available. On Android, keep T3 Code open while recording and
-transcribing.
+Voice input needs on-device speech transcription (Apple's on iOS, compatible Google
+speech services on Android) or a cloud transcription key in **Settings → Voice**.
+Without either, the composer has no microphone button. On Android, keep T3 Code open
+while recording and transcribing.
 
-The first use may download a speech model and needs a network connection.
-Later transcription works offline for that language. On Android, transcription
-processes the full recording at roughly its original duration. Recordings can be up to five
-minutes long. Canceling or an audio interruption discards the recording and
-preserves your existing draft. Navigating to another screen keeps dictation active;
-use the floating controls to finish or cancel. While recording, the screen stays
+With on-device transcription, the first use may download a speech model and needs a
+network connection; later transcription works offline for that language. On Android,
+transcription processes the full recording at roughly its original duration.
+Recordings can be up to 20 minutes long. On iPhone, they keep going when you lock the
+phone, and a call, Siri, or an alarm ends the recording with a tone; what was captured
+is added to the draft without sending. If transcription fails, the recording is kept
+so you can transcribe it again. Canceling discards the recording and preserves your
+existing draft. Navigating to another screen keeps dictation active; use the floating
+controls to finish or cancel. While recording, the screen stays
 awake; it can sleep normally once recording stops.
 
 Choose a preferred order in **Settings → Microphone**. Voice input requests the first
@@ -208,8 +217,39 @@ microphone on iOS. Swipe a device left to forget it. Android may use another inp
 when the preferred microphone cannot be routed. Devices with the same name may share
 a saved preference, but simultaneous same-name inputs remain separately selectable.
 
-Transcription runs on your device. T3 Code deletes the temporary audio after
-transcription or cancellation; only the message text is sent when you submit.
+T3 Code deletes the temporary audio once its text is added to the draft or you
+discard it; only the message text is sent when you submit. Messages containing dictated text end with a
+short note marking them as a voice transcription, so the agent expects misheard
+words.
+
+**Settings → Voice** chooses where transcription runs: on this device, with
+OpenAI's GPT Transcribe, or with Microsoft's MAI-Transcribe-2. Cloud transcription uploads each recording straight
+from your phone using the provider's key under **API keys** on the same screen;
+keys stay in your device keychain. With an OpenAI key stored, OpenAI is the
+default.
+
+Microsoft's MAI-Transcribe-2 and MAI voices take Azure Speech keys from resources
+in West US 2. Add a free F0 key, a paid S0 key, or both: T3 Code uses the F0 key
+until its monthly quota runs out, then the S0 key until the quota refills.
+
+## Reading responses aloud
+
+On iOS, tap the speaker beneath a response to read it aloud, and tap it again to
+stop. While reading, the bar above the composer rewinds 10 seconds, pauses, skips
+to the next paragraph, changes the pace, and stops. Headphone, car, and Lock Screen
+controls do the same: previous rewinds and next skips a paragraph. Tap a paragraph
+to read from there. The paragraph being read is highlighted and kept on screen.
+Code blocks are announced rather than read. Removing your headphones pauses
+reading; resuming starts that paragraph again.
+
+Under **Settings → Voice → Read aloud**, choose the model (MAI-Voice-2.1
+Flash by default, MAI-Voice-2.1, Gemini Flash or Flash-Lite, or ElevenLabs
+v4 or v4 Turbo), voice, and pace. Gemini also takes a **Delivery**
+description. Reading uses that provider's key from the same screen and costs
+about 1 to 7 cents per minute of audio. Use a paid-tier Gemini key: Google
+trains on free-tier requests. ElevenLabs lists the voices saved in your account.
+Reading continues with the screen locked.
+Reading another response, leaving the thread, or starting dictation stops playback.
 
 ## Queued messages
 
