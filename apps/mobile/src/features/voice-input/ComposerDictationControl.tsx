@@ -328,6 +328,7 @@ export function ComposerDictationStatus(props: {
   readonly phase: VoiceInputPhase;
   readonly presentation: VoiceComposerPresentation;
   readonly onDismissError: () => void;
+  readonly onTranscribeAgain: () => void;
 }) {
   const recordingVisibility = useSharedValue(props.phase === "recording" ? 1 : 0);
   useLayoutEffect(() => {
@@ -349,6 +350,22 @@ export function ComposerDictationStatus(props: {
           <Text className="min-w-0 flex-1 text-sm text-danger-foreground" numberOfLines={2}>
             {props.presentation.statusLabel}
           </Text>
+          {props.presentation.canTranscribeAgain ? (
+            <Pressable
+              accessibilityLabel="Transcribe the recording again"
+              accessibilityRole="button"
+              className="size-7 items-center justify-center active:opacity-70"
+              hitSlop={8}
+              onPress={props.onTranscribeAgain}
+            >
+              <SymbolView
+                name="arrow.clockwise"
+                size={14}
+                tintColorClassName="accent-icon"
+                type="monochrome"
+              />
+            </Pressable>
+          ) : null}
           <Pressable
             accessibilityLabel="Dismiss voice input error"
             accessibilityRole="button"
@@ -433,6 +450,23 @@ export function ComposerDictationPrimaryAction(props: {
   }
 
   return <ComposerDictationStartAction {...props} />;
+}
+
+/** Sits where the send arrow lives, finishing the dictation straight into a send. */
+export function ComposerDictationSendAction(props: {
+  readonly presentation: VoiceComposerPresentation;
+  readonly onSend: () => void;
+}) {
+  if (props.presentation.trailingAction !== "confirm") return null;
+  return (
+    <VoiceActionButton
+      accessibilityLabel="Finish dictation and send"
+      disabled={!props.presentation.confirmationEnabled}
+      icon="arrow.up"
+      onPress={props.onSend}
+      variant="primary"
+    />
+  );
 }
 
 export function ComposerDictationStartAction(props: {

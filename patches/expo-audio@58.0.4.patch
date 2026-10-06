@@ -1,8 +1,71 @@
+diff --git a/build/Audio.types.d.ts b/build/Audio.types.d.ts
+index 332b0c2f38310616c6bff64cb86fc8d5688d1280..9680035bd031a9c80b98d834960e2aee5ff2ed87 100644
+--- a/build/Audio.types.d.ts
++++ b/build/Audio.types.d.ts
+@@ -282,6 +282,12 @@ export type RecordingStatus = {
+      * @platform ios
+      */
+     mediaServicesDidReset?: boolean;
++    /**
++     * Whether an audio session interruption (a call, Siri, an alarm) stopped the recording.
++     * The file at `url` holds the audio captured before the interruption.
++     * @platform ios
++     */
++    interrupted?: boolean;
+ };
+ /**
+  * Current state information for an `AudioRecorder`.
+diff --git a/ios/AudioModule.swift b/ios/AudioModule.swift
+index bad776eb03020efb0e2a0cbe5ae1667a2b2cf7da..85e37d606d17352c3431137fe6bfaf39822b7093 100644
+--- a/ios/AudioModule.swift
++++ b/ios/AudioModule.swift
+@@ -685,9 +685,7 @@ public class AudioModule: Module {
+ 
+ #if os(iOS)
+     registry.allRecorders.values.forEach { recorder in
+-      if recorder.isRecording {
+-        recorder.pauseRecording()
+-      }
++      recorder.interrupt()
+     }
+ #endif
+ 
 diff --git a/ios/AudioRecorder.swift b/ios/AudioRecorder.swift
-index 73c6a036be6c76e219774a8d1e1cc3a7f18e6f8e..edfbbe00c2b0f3544bcbe42d02b829bf310d241c 100644
+index 73c6a036be6c76e219774a8d1e1cc3a7f18e6f8e..92c1cb56faa76b9e649410bed9c8f9dcd6998ae6 100644
 --- a/ios/AudioRecorder.swift
 +++ b/ios/AudioRecorder.swift
-@@ -268,16 +268,16 @@ class AudioRecorder: SharedRef<AVAudioRecorder>, RecordingResultHandler {
+@@ -207,6 +207,30 @@ class AudioRecorder: SharedRef<AVAudioRecorder>, RecordingResultHandler {
+     durationLimitSeconds = nil
+   }
+ 
++  /// Stops and finalizes the file right away, since JS may be suspended during a call.
++  func interrupt() {
++    guard currentState == .recording else {
++      return
++    }
++
++    // The delegate would report an ordinary finish; this status reports the interruption instead.
++    ref.delegate = nil
++    ref.stop()
++    ref.delegate = recordingDelegate
++    currentState = .stopped
++    resetDurationTracking()
++    durationLimitSeconds = nil
++
++    emit(event: recordingStatus, payload: [
++      "id": id,
++      "isFinished": true,
++      "hasError": false,
++      "error": nil,
++      "url": ref.url.absoluteString,
++      "interrupted": true
++    ])
++  }
++
+   func pauseRecording() {
+     guard currentState == .recording else {
+       return
+@@ -268,16 +292,16 @@ class AudioRecorder: SharedRef<AVAudioRecorder>, RecordingResultHandler {
    }
  
    func didFinish(_ recorder: AVAudioRecorder, successfully flag: Bool) {
