@@ -5766,7 +5766,8 @@ export function makeClaudeAdapterV2(
             message.type === "system" &&
             message.subtype === "task_updated" &&
             message.patch.is_backgrounded === true &&
-            (yield* Ref.get(sessionSubagentsByTaskId)).has(message.task_id) &&
+            (yield* Ref.get(sessionSubagentsByTaskId)).get(message.task_id)?.task.status ===
+              "running" &&
             !(yield* isNestedSubagentTask(message.task_id))
           ) {
             yield* Ref.update(backgroundedSubagentTaskIds, (current) =>
@@ -7815,13 +7816,11 @@ export function makeClaudeAdapterV2(
             });
             // A "now" message aborts in-flight tool calls. Claude can move the
             // root's foreground commands and subagents to the background
-            // instead, so they keep running; other calls stay and are aborted.
-            // A call that fails to move is aborted too, as a plain steer would.
-            // Only the root's own calls: a subagent waits on its own.
+            // instead, so they keep running and report the move in task_updated.
+            // A call that can't move, or fails to, is aborted as a plain steer
+            // would. Only the root's own calls: a subagent waits on its own.
             const backgroundedSubagents = yield* Ref.get(backgroundedSubagentTaskIds);
             const nestedSubagents = yield* Ref.get(nestedSubagentTaskIds);
-            // A moved subagent reports it in task_updated, which marks it
-            // backgrounded. A call that can't move, or finished first, returns false.
             const foregroundToolUseIds = [
               ...currentTurn.toolCalls.keys(),
               ...[...(yield* Ref.get(sessionSubagentsByTaskId))].flatMap(([taskId, subagent]) =>
