@@ -7800,17 +7800,16 @@ export function makeClaudeAdapterV2(
               skillNames: yield* userInvocableSkillNames(currentTurn.input.runtimePolicy.cwd),
             });
             // A "now" message aborts in-flight tool calls. Claude can move the
-            // root's foreground Bash commands and subagents to the background
-            // instead, so they keep running. Only the root's own calls: a
-            // subagent's foreground Bash is the subagent's to wait on.
+            // root's foreground commands and subagents to the background
+            // instead, so they keep running; other calls stay and are aborted.
+            // Only the root's own calls: a subagent waits on its own.
             const backgroundedSubagents = yield* Ref.get(backgroundedSubagentTaskIds);
             const nestedSubagents = yield* Ref.get(nestedSubagentTaskIds);
             const foregroundWork = [
-              ...[...currentTurn.toolCalls.values()].flatMap((toolCall) =>
-                toolCall.toolName === "Bash"
-                  ? [{ toolUseId: toolCall.nativeItemId, subagentTaskId: null }]
-                  : [],
-              ),
+              ...[...currentTurn.toolCalls.keys()].map((toolUseId) => ({
+                toolUseId,
+                subagentTaskId: null,
+              })),
               ...[...(yield* Ref.get(sessionSubagentsByTaskId))].flatMap(([taskId, subagent]) =>
                 subagent.task.status === "running" &&
                 subagent.runToolUseId !== null &&
@@ -7824,7 +7823,7 @@ export function makeClaudeAdapterV2(
               foregroundWork,
               ({ toolUseId, subagentTaskId }) =>
                 existing.query.backgroundTasks(toolUseId).pipe(
-                  // false: the call finished before Claude could move it.
+                  // false: the call can't move, or finished first.
                   Effect.flatMap((backgrounded) =>
                     backgrounded && subagentTaskId !== null
                       ? Ref.update(backgroundedSubagentTaskIds, (current) =>

@@ -6004,7 +6004,7 @@ describe("ClaudeAdapterV2 background wake turns", () => {
     return { childThreadId, toolThreadIds, assistantTexts };
   };
 
-  it.effect("steering backgrounds the root's foreground Bash and subagents only", () =>
+  it.effect("steering backgrounds the root's own calls and subagents only", () =>
     Effect.scoped(
       Effect.gen(function* () {
         const harness = yield* makeWakeHarness;
@@ -6090,7 +6090,11 @@ describe("ClaudeAdapterV2 background wake turns", () => {
           },
         });
 
-        assert.sameMembers(harness.backgroundedToolUseIds, ["toolu_root_bash", "toolu_root_agent"]);
+        assert.sameMembers(harness.backgroundedToolUseIds, [
+          "toolu_root_bash",
+          "toolu_root_read",
+          "toolu_root_agent",
+        ]);
         assert.equal(harness.offeredMessages[1]?.priority, "now");
       }).pipe(Effect.provide(Layer.merge(IdAllocator.layer, NodeServices.layer))),
     ),
