@@ -5759,6 +5759,20 @@ export function makeClaudeAdapterV2(
           // Before any routing: a Monitor started during an idle wake turn
           // reports its task before the drain replays the tool call.
           yield* trackClaudeMonitorCalls(message);
+          // A subagent moved to the background (a steer moves the root's) now
+          // wakes the root when it ends, like one Claude started there.
+          // Commands moved there reach the roster through background_tasks_changed.
+          if (
+            message.type === "system" &&
+            message.subtype === "task_updated" &&
+            message.patch.is_backgrounded === true &&
+            (yield* Ref.get(sessionSubagentsByTaskId)).has(message.task_id) &&
+            !(yield* isNestedSubagentTask(message.task_id))
+          ) {
+            yield* Ref.update(backgroundedSubagentTaskIds, (current) =>
+              new Set(current).add(message.task_id),
+            );
+          }
           // Before routing too: the wake gate reads it while the root is idle.
           if (
             message.type === "system" &&
@@ -7806,32 +7820,23 @@ export function makeClaudeAdapterV2(
             // Only the root's own calls: a subagent waits on its own.
             const backgroundedSubagents = yield* Ref.get(backgroundedSubagentTaskIds);
             const nestedSubagents = yield* Ref.get(nestedSubagentTaskIds);
-            const foregroundWork = [
-              ...[...currentTurn.toolCalls.keys()].map((toolUseId) => ({
-                toolUseId,
-                subagentTaskId: null,
-              })),
+            // A moved subagent reports it in task_updated, which marks it
+            // backgrounded. A call that can't move, or finished first, returns false.
+            const foregroundToolUseIds = [
+              ...currentTurn.toolCalls.keys(),
               ...[...(yield* Ref.get(sessionSubagentsByTaskId))].flatMap(([taskId, subagent]) =>
                 subagent.task.status === "running" &&
                 subagent.runToolUseId !== null &&
                 !backgroundedSubagents.has(taskId) &&
                 !nestedSubagents.has(taskId)
-                  ? [{ toolUseId: subagent.runToolUseId, subagentTaskId: taskId }]
+                  ? [subagent.runToolUseId]
                   : [],
               ),
             ];
             yield* Effect.forEach(
-              foregroundWork,
-              ({ toolUseId, subagentTaskId }) =>
+              foregroundToolUseIds,
+              (toolUseId) =>
                 existing.query.backgroundTasks(toolUseId).pipe(
-                  // false: the call can't move, or finished first.
-                  Effect.flatMap((backgrounded) =>
-                    backgrounded && subagentTaskId !== null
-                      ? Ref.update(backgroundedSubagentTaskIds, (current) =>
-                          new Set(current).add(subagentTaskId),
-                        )
-                      : Effect.void,
-                  ),
                   Effect.catch((error) =>
                     Effect.logWarning("orchestration-v2.claude-steer-background-failed", {
                       toolUseId,
