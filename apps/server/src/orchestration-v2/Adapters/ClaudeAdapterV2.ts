@@ -7802,6 +7802,7 @@ export function makeClaudeAdapterV2(
             // A "now" message aborts in-flight tool calls. Claude can move the
             // root's foreground commands and subagents to the background
             // instead, so they keep running; other calls stay and are aborted.
+            // A call that fails to move is aborted too, as a plain steer would.
             // Only the root's own calls: a subagent waits on its own.
             const backgroundedSubagents = yield* Ref.get(backgroundedSubagentTaskIds);
             const nestedSubagents = yield* Ref.get(nestedSubagentTaskIds);
@@ -7830,6 +7831,12 @@ export function makeClaudeAdapterV2(
                           new Set(current).add(subagentTaskId),
                         )
                       : Effect.void,
+                  ),
+                  Effect.catch((error) =>
+                    Effect.logWarning("orchestration-v2.claude-steer-background-failed", {
+                      toolUseId,
+                      cause: error.cause,
+                    }),
                   ),
                 ),
               { concurrency: "unbounded", discard: true },

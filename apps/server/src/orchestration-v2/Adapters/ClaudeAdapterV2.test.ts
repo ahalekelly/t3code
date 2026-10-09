@@ -2092,6 +2092,7 @@ describe("ClaudeAdapterV2 background wake turns", () => {
   const makeWakeHarnessWithOptions = (options?: {
     readonly close?: (sdkMessages: Queue.Queue<SDKMessage>) => Effect.Effect<void>;
     readonly interrupt?: Effect.Effect<void>;
+    readonly backgroundTasksFails?: boolean;
     readonly environment?: NodeJS.ProcessEnv;
     // A CLI process opened after the first streams from its own queue, so the
     // first one can exit (Queue.shutdown) and a later turn can start another.
@@ -2187,10 +2188,17 @@ describe("ClaudeAdapterV2 background wake turns", () => {
                   }),
                 interrupt: options?.interrupt ?? Effect.void,
                 backgroundTasks: (toolUseId) =>
-                  Effect.sync(() => {
-                    backgroundedToolUseIds.push(toolUseId);
-                    return true;
-                  }),
+                  options?.backgroundTasksFails === true
+                    ? Effect.fail(
+                        new ClaudeAdapterV2.ClaudeAgentSdkQueryRunnerError({
+                          method: "backgroundTasks",
+                          cause: new Error("Background tasks are disabled."),
+                        }),
+                      )
+                    : Effect.sync(() => {
+                        backgroundedToolUseIds.push(toolUseId);
+                        return true;
+                      }),
                 close: options?.close?.(sdkMessages) ?? Effect.void,
               };
             }),
@@ -6095,6 +6103,66 @@ describe("ClaudeAdapterV2 background wake turns", () => {
           "toolu_root_read",
           "toolu_root_agent",
         ]);
+        assert.equal(harness.offeredMessages[1]?.priority, "now");
+      }).pipe(Effect.provide(Layer.merge(IdAllocator.layer, NodeServices.layer))),
+    ),
+  );
+
+  it.effect("steering still sends when a call fails to move to the background", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const harness = yield* makeWakeHarnessWithOptions({ backgroundTasksFails: true });
+        const idAllocator = yield* IdAllocator.IdAllocatorV2;
+        const attemptId = RunAttemptId.make("attempt-steer-background-fails");
+        const input = makeClaudeTestTurnInput({
+          threadId: harness.threadId,
+          providerThread: harness.providerThread,
+          now: yield* DateTime.now,
+          attemptId,
+          text: "Audit the repo.",
+          attachments: [],
+        });
+        yield* harness.runtime.startTurn(input);
+        yield* harness.offerAndWait(
+          claudeSdkFrame({
+            type: "assistant",
+            message: {
+              model: "claude-sonnet-4-6",
+              id: "msg_toolu_root_bash",
+              type: "message",
+              role: "assistant",
+              content: [
+                {
+                  type: "tool_use",
+                  id: "toolu_root_bash",
+                  name: "Bash",
+                  input: { command: "sleep 60" },
+                },
+              ],
+            },
+            parent_tool_use_id: null,
+            uuid: "00000000-0000-4000-8000-000000000c01",
+            session_id: WAKE_NATIVE_SESSION,
+          }),
+        );
+
+        yield* harness.runtime.steerTurn({
+          threadId: harness.threadId,
+          runId: input.runId,
+          providerThread: harness.providerThread,
+          providerTurnId: idAllocator.derive.providerTurn({
+            driver: ClaudeAdapterV2.CLAUDE_PROVIDER,
+            nativeTurnId: `turn:${attemptId}`,
+          }),
+          message: {
+            createdBy: "user",
+            creationSource: "web",
+            messageId: MessageId.make("message-steer-background-fails"),
+            text: "Also check the tests.",
+            attachments: [],
+          },
+        });
+
         assert.equal(harness.offeredMessages[1]?.priority, "now");
       }).pipe(Effect.provide(Layer.merge(IdAllocator.layer, NodeServices.layer))),
     ),
