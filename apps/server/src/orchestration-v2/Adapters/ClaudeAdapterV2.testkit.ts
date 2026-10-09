@@ -828,6 +828,8 @@ function makeReplayQueryRunner(
         interrupt: replayEffect(() => {
           assertNextOutboundFrame({ type: "query.interrupt" });
         }),
+        backgroundTasks: () =>
+          Effect.die("Claude replay transcripts do not record backgroundTasks."),
         close: Effect.void,
       };
     },

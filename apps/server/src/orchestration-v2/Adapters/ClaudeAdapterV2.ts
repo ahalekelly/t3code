@@ -336,6 +336,10 @@ export interface ClaudeAgentSdkQuerySession {
     mode: PermissionMode,
   ) => Effect.Effect<void, ClaudeAgentSdkQueryRunnerError>;
   readonly interrupt: Effect.Effect<void, ClaudeAgentSdkQueryRunnerError>;
+  /** Moves the foreground Bash command or subagent a tool call started to the background; false when none matched. */
+  readonly backgroundTasks: (
+    toolUseId: string,
+  ) => Effect.Effect<boolean, ClaudeAgentSdkQueryRunnerError>;
   readonly close: Effect.Effect<void, ClaudeAgentSdkQueryRunnerError>;
 }
 
@@ -487,6 +491,15 @@ export type ClaudeAgentSdkProtocolLogEvent =
       readonly stage: "decoded";
       readonly payload: {
         readonly type: "query.interrupt";
+      };
+    }
+  | {
+      readonly direction: "outgoing";
+      readonly stage: "decoded";
+      readonly payload: {
+        readonly type: "query.background_tasks";
+        readonly toolUseId: string;
+        readonly backgrounded: boolean;
       };
     }
   | {
@@ -716,6 +729,23 @@ export const layerQueryRunner: Layer.Layer<
               }),
             ),
           ),
+          backgroundTasks: (toolUseId) =>
+            Effect.tryPromise({
+              try: () => queryRuntime.backgroundTasks(toolUseId),
+              catch: (cause) => queryRunnerError(cause, "backgroundTasks"),
+            }).pipe(
+              Effect.tap((backgrounded) =>
+                logProtocolEvent({
+                  direction: "outgoing",
+                  stage: "decoded",
+                  payload: {
+                    type: "query.background_tasks",
+                    toolUseId,
+                    backgrounded,
+                  },
+                }),
+              ),
+            ),
           close: Queue.shutdown(promptQueue).pipe(
             Effect.andThen(closeClaudeQuery(queryRuntime)),
             Effect.tap(() =>
@@ -3167,7 +3197,7 @@ export function makeClaudeAdapterV2(
             ReadonlyMap<string, { readonly report: BackgroundWorkReport; readonly turn: number }>
           >;
         }>({ userTurns: new Map(), reports: new Map() });
-        // Subagents Claude started in the background. Only their ends wake the root.
+        // Subagents running in the background. Only their ends wake the root.
         const backgroundedSubagentTaskIds = yield* Ref.make<ReadonlySet<string>>(new Set());
         // Subagents another subagent started (spawn_depth above 1). Claude
         // reports their end to the owning subagent, so it never wakes the root.
@@ -7769,6 +7799,42 @@ export function makeClaudeAdapterV2(
               fileSystem,
               skillNames: yield* userInvocableSkillNames(currentTurn.input.runtimePolicy.cwd),
             });
+            // A "now" message aborts in-flight tool calls. Claude can move the
+            // root's foreground Bash commands and subagents to the background
+            // instead, so they keep running. Only the root's own calls: a
+            // subagent's foreground Bash is the subagent's to wait on.
+            const backgroundedSubagents = yield* Ref.get(backgroundedSubagentTaskIds);
+            const nestedSubagents = yield* Ref.get(nestedSubagentTaskIds);
+            const foregroundWork = [
+              ...[...currentTurn.toolCalls.values()].flatMap((toolCall) =>
+                toolCall.toolName === "Bash"
+                  ? [{ toolUseId: toolCall.nativeItemId, subagentTaskId: null }]
+                  : [],
+              ),
+              ...[...(yield* Ref.get(sessionSubagentsByTaskId))].flatMap(([taskId, subagent]) =>
+                subagent.task.status === "running" &&
+                subagent.runToolUseId !== null &&
+                !backgroundedSubagents.has(taskId) &&
+                !nestedSubagents.has(taskId)
+                  ? [{ toolUseId: subagent.runToolUseId, subagentTaskId: taskId }]
+                  : [],
+              ),
+            ];
+            yield* Effect.forEach(
+              foregroundWork,
+              ({ toolUseId, subagentTaskId }) =>
+                existing.query.backgroundTasks(toolUseId).pipe(
+                  // false: the call finished before Claude could move it.
+                  Effect.flatMap((backgrounded) =>
+                    backgrounded && subagentTaskId !== null
+                      ? Ref.update(backgroundedSubagentTaskIds, (current) =>
+                          new Set(current).add(subagentTaskId),
+                        )
+                      : Effect.void,
+                  ),
+                ),
+              { concurrency: "unbounded", discard: true },
+            );
             yield* Ref.update(steeredTurns, (current) => {
               const next = new Set(current);
               next.add(turnInput.providerTurnId);
