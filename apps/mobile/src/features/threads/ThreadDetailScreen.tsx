@@ -121,6 +121,7 @@ import type {
   ThreadFeedLatestRun,
 } from "../../lib/threadActivity";
 import { PendingApprovalCard } from "./PendingApprovalCard";
+import { SpeechPlaybackBar } from "./SpeechPlaybackBar";
 import { ComposerErrorNotice } from "./ComposerErrorNotice";
 import { ComposerFeedback } from "./ComposerFeedback";
 import { ComposerUsageLimits } from "./ComposerUsageLimits";
@@ -145,6 +146,7 @@ import {
   ThreadComposer,
 } from "./ThreadComposer";
 import { ComposerPopoverHost } from "./ComposerPopoverHost";
+import { useAutoReadResponse } from "./useAutoReadResponse";
 import { ThreadFeed, type ThreadFeedHistoryControls } from "./ThreadFeed";
 import { useThreadTurnSubagents } from "./ThreadAgentsSheet";
 import { ComposerQueuedEditBanner } from "./ComposerQueuedEdit";
@@ -416,6 +418,14 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
     environmentId: props.environmentId,
     threadId: props.selectedThread.id,
   });
+  useAutoReadResponse(
+    selectedThreadKey,
+    props.selectedThread.title,
+    props.selectedThreadFeed,
+    props.selectedThread.latestRun,
+    props.activePendingApproval,
+    props.activePendingUserInput,
+  );
   const composerError = useAtomValue(threadComposerErrorsAtom)[selectedThreadKey]?.message ?? null;
   const queuedCount = useThreadQueuedCount(props.selectedThreadDetailRef);
   const turnSubagents = useThreadTurnSubagents(props.selectedThreadDetailRef);
@@ -1154,6 +1164,7 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
             <ThreadFeed
               environmentId={props.environmentId}
               threadId={props.selectedThread.id}
+              threadTitle={props.selectedThread.title}
               workspaceRoot={props.threadCwd}
               feed={props.selectedThreadFeed}
               pendingHandoff={props.pendingHandoff}
@@ -1166,7 +1177,6 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
               onEditPendingMessage={isProviderSubagent ? null : handleEditPendingMessage}
               contentPresentation={props.contentPresentation}
               agentLabel={agentLabel}
-              threadTitle={props.selectedThread.title}
               latestRun={props.activityRun}
               activeWorkStartedAt={props.activeWorkStartedAt}
               runlessWorkActive={props.runlessWorkActive ?? false}
@@ -1274,6 +1284,7 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
                   }}
                 />
                 <View className="w-full self-center" style={{ maxWidth: contentMaxWidth }}>
+                  {Platform.OS === "ios" ? <SpeechPlaybackBar scope={selectedThreadKey} /> : null}
                   {props.queuedRunEdit !== null ? (
                     <Animated.View
                       className="shrink-0"

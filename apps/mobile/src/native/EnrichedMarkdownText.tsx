@@ -138,7 +138,12 @@ function enrichedStyle(
   };
 }
 
-export function MobileEnrichedMarkdownText(props: SelectableMarkdownTextProps) {
+export function MobileEnrichedMarkdownText(
+  props: SelectableMarkdownTextProps & {
+    /** Keeps the last element's bottom margin, for a view stacked above another. */
+    readonly allowTrailingMargin?: boolean;
+  },
+) {
   const { renderImage, resolveImageSource } = props;
   const markdown = useMemo(() => markdownWithHtml(props.markdown), [props.markdown]);
   const { themeAppearance } = useAppearancePreferences();
@@ -327,6 +332,7 @@ export function MobileEnrichedMarkdownText(props: SelectableMarkdownTextProps) {
             admonitions: true,
           }}
           enableTaskListItemToggle={false}
+          allowTrailingMargin={props.allowTrailingMargin}
           spoilerOverlay="solid"
           onLinkPress={props.onLinkPress ? ({ url }) => props.onLinkPress?.(url) : undefined}
           onLinkLongPress={onLinkLongPress}

@@ -14,6 +14,7 @@ describe("resolveVoiceComposerPresentation", () => {
       statusKind: null,
       statusLabel: null,
       confirmationEnabled: false,
+      canTranscribeAgain: false,
     });
     expect(
       resolveVoiceComposerPresentation({ phase: "preparing", error: null, errorAction: null }, 0),
@@ -53,7 +54,14 @@ describe("resolveVoiceComposerPresentation", () => {
       showsSend: true,
       statusKind: "error",
       statusLabel: "Microphone unavailable",
+      canTranscribeAgain: false,
     });
+    expect(
+      resolveVoiceComposerPresentation(
+        { phase: "error", error: "Could not transcribe", errorAction: "transcribe" },
+        0,
+      ),
+    ).toMatchObject({ trailingAction: "mic", canTranscribeAgain: true });
 
     expect(voiceInputFreezesEditor({ phase: "preparing", error: null, errorAction: null })).toBe(
       true,
