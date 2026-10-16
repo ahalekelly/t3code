@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vite-plus/test";
 
+import { markdownWithHtml } from "./markdownDocument";
 import { markdownBlocks, unsentSpeechBlocks } from "./markdownSpeechText";
 
 const speech = (markdown: string) => markdownBlocks(markdown).map((block) => block.speech);
@@ -58,6 +59,27 @@ describe("markdownBlocks", () => {
         { markdown: "Then [docs][d].\n\n[d]: https://example.com", speech: "Then docs." },
       ],
     );
+  });
+
+  it("reads HTML as rendered, with blocks that render unchanged on their own", () => {
+    const blocks = markdownBlocks(
+      "<details>\n<summary>More info</summary>\n\nHidden text.\n\n</details>",
+    );
+    expect(blocks.map((block) => block.speech)).toEqual(["More info", "Hidden text."]);
+    for (const block of blocks) expect(markdownWithHtml(block.markdown)).toBe(block.markdown);
+  });
+
+  it("keeps the indent of a block's first line", () => {
+    expect(markdownBlocks("Intro.\n\n  - one\n    more\n  - two")[1]!.markdown).toBe(
+      "  - one\n    more\n  - two",
+    );
+  });
+
+  it("does not read the marker of a GitHub alert", () => {
+    expect(speech("> [!TIP]\n> Run it twice.\n\n> [!note] Inline.")).toEqual([
+      "Run it twice.",
+      "Inline.",
+    ]);
   });
 });
 
