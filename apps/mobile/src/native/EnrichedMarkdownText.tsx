@@ -151,7 +151,12 @@ function enrichedStyle(
   };
 }
 
-export function MobileEnrichedMarkdownText(props: SelectableMarkdownTextProps) {
+export function MobileEnrichedMarkdownText(
+  props: SelectableMarkdownTextProps & {
+    /** Keeps the last element's bottom margin, for a view stacked above another. */
+    readonly allowTrailingMargin?: boolean;
+  },
+) {
   const { renderImage, resolveImageSource } = props;
   const { themeAppearance, mathRenderingEnabled } = useAppearancePreferences();
   const markdown = useMemo(
@@ -332,6 +337,7 @@ export function MobileEnrichedMarkdownText(props: SelectableMarkdownTextProps) {
           }}
           enableTaskListItemToggle={false}
           enableCodeBlockWrapToggle
+          allowTrailingMargin={props.allowTrailingMargin}
           spoilerOverlay="solid"
           onLinkPress={props.onLinkPress ? ({ url }) => props.onLinkPress?.(url) : undefined}
           onLinkLongPress={onLinkLongPress}

@@ -19,6 +19,9 @@ type Reading = {
   markdown: string;
   streaming: boolean;
   sent: readonly string[];
+  /** Start of the text's last line at the last flush, and whether that line was blank. */
+  lastLine: number;
+  lastLineBlank: boolean;
 };
 
 let snapshot: SpeechSnapshot | null = null;
@@ -50,6 +53,8 @@ function blocksOf(markdown: string) {
 
 /** Sends the blocks that are ready, and ends the input once the text is final. */
 function flush(current: Reading) {
+  current.lastLine = current.markdown.lastIndexOf("\n") + 1;
+  current.lastLineBlank = current.markdown.slice(current.lastLine).trim() === "";
   const unsent = unsentSpeechBlocks(current.sent, blocksOf(current.markdown), current.streaming);
   if (unsent) {
     current.sent = [...current.sent.slice(0, unsent.from), ...unsent.blocks];
@@ -99,7 +104,15 @@ export const responseSpeech = {
     title: string,
   ) {
     listen();
-    const current: Reading = { id: String(++readings), response, markdown, streaming, sent: [] };
+    const current: Reading = {
+      id: String(++readings),
+      response,
+      markdown,
+      streaming,
+      sent: [],
+      lastLine: 0,
+      lastLineBlank: true,
+    };
     reading = current;
     setSnapshot({ response, block: null, paused: false });
     const finish = () => {
@@ -128,9 +141,11 @@ export const responseSpeech = {
   update(response: SpokenResponse, markdown: string, streaming: boolean) {
     const current = reading;
     if (!current || !isResponse(current.response, response) || !current.streaming) return;
+    // A block is read once the next one starts, and a block can only start on a new line.
+    const newLine = markdown.lastIndexOf("\n") + 1 !== current.lastLine || current.lastLineBlank;
     current.markdown = markdown;
     current.streaming = streaming;
-    flush(current);
+    if (newLine || !streaming) flush(current);
   },
 
   toggle(response: SpokenResponse, markdown: string, request: SpeechRequest, title: string) {
