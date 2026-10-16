@@ -93,6 +93,7 @@ export function SelectableMarkdownText(props: SelectableMarkdownTextProps) {
                 markdown={block}
                 marginTop={0}
                 marginBottom={0}
+                allowTrailingMargin={index < blocks.length - 1}
               />
             </SpeechBlock>
           ))}
@@ -153,7 +154,7 @@ function SpeechBlock(props: {
   );
 }
 
-// Negative margins keep the text where it sits outside reading mode.
+// The padding frames the highlight; equal negative margins cancel it so the text does not move.
 const styles = StyleSheet.create({
   speechBlock: {
     borderRadius: 8,

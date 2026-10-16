@@ -1,6 +1,7 @@
 import { useSyncExternalStore } from "react";
 import Animated, { FadeInDown, FadeOut } from "react-native-reanimated";
 
+import { ComposerSurface } from "../../components/ComposerSurface";
 import { ComposerToolbarButton } from "../../components/ComposerToolbar";
 import { Menu } from "../../components/ui/Menu";
 import { responseSpeech } from "../../lib/responseSpeech";
@@ -8,7 +9,6 @@ import { SPEECH_PACES, type SpeechPace } from "../../lib/speechSettings";
 import { saveMobilePreferences } from "../../state/preferences";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { useVoiceSettings } from "../../state/voiceSettings";
-import { ComposerSurface } from "./ThreadComposer";
 
 const SURFACE_STYLE = {
   borderRadius: 28,
