@@ -16,7 +16,6 @@ import { environmentSession } from "./session";
 import { environmentCatalog } from "../connection/catalog";
 import { createRemoteEnvironmentProjectionAtoms } from "./remote-environment-projections";
 import { serverEnvironment } from "./server";
-import { useAtomCommand } from "./use-atom-command";
 
 const connectionPairingUrlAtom = Atom.make("").pipe(
   Atom.keepAlive,
@@ -99,20 +98,8 @@ export function useRemoteConnectionStatus() {
   };
 }
 
-/** Retries one environment's connection without subscribing to connection state. */
-export function useReconnectEnvironment() {
-  return useAtomCommand(environmentCatalog.retryNow, "environment retry");
-}
-
 export function useRemoteConnections() {
-  // The controller object is rebuilt on every render; depend on its stable methods.
-  const {
-    connectPairingUrl,
-    removeEnvironment,
-    retryEnvironment,
-    setEnvironmentEnabled,
-    updateEnvironment,
-  } = useConnectionController();
+  const controller = useConnectionController();
   const navigation = useNavigation();
   const connectionPairingUrl = useAtomValue(connectionPairingUrlAtom);
   const pendingConnectionError = useAtomValue(pendingConnectionErrorAtom);
@@ -126,7 +113,7 @@ export function useRemoteConnections() {
     async (pairingUrl?: string, expectedEnvironmentId?: EnvironmentId) => {
       const nextPairingUrl = pairingUrl ?? connectionPairingUrl;
       setPendingConnectionError(null);
-      const result = await connectPairingUrl(nextPairingUrl, expectedEnvironmentId);
+      const result = await controller.connectPairingUrl(nextPairingUrl, expectedEnvironmentId);
       if (AsyncResult.isFailure(result)) {
         const error = Cause.squash(result.cause);
         const message =
@@ -146,24 +133,24 @@ export function useRemoteConnections() {
       }
       return result;
     },
-    [connectionPairingUrl, connectPairingUrl],
+    [connectionPairingUrl, controller],
   );
 
   const onReconnectEnvironment = useCallback(
-    (environmentId: EnvironmentId) => retryEnvironment(environmentId),
-    [retryEnvironment],
+    (environmentId: EnvironmentId) => controller.retryEnvironment(environmentId),
+    [controller],
   );
   const onSetEnvironmentEnabled = useCallback(
     (environmentId: EnvironmentId, enabled: boolean) =>
-      setEnvironmentEnabled(environmentId, enabled),
-    [setEnvironmentEnabled],
+      controller.setEnvironmentEnabled(environmentId, enabled),
+    [controller],
   );
   const onUpdateEnvironment = useCallback(
     (
       environmentId: EnvironmentId,
       updates: { readonly label: string; readonly displayUrl: string },
-    ) => updateEnvironment(environmentId, updates),
-    [updateEnvironment],
+    ) => controller.updateEnvironment(environmentId, updates),
+    [controller],
   );
 
   const onRemoveEnvironmentPress = useCallback(
@@ -178,7 +165,7 @@ export function useRemoteConnections() {
         text: "Remove",
         style: "destructive",
         onPress: () => {
-          void removeEnvironment(environmentId);
+          void controller.removeEnvironment(environmentId);
         },
       } as const;
       // Removing a T3 Connect environment here leaves its account registration
@@ -204,7 +191,7 @@ export function useRemoteConnections() {
         [{ text: "Cancel", style: "cancel" }, remove],
       );
     },
-    [connectedEnvironments, navigation, removeEnvironment],
+    [connectedEnvironments, controller, navigation],
   );
 
   return {
