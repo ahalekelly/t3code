@@ -350,7 +350,7 @@ function SendActionButton(props: {
   );
 }
 
-function ComposerSurface(props: {
+export function ComposerSurface(props: {
   readonly children: ReactNode;
   readonly style: ViewStyle;
   readonly animateLayout?: boolean;
