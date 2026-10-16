@@ -3,13 +3,14 @@ import remarkGfm from "remark-gfm";
 import remarkParse from "remark-parse";
 import { unified } from "unified";
 
+import { markdownWithHtml } from "./markdownDocument";
+
 const parser = unified().use(remarkParse).use(remarkGfm);
 
 /** Keeps spoken content and block breaks without reading Markdown syntax, link targets, or code. */
 export function markdownSpeechText(node: Nodes): string {
   switch (node.type) {
     case "thematicBreak":
-    case "html":
     case "definition":
     case "footnoteReference":
       return "";
@@ -38,6 +39,9 @@ export function markdownSpeechText(node: Nodes): string {
       return `${text.trim()}\n`;
     case "tableCell":
       return `${text.trim()}; `;
+    // A GitHub alert renders its type as a title, so its marker is not read.
+    case "blockquote":
+      return text.replace(/^\[!(?:NOTE|TIP|IMPORTANT|WARNING|CAUTION)\]\s*/i, "");
     default:
       return text;
   }
@@ -53,12 +57,14 @@ export interface MarkdownBlock {
  * The message's top-level blocks, in document order. Reading renders one view per block and
  * speaks one entry per block, so both come from this parse and their indices always match.
  * Silent blocks keep an empty `speech`. Link reference definitions are not blocks; every block
- * carries them so its references still resolve when rendered alone.
+ * carries them so its references still resolve when rendered alone. HTML is converted first, as
+ * the single-view render does, and each block keeps its first line's indent.
  */
-export function markdownBlocks(markdown: string): MarkdownBlock[] {
+export function markdownBlocks(original: string): MarkdownBlock[] {
+  const markdown = markdownWithHtml(original);
   const nodes = parser.parse(markdown).children;
-  const source = (node: RootContent) =>
-    markdown.slice(node.position!.start.offset, node.position!.end.offset);
+  const source = ({ position }: RootContent) =>
+    markdown.slice(position!.start.offset! - position!.start.column + 1, position!.end.offset);
   const definitions = nodes
     .filter((node) => node.type === "definition")
     .map(source)
