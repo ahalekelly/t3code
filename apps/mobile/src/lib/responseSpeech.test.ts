@@ -26,8 +26,13 @@ vi.mock("./nativeSpeech", () => ({
   }),
 }));
 vi.mock("react-native", () => ({ Alert: { alert: mocks.alert } }));
+vi.mock("./markdownSpeechText", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./markdownSpeechText")>();
+  return { ...actual, markdownBlocks: vi.fn(actual.markdownBlocks) };
+});
 
 import { autoReadResponse } from "./autoReadResponse";
+import { markdownBlocks } from "./markdownSpeechText";
 import { responseSpeech } from "./responseSpeech";
 import type { SpeechRequest } from "./speechSettings";
 
@@ -85,6 +90,22 @@ describe("responseSpeech", () => {
     expect(mocks.finish).not.toHaveBeenCalled();
     responseSpeech.update(first, "One.\n\nTwo.\n\nThree.", false);
     expect(mocks.append).toHaveBeenLastCalledWith(["Three."], 2);
+    expect(mocks.finish).toHaveBeenCalledOnce();
+  });
+
+  it("reparses a streaming response only when a new block can have started", async () => {
+    const parse = vi.mocked(markdownBlocks);
+    void responseSpeech.read(first, "One.", true, request, "Thread");
+    await flush();
+    responseSpeech.update(first, "One. More", true);
+    expect(parse).toHaveBeenCalledTimes(1);
+    responseSpeech.update(first, "One. More.\n\n", true);
+    responseSpeech.update(first, "One. More.\n\nT", true);
+    expect(mocks.append).toHaveBeenLastCalledWith(["One. More."], 0);
+    responseSpeech.update(first, "One. More.\n\nTwo", true);
+    expect(parse).toHaveBeenCalledTimes(3);
+    responseSpeech.update(first, "One. More.\n\nTwo.", false);
+    expect(mocks.append).toHaveBeenLastCalledWith(["Two."], 1);
     expect(mocks.finish).toHaveBeenCalledOnce();
   });
 
