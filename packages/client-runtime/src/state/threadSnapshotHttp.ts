@@ -1,16 +1,21 @@
-import type { OrchestrationV2ThreadDetailSnapshot, ThreadId } from "@t3tools/contracts";
+import { OrchestrationV2ThreadDetailSnapshot, type ThreadId } from "@t3tools/contracts";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
+import * as Schema from "effect/Schema";
 
 import * as RemoteEnvironmentAuthorization from "../authorization/service.ts";
 import type { PreparedConnection } from "../connection/model.ts";
 import * as ManagedRelay from "../relay/managedRelay.ts";
-import type { RemoteEnvironmentRequestError } from "../rpc/http.ts";
+import { decodeSnapshotResponse, type RemoteEnvironmentRequestError } from "../rpc/http.ts";
 import {
   executeAuthenticatedEnvironmentHttpRequest,
   withOrchestrationProtocolHeader,
 } from "./environmentHttpAuth.ts";
+
+const decodeThreadSnapshot = Schema.decodeUnknownEffect(
+  Schema.toCodecJson(OrchestrationV2ThreadDetailSnapshot),
+);
 
 // Long enough for a slow but alive server to finish. On a cold open a timeout
 // makes the socket ask the same server for the same snapshot again, and older
@@ -66,11 +71,26 @@ export const fetchEnvironmentThreadSnapshot = Effect.fn(
     method: "GET",
     url: (urls) => urls.threadSnapshot({ params: { threadId: input.threadId } }),
     timeoutMs: input.timeoutMs ?? DEFAULT_THREAD_SNAPSHOT_TIMEOUT_MS,
-    request: ({ client, headers }) =>
-      client.threadSnapshot({
+    request: ({ client, headers }) => {
+      const request = {
         params: { threadId: input.threadId },
         headers: withOrchestrationProtocolHeader(headers),
-      }),
+      };
+      return client.threadSnapshot({ ...request, responseMode: "response-only" }).pipe(
+        Effect.flatMap((response) =>
+          decodeSnapshotResponse({
+            response,
+            decode: decodeThreadSnapshot,
+            counts: ({ projection }) => ({
+              "snapshot.messages": projection.messages.length,
+              "snapshot.turnItems": projection.turnItems.length,
+            }),
+            group: "orchestration",
+            decodeOther: (replay) => replay.threadSnapshot(request),
+          }),
+        ),
+      );
+    },
   });
 });
 

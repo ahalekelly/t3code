@@ -73,6 +73,7 @@ import { ThreadRouteScreen } from "./features/threads/ThreadRouteScreen";
 import { McpAppFullscreenScreen } from "./features/threads/McpAppFullscreenScreen";
 import { ConnectionsRouteScreen } from "./features/connection/ConnectionsRouteScreen";
 import { ConnectionsNewRouteScreen } from "./features/connection/ConnectionsNewRouteScreen";
+import { withRenderTrace } from "./features/observability/appTraces";
 import { AddProjectDestinationRoute } from "./features/projects/AddProjectDestinationRoute";
 import { AddProjectLocalRoute } from "./features/projects/AddProjectLocalRoute";
 import { AddProjectNewRoute } from "./features/projects/AddProjectNewRoute";
@@ -729,7 +730,7 @@ const RootStackConfig = createWorkspaceStackNavigator({
   },
   screens: {
     Home: createNativeStackScreen({
-      screen: WorkspaceRootScreen,
+      screen: withRenderTrace("home", WorkspaceRootScreen),
       linking: "",
       options: {
         ...GLASS_HEADER_OPTIONS,
@@ -798,7 +799,7 @@ const RootStackConfig = createWorkspaceStackNavigator({
       },
     }),
     Thread: createNativeStackScreen({
-      screen: ThreadRouteScreen,
+      screen: withRenderTrace("thread", ThreadRouteScreen),
       linking: THREAD_LINKING_PREFIX,
       options: GLASS_HEADER_OPTIONS,
     }),
