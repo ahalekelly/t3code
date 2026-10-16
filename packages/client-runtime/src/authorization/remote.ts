@@ -11,6 +11,7 @@ import * as Effect from "effect/Effect";
 import { environmentEndpointUrl } from "../environment/endpoint.ts";
 import {
   executeEnvironmentHttpRequest,
+  hedgeIdempotentRequest,
   makeEnvironmentHttpApiGroupClient,
   type RemoteEnvironmentRequestError,
 } from "../rpc/http.ts";
@@ -169,11 +170,15 @@ export const issueRemoteWebSocketTicket = Effect.fn(
   return yield* executeEnvironmentHttpRequest(
     environmentEndpointUrl(input.httpBaseUrl, "/api/auth/websocket-ticket"),
     input.timeoutMs ?? DEFAULT_REMOTE_REQUEST_TIMEOUT_MS,
-    client.webSocketTicket({
-      headers: {
-        authorization: `Bearer ${input.bearerToken}`,
-      },
-    }),
+    // Bearer tickets are stateless and short-lived, so an unused duplicate is harmless.
+    // DPoP tickets are not hedged: the server rejects a replayed proof.
+    hedgeIdempotentRequest(
+      client.webSocketTicket({
+        headers: {
+          authorization: `Bearer ${input.bearerToken}`,
+        },
+      }),
+    ),
   );
 });
 
