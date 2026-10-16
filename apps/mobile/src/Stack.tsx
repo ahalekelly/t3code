@@ -9,6 +9,7 @@ import { createWorkspaceStackNavigator } from "./features/layout/createWorkspace
 import {
   createPathConfigForStaticNavigation,
   getPathFromState,
+  getFocusedRouteNameFromRoute,
   NavigationState,
   StackActions,
   useNavigation,
@@ -29,6 +30,7 @@ import {
 import { useResolveClassNames } from "uniwind";
 
 import { AppText as Text } from "./components/AppText";
+import { NewChatControlSync } from "./widgets/NewChatControlSync";
 import { getCompactBrandHeaderOptions } from "./components/CompactBrandTitle";
 import { WorkspaceRootScreen } from "./features/workspace/WorkspaceRootScreen";
 import { AndroidWorkspaceTabsProvider } from "./features/workspace/AndroidWorkspaceTabsProvider";
@@ -495,6 +497,7 @@ const NewTaskSheetStack = createNativeStackNavigator({
       screen: NewTaskDraftRouteScreen,
       linking: "draft",
       options: {
+        animation: Platform.OS === "ios" ? "none" : undefined,
         headerBackVisible: false,
         title: "",
       },
@@ -653,6 +656,7 @@ function RootStackLayout(props: {
   return (
     <HardwareKeyboardCommandProvider pathname={pathname}>
       <ThreadOutboxDrainWorker />
+      <NewChatControlSync />
       <ShowcaseCaptureCoordinator pathname={pathname} />
       <ExistingThreadSettingsRouteProvider>
         <AndroidWorkspaceTabsProvider>
@@ -1005,16 +1009,24 @@ const RootStackConfig = createWorkspaceStackNavigator({
       // A screen's layout replaces the navigator's screenLayout.
       layout: ({ children, route }) => (
         <GuardedScreenLayout route={route}>
-          <NewTaskFlowProvider>
+          <NewTaskFlowProvider
+            initialProjectRef={
+              route.params?.screen === "NewTaskDraft" ? route.params.params : undefined
+            }
+          >
             <View className="flex-1 bg-sheet-solid">{children}</View>
           </NewTaskFlowProvider>
         </GuardedScreenLayout>
       ),
-      options: {
+      options: ({ route }) => ({
         ...NESTED_NAVIGATOR_OPTIONS,
         gestureEnabled: true,
         headerShown: false,
-      },
+        // Lock Screen controls open the draft directly, without a transition.
+        ...(getFocusedRouteNameFromRoute(route) === "NewTaskDraft"
+          ? { animation: "none" as const }
+          : {}),
+      }),
     }),
     NotFound: createNativeStackScreen({
       screen: NotFoundScreen,

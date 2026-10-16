@@ -1,6 +1,7 @@
 import { useNavigation, usePreventRemove, type StaticScreenProps } from "@react-navigation/native";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Alert, View } from "react-native";
+import { EnvironmentId } from "@t3tools/contracts";
 import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
@@ -9,13 +10,18 @@ import { AppText as Text } from "../../components/AppText";
 import { useProjects } from "../../state/entities";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { useWorkspaceState } from "../../state/workspace";
+import { useEnvironmentQuery } from "../../state/query";
+import { environmentShell } from "../../state/shell";
 import { vcsEnvironment } from "../../state/vcs";
 import { checkoutNewTaskBranch } from "./checkout-new-task-branch";
 import { NativeStackScreenOptions } from "../../native/StackHeader";
 
+import { useNewTaskFlow } from "./new-task-flow-provider";
 import { NewTaskDraftScreen } from "./NewTaskDraftScreen";
+import { projectSnapshotPending } from "./projectSnapshotPending";
 
 type NewTaskDraftRouteParams = {
+  readonly launchId?: string;
   readonly environmentId?: string | string[];
   readonly projectId?: string | string[];
   readonly branch?: string | null;
@@ -35,7 +41,7 @@ export function NewTaskDraftRouteScreen({ route }: StaticScreenProps<NewTaskDraf
     : params.pendingTaskId;
   const draftId = Array.isArray(params.draftId) ? params.draftId[0] : params.draftId;
   const projects = useProjects();
-  const { state: catalogState } = useWorkspaceState();
+  const { state: catalogState, environments } = useWorkspaceState();
   const navigation = useNavigation();
   const switchRef = useAtomCommand(vcsEnvironment.switchRef, { reportFailure: false });
 
@@ -65,18 +71,33 @@ export function NewTaskDraftRouteScreen({ route }: StaticScreenProps<NewTaskDraf
       candidate.environmentId === initialProjectRef.environmentId &&
       candidate.id === initialProjectRef.projectId,
   );
+  const { startNewDraft } = useNewTaskFlow();
+  const previousLaunchId = useRef(params.launchId);
+  useLayoutEffect(() => {
+    if (!params.launchId || previousLaunchId.current === params.launchId || !project) return;
+    previousLaunchId.current = params.launchId;
+    // Reset the draft without remounting the navigator that owns its destination.
+    startNewDraft(project);
+  }, [params.launchId, project, startNewDraft]);
   const environmentId = project?.environmentId;
+  const requestedEnvironment = environments.find(
+    (environment) => environment.environmentId === initialProjectRef.environmentId,
+  );
+  const requestedShell = useEnvironmentQuery(
+    initialProjectRef.environmentId
+      ? environmentShell.stateAtom(EnvironmentId.make(initialProjectRef.environmentId))
+      : null,
+  );
   const workspaceRoot = project?.workspaceRoot;
   const needsPreparation = Boolean(initialProjectRef.branch && !pendingTaskId && !draftId);
 
   const [pendingCheckouts, setPendingCheckouts] = useState(0);
   const checkoutTail = useRef(Promise.resolve());
   const waitingForProject =
+    Boolean(initialProjectRef.environmentId && initialProjectRef.projectId) &&
     !project &&
     (catalogState.isLoadingConnections ||
-      (!catalogState.hasLoadedShellSnapshot &&
-        catalogState.hasConnectingEnvironment &&
-        catalogState.connectionError === null));
+      projectSnapshotPending(requestedEnvironment, requestedShell));
 
   useEffect(() => {
     if (!needsPreparation || !initialProjectRef.branch || waitingForProject) return;
@@ -160,6 +181,8 @@ export function NewTaskDraftRouteScreen({ route }: StaticScreenProps<NewTaskDraf
         </View>
       ) : (
         <NewTaskDraftScreen
+          key={params.launchId}
+          waitingForProject={waitingForProject}
           initialProjectRef={preparedProjectRef}
           incomingShareId={
             Array.isArray(params.incomingShareId)
