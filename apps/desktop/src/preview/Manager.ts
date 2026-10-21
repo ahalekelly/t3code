@@ -104,6 +104,8 @@ export interface PreviewTabState {
   canGoForward: boolean;
   zoomFactor: number;
   pictureInPicture: boolean;
+  /** The server is capturing this tab's frames, so a hidden webview must keep compositing. */
+  capturing: boolean;
   colorScheme: DesktopPreviewColorScheme;
   /** User intent to silence this tab. Re-applied to each guest that attaches. */
   audioMuted: boolean;
@@ -1703,6 +1705,7 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
           canGoForward: false,
           zoomFactor: normalizeZoomFactor(defaults?.zoomFactor),
           pictureInPicture: false,
+          capturing: false,
           colorScheme: defaults?.colorScheme ?? "system",
           ...(defaults?.serverTab === undefined ? {} : { serverTab: defaults.serverTab }),
           audioMuted: false,
@@ -1777,6 +1780,7 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
       canGoForward: false,
       zoomFactor: DEFAULT_ZOOM_FACTOR,
       pictureInPicture: false,
+      capturing: false,
       colorScheme: "system",
       audioMuted: false,
       audible: false,
@@ -2021,6 +2025,7 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
         canGoForward: current?.canGoForward ?? false,
         zoomFactor: current?.zoomFactor ?? DEFAULT_ZOOM_FACTOR,
         pictureInPicture: current?.pictureInPicture ?? false,
+        capturing: current?.capturing ?? false,
         colorScheme: current?.colorScheme ?? "system",
         // Both carry across navigation. Mute is user intent, and the old
         // document keeps playing until loadURL actually replaces it, so
@@ -2411,7 +2416,7 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
         return;
       }
       if (afterAttach.serverTab) {
-        yield* listenForAgentPointers;
+        yield* listenToServerTabSignals;
         browserHost.attach(afterAttach.serverTab, { webContents: wc, debugger: control.debugger });
       }
       if (afterAttach.colorScheme !== "system") {
@@ -3303,6 +3308,17 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
     );
   });
 
+  /** The desktop tab rendering a tab of the desktop's own server. */
+  const tabForServerTab = (key: { readonly threadId: string; readonly tabId: string }) =>
+    SynchronizedRef.get(tabsRef).pipe(
+      Effect.map((tabs) =>
+        [...tabs.values()].find(
+          (candidate) =>
+            candidate.serverTab?.threadId === key.threadId &&
+            candidate.serverTab.tabId === key.tabId,
+        ),
+      ),
+    );
   let pointerSequence = 0;
   /**
    * The server reports where an agent action is about to land on a tab it
@@ -3314,11 +3330,7 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
     readonly x: number;
     readonly y: number;
   }) {
-    const tab = [...(yield* SynchronizedRef.get(tabsRef)).values()].find(
-      (candidate) =>
-        candidate.serverTab?.threadId === pointer.key.threadId &&
-        candidate.serverTab.tabId === pointer.key.tabId,
-    );
+    const tab = yield* tabForServerTab(pointer.key);
     if (!tab) return;
     const event: DesktopPreviewPointerEvent = {
       tabId: tab.tabId,
@@ -3343,15 +3355,35 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
       { discard: true },
     );
   });
+  /**
+   * The server reports when it starts and stops capturing a tab's frames. The
+   * renderer keeps that tab's webview composited meanwhile, since one parked
+   * offscreen never paints the frame a capture waits for.
+   */
+  const applyServerCapturing = Effect.fn("PreviewManager.applyServerCapturing")(
+    function* (rendering: {
+      readonly key: { readonly threadId: string; readonly tabId: string };
+      readonly active: boolean;
+    }) {
+      const tab = yield* tabForServerTab(rendering.key);
+      if (!tab || tab.capturing === rendering.active) return;
+      yield* update(tab.tabId, { capturing: rendering.active });
+    },
+  );
   // Listening starts with the first tab of the desktop's own server.
-  let pointersStarted = false;
-  const listenForAgentPointers = Effect.suspend(() => {
-    if (pointersStarted) return Effect.void;
-    pointersStarted = true;
-    return browserHost.pointers.pipe(
-      Stream.runForEach(emitAgentPointer),
-      Effect.forkIn(parentScope),
-      Effect.asVoid,
+  let serverSignalsStarted = false;
+  const listenToServerTabSignals = Effect.suspend(() => {
+    if (serverSignalsStarted) return Effect.void;
+    serverSignalsStarted = true;
+    return Effect.all(
+      [
+        browserHost.pointers.pipe(Stream.runForEach(emitAgentPointer), Effect.forkIn(parentScope)),
+        browserHost.rendering.pipe(
+          Stream.runForEach(applyServerCapturing),
+          Effect.forkIn(parentScope),
+        ),
+      ],
+      { discard: true },
     );
   });
 

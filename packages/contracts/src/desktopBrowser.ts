@@ -42,5 +42,10 @@ export const DesktopBrowserCommand = Schema.Union([
     x: Schema.Finite,
     y: Schema.Finite,
   }),
+  /**
+   * The server is capturing this tab's frames (a screenshot or recording), so a
+   * `<webview>` parked offscreen must keep compositing while active.
+   */
+  Schema.Struct({ type: Schema.Literal("render"), ...TabKey, active: Schema.Boolean }),
 ]);
 export type DesktopBrowserCommand = typeof DesktopBrowserCommand.Type;

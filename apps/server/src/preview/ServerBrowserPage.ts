@@ -25,6 +25,7 @@ import { BrowserControlInterrupted } from "./SessionControl.ts";
 const MAX_EVALUATION_BYTES = 64_000;
 const MAX_VISIBLE_TEXT_LENGTH = 20_000;
 const MAX_SCREENSHOT_WIDTH = 1280;
+const CAPTURE_FRAME_TIMEOUT_MS = 10_000;
 const WAIT_POLL_MS = 100;
 export const DIAGNOSTIC_BUFFER_LIMIT = 200;
 
@@ -167,11 +168,27 @@ export const captureViewport = async (
       scale: options.scale,
     };
   }
-  const { data } = await cdp.send("Page.captureScreenshot", {
-    format: options.format,
-    ...(options.quality === undefined ? {} : { quality: options.quality }),
-    ...(clip ? { clip } : {}),
+  // Chromium answers only once the page composites a frame, which a hidden page
+  // may never do. A bounded wait keeps the tab's operation queue moving.
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const expired = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      reject(
+        new ServerBrowserOperationError(
+          "PreviewAutomationTimeoutError",
+          `The page produced no frame to capture within ${CAPTURE_FRAME_TIMEOUT_MS}ms; it may not be rendering. Retry, or open the tab with preview_open open=true.`,
+        ),
+      );
+    }, CAPTURE_FRAME_TIMEOUT_MS);
   });
+  const { data } = await Promise.race([
+    cdp.send("Page.captureScreenshot", {
+      format: options.format,
+      ...(options.quality === undefined ? {} : { quality: options.quality }),
+      ...(clip ? { clip } : {}),
+    }),
+    expired,
+  ]).finally(() => clearTimeout(timer));
   return data;
 };
 

@@ -346,6 +346,8 @@ interface ServerTab {
   captureLock: Promise<void>;
   /** Scaled captures rendering now; screencasts stay stopped meanwhile. */
   capturing: number;
+  /** What the desktop was last told about this tab needing frames. */
+  renderingRequested: boolean;
 }
 
 interface ServerDownload {
@@ -816,6 +818,7 @@ const make = Effect.gen(function* () {
       abortedNavigation: null,
       captureLock: Promise.resolve(),
       capturing: 0,
+      renderingRequested: false,
     };
     if (!desktop) {
       await page.setViewportSize(fixedViewportSize(tab.setting) ?? UNATTACHED_FILL_VIEWPORT);
@@ -1504,9 +1507,25 @@ const make = Effect.gen(function* () {
     return run;
   };
 
+  /**
+   * A desktop `<webview>` nobody is looking at sits offscreen, where Electron
+   * stops compositing it, so a capture, recording, or viewer stream would wait
+   * forever for a frame. Keep the desktop told while this tab needs frames;
+   * `starting` covers a recording's first capture before it is a recording.
+   */
+  const syncDesktopRendering = async (tab: ServerTab, starting = false) => {
+    const active = starting || tab.capturing > 0 || tab.recording !== null || tab.viewers.size > 0;
+    if (!tab.desktop || active === tab.renderingRequested) return;
+    tab.renderingRequested = active;
+    await Effect.runPromise(
+      desktopChannel.render({ threadId: tab.threadId, tabId: tab.tabId }, active),
+    );
+  };
+
   const startRecording = (tab: ServerTab): Promise<Recording> => {
     const started = withCaptureLock(tab, async () => {
       if (tab.recording) return tab.recording;
+      await syncDesktopRendering(tab, true);
       const encoder = await contexts.scratchPage();
       let session: CDPSession | null = null;
       try {
@@ -1559,6 +1578,7 @@ const make = Effect.gen(function* () {
         // A start that fails partway must not leave its encoder page behind.
         await encoder.close().catch(constVoid);
         await session?.detach().catch(constVoid);
+        await syncDesktopRendering(tab).catch(constVoid);
         throw cause;
       }
     }).finally(() => {
@@ -1577,6 +1597,7 @@ const make = Effect.gen(function* () {
         await Promise.all([
           ...[...tab.viewers].map((viewer) => viewer.pause()),
           recording?.session.send("Page.stopScreencast").catch(constVoid),
+          syncDesktopRendering(tab),
         ]);
         return await capture();
       } finally {
@@ -1587,6 +1608,7 @@ const make = Effect.gen(function* () {
           recording && tab.recording === recording
             ? recording.session.send("Page.startScreencast", RECORDING_SCREENCAST).catch(constVoid)
             : undefined,
+          syncDesktopRendering(tab),
         ]);
       }
     });
@@ -1628,6 +1650,7 @@ const make = Effect.gen(function* () {
       } finally {
         await recording.encoder.close().catch(constVoid);
         tab.recording = null;
+        await syncDesktopRendering(tab);
       }
       const data = Buffer.concat(chunks);
       if (!mimeType || data.byteLength === 0) {
@@ -2344,6 +2367,7 @@ const make = Effect.gen(function* () {
         Effect.sync(() => {
           tab.viewers.add(viewer);
           reportLiveTabs();
+          void syncDesktopRendering(tab).catch(constVoid);
         }),
         () =>
           Effect.promise(async () => {
@@ -2351,6 +2375,7 @@ const make = Effect.gen(function* () {
             tab.viewers.delete(viewer);
             broadcastControl(tab);
             reportLiveTabs();
+            void syncDesktopRendering(tab).catch(constVoid);
           }),
       );
       if (input.canOperate && tab.control.agentId === null && tab.control.controller === null) {
