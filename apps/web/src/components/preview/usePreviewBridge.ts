@@ -122,6 +122,7 @@ export function projectDesktopState(state: DesktopPreviewTabState): DesktopPrevi
     loading: state.navStatus.kind === "Loading",
     zoomFactor: state.zoomFactor,
     pictureInPicture: state.pictureInPicture,
+    capturing: state.capturing,
     colorScheme: state.colorScheme,
     audioMuted: state.audioMuted,
     audible: state.audible,

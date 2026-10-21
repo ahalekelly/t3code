@@ -93,6 +93,15 @@ export class DesktopBrowserHost extends Context.Service<
       readonly x: number;
       readonly y: number;
     }>;
+    /**
+     * Whether the server is capturing an attached tab's frames, keyed by its
+     * server tab. Ends with the tab's release or detach, so a server that dies
+     * mid-capture leaves no webview composited.
+     */
+    readonly rendering: Stream.Stream<{
+      readonly key: DesktopBrowserTabKey;
+      readonly active: boolean;
+    }>;
   }
 >()("@t3tools/desktop/preview/DesktopBrowserHost") {}
 
@@ -104,9 +113,15 @@ export const make = Effect.gen(function* () {
     readonly x: number;
     readonly y: number;
   }>(16);
+  const rendering = yield* PubSub.unbounded<{
+    readonly key: DesktopBrowserTabKey;
+    readonly active: boolean;
+  }>();
   const runFork = Effect.runForkWith(yield* Effect.context<never>());
   const tabs = new Map<string, AttachedTab>();
   const emit = (event: DesktopBrowserEventType) => runFork(PubSub.publish(outbox, event));
+  const setRendering = (key: DesktopBrowserTabKey, active: boolean) =>
+    runFork(PubSub.publish(rendering, { key, active }));
 
   const relayFor = (tab: AttachedTab) => {
     if (tab.relay) return tab.relay;
@@ -160,6 +175,7 @@ export const make = Effect.gen(function* () {
     if (!tab) return;
     tabs.delete(id);
     tab.debuggee.debugger.off("message", tab.onMessage);
+    setRendering(key, false);
     emit({ type: "detached", ...key });
   };
 
@@ -198,9 +214,14 @@ export const make = Effect.gen(function* () {
         runFork(PubSub.publish(pointers, { key: { threadId, tabId }, phase, x, y }));
         return;
       }
+      if (command.value.type === "render") {
+        setRendering(tab.key, command.value.active);
+        return;
+      }
       if (command.value.type === "release") {
         // A new server connection starts with a fresh relay and fresh sessions.
         tab.relay = null;
+        setRendering(tab.key, false);
         return;
       }
       if (AGENT_INPUT_COMMAND.test(command.value.message)) tab.agentInputAt = performance.now();
@@ -218,6 +239,8 @@ export const make = Effect.gen(function* () {
       [...tabs.values()],
       (tab) => {
         tab.relay = null;
+        // The new backend has captured nothing yet.
+        setRendering(tab.key, false);
         return PubSub.publish(outbox, { type: "attached", ...tab.key });
       },
       { discard: true },
@@ -235,6 +258,7 @@ export const make = Effect.gen(function* () {
       }),
     ).pipe(Stream.map((event) => lineEncoder.encode(`${encodeEvent(event)}\n`))),
     handleCommandLine,
+    rendering: Stream.fromPubSub(rendering),
     attach,
     detach,
     placeDownload,

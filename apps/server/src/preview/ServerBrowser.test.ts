@@ -201,6 +201,8 @@ const desktopRenders = (tabId: string) => {
   return desktopTabs.has(tabId);
 };
 const releasedDesktopTabs: Array<string> = [];
+/** Each time the server told the fake desktop whether a tab needs frames. */
+const desktopRendering: Array<[tabId: string, active: boolean]> = [];
 const desktopConnections: Array<{ endpoint: string; context: ReturnType<typeof makeContext> }> = [];
 const testThread = {
   threadId: ThreadId.make("browser-test-thread"),
@@ -263,6 +265,10 @@ const dependencies = Layer.mergeAll(
         Effect.sync(() => releasedDesktopTabs.push(key.tabId)),
       ),
     pointer: () => Effect.void,
+    render: (key, active) =>
+      Effect.sync(() => {
+        desktopRendering.push([key.tabId, active]);
+      }),
   }),
 ).pipe(
   Layer.provideMerge(ServerConfig.layerTest(process.cwd(), { prefix: "t3-server-browser-" })),
@@ -310,6 +316,7 @@ beforeEach(() => {
   desktopTabs.clear();
   desktopRendersNext = false;
   releasedDesktopTabs.length = 0;
+  desktopRendering.length = 0;
   desktopConnections.length = 0;
 });
 
@@ -1419,11 +1426,46 @@ it.live("drives the desktop's own page for a tab the desktop renders", () =>
         tabId: PreviewTabId.make(opened.tabId),
       });
       expect(evaluated).toMatchObject({ tabId: opened.tabId });
+      // A viewer streams frames the hidden desktop webview would not paint.
+      expect(desktopRendering).toEqual([[opened.tabId, true]]);
       // Closing the session lets go of the desktop's page without closing it.
       yield* manager.close({ threadId: scope.thread.threadId, tabId: opened.tabId });
       while (releasedDesktopTabs.length === 0) yield* Effect.yieldNow;
       expect(releasedDesktopTabs).toEqual([opened.tabId]);
       expect(page.close).not.toHaveBeenCalled();
+    }),
+  ).pipe(Effect.provide(layer)),
+);
+
+it.live("asks the desktop for frames only while capturing a tab nobody watches", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      yield* ServerBrowser.ServerBrowser;
+      const broker = yield* Broker.PreviewAutomationBroker;
+      const manager = yield* Manager.PreviewManager;
+      yield* Effect.yieldNow;
+      desktopRendersNext = true;
+      const opened = yield* manager.open({ threadId: scope.thread.threadId, runtime: "server" });
+      // The desktop parks an unwatched webview offscreen, where it paints no
+      // frame for a capture to wait on. Opening and reading the tab need none.
+      yield* broker.invoke({
+        scope: asSession("agent-desktop"),
+        operation: "status",
+        input: {},
+        tabId: PreviewTabId.make(opened.tabId),
+      });
+      expect(desktopRendering).toEqual([]);
+      yield* broker.invoke({
+        scope: asSession("agent-desktop"),
+        operation: "snapshot",
+        input: {},
+        tabId: PreviewTabId.make(opened.tabId),
+      });
+      expect(desktopRendering).toEqual([
+        [opened.tabId, true],
+        [opened.tabId, false],
+      ]);
+      yield* manager.close({ threadId: scope.thread.threadId, tabId: opened.tabId });
     }),
   ).pipe(Effect.provide(layer)),
 );

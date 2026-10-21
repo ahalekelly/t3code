@@ -148,4 +148,24 @@ describe("DesktopBrowserHost", () => {
       expect(host.humanStartedDownload(debuggee.tab.webContents)).toBe(false);
     }),
   );
+
+  it.effect("keeps a tab rendering while the server captures it, until it lets go", () =>
+    Effect.gen(function* () {
+      const host = yield* DesktopBrowserHost.make;
+      host.attach(key, makeDebuggee().tab);
+      const reader = yield* host.rendering.pipe(
+        Stream.take(2),
+        Stream.runCollect,
+        Effect.forkScoped,
+      );
+      yield* Effect.yieldNow;
+      yield* host.handleCommandLine(encodeJson({ type: "render", ...key, active: true }));
+      // A server that stops driving the tab cannot leave its webview composited.
+      yield* host.handleCommandLine(encodeJson({ type: "release", ...key }));
+      expect(yield* Fiber.join(reader)).toEqual([
+        { key, active: true },
+        { key, active: false },
+      ]);
+    }).pipe(Effect.scoped),
+  );
 });

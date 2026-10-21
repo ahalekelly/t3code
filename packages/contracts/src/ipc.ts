@@ -638,6 +638,8 @@ export interface DesktopPreviewTabState {
   zoomFactor: number;
   /** Whether this tab is currently mirrored into a desktop picture-in-picture window. */
   pictureInPicture: boolean;
+  /** The server is capturing this tab's frames, so a hidden webview must keep compositing. */
+  capturing: boolean;
   colorScheme: DesktopPreviewColorScheme;
   /**
    * Whether the user has silenced this tab. Per tab rather than per origin, so
