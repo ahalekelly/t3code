@@ -9,6 +9,10 @@ export type ThreadContentPresentation =
       readonly detail: string;
     };
 
+// Shared so the presentation passed to memoized thread views keeps its identity.
+export const READY_THREAD_CONTENT: ThreadContentPresentation = { kind: "ready" };
+const LOADING: ThreadContentPresentation = { kind: "loading" };
+
 export function projectThreadContentPresentation(input: {
   readonly hasDetail: boolean;
   readonly detailError: string | null;
@@ -16,7 +20,7 @@ export function projectThreadContentPresentation(input: {
   readonly connectionState: EnvironmentConnectionPhase;
 }): ThreadContentPresentation {
   if (input.hasDetail) {
-    return { kind: "ready" };
+    return READY_THREAD_CONTENT;
   }
   if (input.detailDeleted) {
     return {
@@ -37,7 +41,7 @@ export function projectThreadContentPresentation(input: {
     input.connectionState === "connecting" ||
     input.connectionState === "reconnecting"
   ) {
-    return { kind: "loading" };
+    return LOADING;
   }
   return {
     kind: "unavailable",

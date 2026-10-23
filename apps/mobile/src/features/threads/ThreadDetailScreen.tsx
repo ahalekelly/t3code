@@ -1196,7 +1196,7 @@ export const ThreadDetailScreen = function ThreadDetailScreen(props: ThreadDetai
   useLayoutEffect(() => {
     activePendingApprovalsRef.current = props.activePendingApprovals;
   }, [props.activePendingApprovals]);
-  const handleSendMessage = async (
+  const sendMessage = async (
     followUp?: ActiveTurnComposerAction,
     stillSendable?: () => boolean,
   ) => {
@@ -1243,6 +1243,13 @@ export const ThreadDetailScreen = function ThreadDetailScreen(props: ThreadDetai
     composerEditorRef.current?.blur();
     return messageId;
   };
+  // The feed changes on every streamed event; a stable handler keeps the composer from re-rendering.
+  const sendMessageRef = useRef(sendMessage);
+  useLayoutEffect(() => {
+    sendMessageRef.current = sendMessage;
+  });
+  const handleSendMessage = (followUp?: ActiveTurnComposerAction, stillSendable?: () => boolean) =>
+    sendMessageRef.current(followUp, stillSendable);
 
   const handleEditPendingMessage = async (message: QueuedThreadMessage) => {
     const edited = await settlePromise(() => editPendingThreadMessage(message));
