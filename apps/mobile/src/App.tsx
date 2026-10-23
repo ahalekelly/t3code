@@ -1,14 +1,14 @@
 import { PermissionUpdateNotice } from "./features/connection/PermissionUpdateNotice";
 import * as Linking from "expo-linking";
 import * as SplashScreen from "expo-splash-screen";
-import { Profiler, useEffect } from "react";
+import { Profiler, useEffect, useState } from "react";
 import { StatusBar } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { KeyboardProvider } from "react-native-keyboard-controller";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { createStaticNavigation, getStateFromPath } from "@react-navigation/native";
 
-import { RegistryContext } from "@effect/atom-react";
+import { RegistryContext, useAtomValue } from "@effect/atom-react";
 import { ThreadArrangementHost } from "./features/threads/ThreadArrangementSheet";
 import * as Dialog from "./components/ui/Dialog";
 import { CloudAuthProvider } from "./features/cloud/CloudAuthProvider";
@@ -27,7 +27,7 @@ import { RootStack } from "./Stack";
 import { appAtomRegistry } from "./state/atom-registry";
 import { subscribeComposerDraftModelReconciliation } from "./state/use-composer-drafts";
 import { environmentThreadShells } from "./state/threads";
-import { environmentShell } from "./state/shell";
+import { environmentShell, shellCachesLoadedAtom } from "./state/shell";
 import { OverlayPortalHost } from "./components/ui/OverlayPortal";
 import { shouldHandleAppLink, restoreDraftLinkState } from "./lib/appLinking";
 import { useMobileNavigationTheme } from "./lib/useMobileNavigationTheme";
@@ -59,12 +59,23 @@ const appLinking = {
 
 const Navigation = createStaticNavigation(RootStack);
 
+// A cache read that never settles must not hold the launch screen.
+const MAX_SPLASH_WAIT_FOR_CACHE_MS = 2_000;
+
+/** Keeps the launch screen up until appearance and cached threads are ready, so neither pops in. */
 function SplashScreenCoordinator() {
   const { isReady } = useAppearancePreferences();
+  const cachesLoaded = useAtomValue(shellCachesLoadedAtom);
+  const [cacheWaitExpired, setCacheWaitExpired] = useState(false);
 
   useEffect(() => {
-    if (isReady) void SplashScreen.hide();
-  }, [isReady]);
+    const timer = setTimeout(() => setCacheWaitExpired(true), MAX_SPLASH_WAIT_FOR_CACHE_MS);
+    return () => clearTimeout(timer);
+  }, []);
+
+  useEffect(() => {
+    if (isReady && (cachesLoaded || cacheWaitExpired)) void SplashScreen.hide();
+  }, [isReady, cachesLoaded, cacheWaitExpired]);
 
   return null;
 }
