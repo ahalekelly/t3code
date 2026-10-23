@@ -9,7 +9,7 @@ export type ConnectionWakeup =
   | "credentials-changed"
   | "network-changed";
 
-function isApplicationActiveWakeup(reason: ConnectionWakeup): boolean {
+export function isApplicationActiveWakeup(reason: ConnectionWakeup): boolean {
   return (
     reason === "application-active" ||
     reason === "application-active-probe" ||
@@ -19,11 +19,6 @@ function isApplicationActiveWakeup(reason: ConnectionWakeup): boolean {
 
 export function resetsRetryBackoff(reason: ConnectionWakeup): boolean {
   return isApplicationActiveWakeup(reason) || reason === "network-changed";
-}
-
-// A long resume replaces the session, and the new session subscribes on its own.
-export function shouldResubscribeAfterWakeup(reason: ConnectionWakeup): boolean {
-  return reason === "application-active" || reason === "application-active-probe";
 }
 
 export class ConnectionWakeups extends Context.Service<
