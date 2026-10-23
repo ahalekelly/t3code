@@ -1,15 +1,14 @@
-import { EnvironmentHttpCommonError } from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
-import * as Schema from "effect/Schema";
-import { HttpClient, HttpClientError, type HttpClientResponse } from "effect/http";
+import { HttpClient } from "effect/http";
 
 import * as RemoteEnvironmentAuthorization from "../authorization/service.ts";
 import type { PreparedConnection } from "../connection/model.ts";
 import * as ManagedRelay from "../relay/managedRelay.ts";
+import { decodeSnapshotResponse } from "../rpc/http.ts";
 import {
   executeAuthenticatedEnvironmentHttpRequest,
   withOrchestrationProtocolHeader,
@@ -46,34 +45,25 @@ export const fetchEnvironmentShellSnapshot = Effect.fn(
           headers: withOrchestrationProtocolHeader(headers),
           responseMode: "response-only",
         })
-        .pipe(Effect.flatMap(decodeShellSnapshotResponse)),
+        .pipe(
+          Effect.flatMap((response) =>
+            decodeSnapshotResponse({
+              response,
+              decode: decodeShellSnapshotDeferringPullRequests,
+              counts: (snapshot) => ({
+                "snapshot.projects": snapshot.projects.length,
+                "snapshot.threads": snapshot.threads.length,
+              }),
+              group: "orchestration",
+              decodeOther: (replay) =>
+                replay
+                  .shellSnapshot({ headers: withOrchestrationProtocolHeader(headers) })
+                  .pipe(Effect.map((snapshot): DeferredShellSnapshot => snapshot)),
+            }),
+          ),
+        ),
   });
 });
-
-const decodeEnvironmentHttpCommonError = Schema.decodeUnknownEffect(
-  Schema.toCodecJson(EnvironmentHttpCommonError),
-);
-
-const decodeShellSnapshotResponse = (
-  response: HttpClientResponse.HttpClientResponse,
-): Effect.Effect<
-  DeferredShellSnapshot,
-  HttpClientError.HttpClientError | Schema.SchemaError | EnvironmentHttpCommonError
-> => {
-  if (response.status === 200) {
-    return response.json.pipe(Effect.flatMap(decodeShellSnapshotDeferringPullRequests));
-  }
-  const statusError = new HttpClientError.HttpClientError({
-    reason: new HttpClientError.StatusCodeError({ request: response.request, response }),
-  });
-  return response.json.pipe(
-    Effect.flatMap(decodeEnvironmentHttpCommonError),
-    Effect.matchEffect({
-      onFailure: () => Effect.fail(statusError),
-      onSuccess: Effect.fail,
-    }),
-  );
-};
 
 export class ShellSnapshotLoader extends Context.Service<
   ShellSnapshotLoader,

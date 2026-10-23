@@ -125,7 +125,10 @@ export const make = Effect.fn("MobileEnvironmentCacheStore.make")(function* () {
         schemaVersion: ORCHESTRATION_CACHE_SCHEMA_VERSION,
         environmentId,
         snapshot,
-      }).pipe(Effect.mapError((cause) => persistenceError("save-shell", cause)));
+      }).pipe(
+        Effect.mapError((cause) => persistenceError("save-shell", cause)),
+        Effect.withSpan("cache.encode"),
+      );
       yield* database
         .saveCache(environmentId, "shell", "snapshot", ORCHESTRATION_CACHE_SCHEMA_VERSION, payload)
         .pipe(Effect.mapError(mapDatabaseError("save-shell")));
@@ -151,7 +154,10 @@ export const make = Effect.fn("MobileEnvironmentCacheStore.make")(function* () {
         environmentId,
         threadId,
         snapshot,
-      }).pipe(Effect.mapError((cause) => persistenceError("save-thread", cause)));
+      }).pipe(
+        Effect.mapError((cause) => persistenceError("save-thread", cause)),
+        Effect.withSpan("cache.encode"),
+      );
       yield* database
         .saveCache(
           environmentId,

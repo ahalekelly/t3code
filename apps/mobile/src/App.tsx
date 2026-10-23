@@ -1,7 +1,7 @@
 import { PermissionUpdateNotice } from "./features/connection/PermissionUpdateNotice";
 import * as Linking from "expo-linking";
 import * as SplashScreen from "expo-splash-screen";
-import { useEffect } from "react";
+import { Profiler, useEffect } from "react";
 import { StatusBar } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { KeyboardProvider } from "react-native-keyboard-controller";
@@ -18,6 +18,11 @@ import {
   AppearancePreferencesProvider,
   useAppearancePreferences,
 } from "./features/settings/appearance/AppearancePreferencesProvider";
+import {
+  navigationRef,
+  recordReactCommit,
+  traceAppResumes,
+} from "./features/observability/appTraces";
 import { RootStack } from "./Stack";
 import { appAtomRegistry } from "./state/atom-registry";
 import { subscribeComposerDraftModelReconciliation } from "./state/use-composer-drafts";
@@ -81,7 +86,9 @@ export default function App() {
     <RegistryContext.Provider value={appAtomRegistry}>
       <CloudAuthProvider>
         <AppearancePreferencesProvider>
-          <AppContent />
+          <Profiler id="app" onRender={recordReactCommit}>
+            <AppContent />
+          </Profiler>
         </AppearancePreferencesProvider>
       </CloudAuthProvider>
     </RegistryContext.Provider>
@@ -110,7 +117,12 @@ function AppContent() {
               <GlobalVoiceInputControl>
                 <NativeLayoutMetricsProvider>
                   <IncomingShareProvider>
-                    <Navigation linking={appLinking} theme={navigationTheme} />
+                    <Navigation
+                      ref={navigationRef}
+                      linking={appLinking}
+                      theme={navigationTheme}
+                      onReady={traceAppResumes}
+                    />
                   </IncomingShareProvider>
                   <Dialog.Host />
                   <ThreadArrangementHost />
