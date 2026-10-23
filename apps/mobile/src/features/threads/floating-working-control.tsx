@@ -128,6 +128,7 @@ export function FloatingWorkingControl(props: {
   // and repeatedly retargets the animation as it grows.
   const capsuleWidth = useSharedValue<number | null>(null);
   const measuredWidthRef = useRef<number | null>(null);
+  const [labelMeasured, setLabelMeasured] = useState(false);
   const handleLabelLayout = (event: LayoutChangeEvent) => {
     const width = event.nativeEvent.layout.width;
     if (width === measuredWidthRef.current) {
@@ -136,15 +137,23 @@ export function FloatingWorkingControl(props: {
     const first = measuredWidthRef.current === null;
     measuredWidthRef.current = width;
     capsuleWidth.value = first ? width : withTiming(width, CONTROL_TIMING);
+    if (first) setLabelMeasured(true);
   };
-  const hasStatus = props.status !== null;
-  const hasCapsule = hasStatus || hasQueue || hasAgents || hasPreview;
   useEffect(() => {
-    if (!hasStatus) {
+    if (props.status === null) {
       measuredWidthRef.current = null;
       capsuleWidth.value = null;
     }
-  }, [capsuleWidth, hasStatus]);
+  }, [capsuleWidth, props.status]);
+  if (props.status === null && labelMeasured) setLabelMeasured(false);
+  // Alone in the capsule, an unmeasured status label would paint as an empty
+  // glass circle (native glass ignores opacity), so the label first measures in
+  // a hidden host and joins the capsule once it has a width.
+  const hasOtherSegment = hasQueue || hasAgents || hasPreview;
+  const status = labelMeasured || hasOtherSegment ? props.status : null;
+  const measuringStatus = status === null ? props.status : null;
+  const hasStatus = status !== null;
+  const hasCapsule = hasStatus || hasOtherSegment;
   const capsuleStyle = useAnimatedStyle(() => ({
     transform: [{ translateX: CONTROL_SEPARATION * (1 - separationProgress.value) }],
   }));
@@ -152,7 +161,7 @@ export function FloatingWorkingControl(props: {
     width: capsuleWidth.value ?? 0,
   }));
 
-  if (!hasCapsule && !props.showScrollToEnd) {
+  if (!hasCapsule && !props.showScrollToEnd && measuringStatus === null) {
     return null;
   }
 
@@ -162,13 +171,13 @@ export function FloatingWorkingControl(props: {
     hasQueue ||
     (props.devicePreview !== null && props.browserPreview !== null);
   const statusInteractive =
-    props.status?.kind === "connection" ||
-    props.status?.kind === "child-input" ||
-    props.status?.kind === "background";
+    status?.kind === "connection" ||
+    status?.kind === "child-input" ||
+    status?.kind === "background";
   const capsuleInteractive =
     statusInteractive || action !== null || hasQueue || hasAgents || hasPreview;
   const statusContent =
-    props.status !== null ? (
+    status !== null ? (
       <View
         pointerEvents={statusInteractive ? "box-none" : "none"}
         className="h-11 items-center justify-center"
@@ -181,11 +190,11 @@ export function FloatingWorkingControl(props: {
         >
           <FloatingStatusLabel
             key={
-              props.status.kind === "working" || props.status.kind === "compacting"
-                ? props.status.kind
-                : `${props.status.kind}:${props.status.label}`
+              status.kind === "working" || status.kind === "compacting"
+                ? status.kind
+                : `${status.kind}:${status.label}`
             }
-            status={props.status}
+            status={status}
             onLayout={handleLabelLayout}
           />
         </View>
@@ -272,6 +281,17 @@ export function FloatingWorkingControl(props: {
       entering={NATIVE_LIQUID_GLASS_SUPPORTED ? undefined : CONTROL_ENTERING}
       exiting={NATIVE_LIQUID_GLASS_SUPPORTED ? undefined : CONTROL_EXITING}
     >
+      {measuringStatus !== null ? (
+        <View
+          pointerEvents="none"
+          accessibilityElementsHidden
+          importantForAccessibility="no-hide-descendants"
+          className="absolute h-11 items-center justify-center opacity-0"
+          style={{ width: labelWidth }}
+        >
+          <FloatingStatusLabel status={measuringStatus} onLayout={handleLabelLayout} />
+        </View>
+      ) : null}
       {hasCapsule && NATIVE_LIQUID_GLASS_SUPPORTED ? (
         <UniwindGlassContainer
           spacing={GLASS_MERGE_SPACING}
@@ -330,7 +350,7 @@ export function FloatingWorkingControl(props: {
             />
           </Animated.View>
         </View>
-      ) : NATIVE_LIQUID_GLASS_SUPPORTED ? (
+      ) : !props.showScrollToEnd ? null : NATIVE_LIQUID_GLASS_SUPPORTED ? (
         <UniwindGlassView
           colorScheme={props.colorScheme}
           glassEffectStyle="regular"
