@@ -6,6 +6,7 @@ import { computeThreadMoveAvailability } from "../threads/threadOrder";
 import type { LegendListRef } from "@legendapp/list/react-native";
 import { AnimatedLegendList } from "@legendapp/list/reanimated";
 import { THREAD_SIDEBAR_ROW_LAYOUT } from "../threads/threadListAnimations";
+import { homeLaunchPaintedAtom, shellCachesLoadedAtom } from "../../state/shell";
 import {
   type EnvironmentProject,
   type EnvironmentThreadShell,
@@ -15,7 +16,7 @@ import {
   type EnvironmentThreadSearchMatch,
 } from "@t3tools/client-runtime/state/thread-search";
 import { type EnvironmentId, type SidebarProjectGroupingMode } from "@t3tools/contracts";
-import { useAtomValue } from "@effect/atom-react";
+import { useAtomSet, useAtomValue } from "@effect/atom-react";
 import { useFocusEffect } from "@react-navigation/native";
 import { use, useEffect, useRef, useState, type ComponentProps } from "react";
 import {
@@ -736,6 +737,16 @@ export function HomeScreen(props: HomeScreenProps) {
     catalogState: props.catalogState,
     projectCount: props.projects.length,
   });
+  // The launch screen hides once cached threads, or a final empty state, have
+  // painted, so a launch never flashes a connecting state the cache replaces.
+  const cachesLoaded = useAtomValue(shellCachesLoadedAtom);
+  const markLaunchPainted = useAtomSet(homeLaunchPaintedAtom);
+  const launchContentReady = cachesLoaded && (hasAnyThreads || !emptyState.loading);
+  useEffect(() => {
+    if (!launchContentReady) return;
+    const frame = requestAnimationFrame(() => markLaunchPainted(true));
+    return () => cancelAnimationFrame(frame);
+  }, [launchContentReady, markLaunchPainted]);
 
   if (!hasAnyThreads) {
     return (
