@@ -22,6 +22,7 @@ import { useResolveClassNames } from "uniwind";
 
 import { AppText as Text } from "./components/ui/AppText";
 import { androidWorkspaceDestinationAnimation } from "./lib/android-workspace-navigation";
+import { NewChatControlSync } from "./widgets/NewChatControlSync";
 import { getCompactBrandHeaderOptions } from "./components/CompactBrandTitle";
 import { WorkspaceConnectionStatusProvider } from "./features/home/WorkspaceConnectionTitle";
 import { WorkspaceRootScreen } from "./features/workspace/WorkspaceRootScreen";
@@ -558,6 +559,7 @@ function RootStackLayout(props: {
     >
       <HardwareKeyboardCommandProvider pathname={pathname}>
         <ThreadOutboxDrainWorker />
+        <NewChatControlSync />
         <ShowcaseCaptureCoordinator pathname={pathname} />
         <ExistingThreadSettingsRouteProvider>
           <WorkspaceConnectionStatusProvider>

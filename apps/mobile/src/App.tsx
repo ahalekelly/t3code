@@ -27,6 +27,7 @@ import { OverlayPortalHost } from "./components/ui/OverlayPortal";
 import { shouldHandleAppLink, restoreDraftLinkState } from "./lib/appLinking";
 import { useMobileNavigationTheme } from "./lib/useMobileNavigationTheme";
 import { useUiRuntimeMemoryWarningGc } from "./lib/useUiRuntimeMemoryWarningGc";
+import { navigationLinkAction } from "./lib/navigationLinkAction";
 import { SubscriptionUsageCoordinator } from "./widgets/SubscriptionUsageCoordinator";
 import { VoiceInputProvider } from "./features/voice-input/VoiceInputProvider";
 import { GlobalVoiceInputControl } from "./features/voice-input/GlobalVoiceInputControl";
@@ -41,6 +42,9 @@ if (process.env.EXPO_PUBLIC_SHOWCASE === "1") {
 void SplashScreen.preventAutoHideAsync().catch(() => {});
 
 const appLinking = {
+  // Scene and App Intent launches can arrive before JavaScript subscribes.
+  getInitialURL: async () => Linking.getLinkingURL(),
+  getActionFromState: navigationLinkAction,
   prefixes: [Linking.createURL("/"), "t3code://", "t3code-dev://", "t3code-preview://"],
   config: { initialRouteName: "Home" },
   filter: shouldHandleAppLink,
