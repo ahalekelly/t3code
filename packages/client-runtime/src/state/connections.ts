@@ -118,6 +118,16 @@ export function createEnvironmentCatalogAtoms<R, E>(
     ),
   );
 
+  // While mounted, the environment connects ahead of the others. See
+  // `EnvironmentRegistry.focusEnvironment`.
+  const focusAtom = Atom.family((environmentId: EnvironmentIdType) =>
+    runtime.atom(
+      EnvironmentRegistry.EnvironmentRegistry.pipe(
+        Effect.flatMap((registry) => registry.focusEnvironment(environmentId)),
+      ),
+    ),
+  );
+
   const register = createRuntimeCommand(runtime, {
     label: "environment-catalog:register",
     scheduler: commandScheduler,
@@ -195,6 +205,7 @@ export function createEnvironmentCatalogAtoms<R, E>(
     networkStatusAtom,
     networkStatusValueAtom,
     stateAtom,
+    focusAtom,
     register,
     remove,
     removeRoute,

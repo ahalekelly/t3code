@@ -36,7 +36,6 @@ import {
 import * as RpcSession from "../rpc/session.ts";
 import { presentConnectionState } from "./presentation.ts";
 import * as EnvironmentSupervisor from "./supervisor.ts";
-import * as ConnectionWakeups from "./wakeups.ts";
 import { connectionRouteId, entryWithRoutes, isLearned, mergeLearnedRoutes } from "./routes.ts";
 
 const TARGET = new PrimaryConnectionTarget({
@@ -163,13 +162,6 @@ const makeHarness = Effect.fn("TestConnectionHarness.make")(function* (options?:
   const prepareCount = yield* Ref.make(0);
   const sessionCount = yield* Ref.make(0);
   const releaseCount = yield* Ref.make(0);
-  const wakeups = yield* SubscriptionRef.make<{
-    readonly sequence: number;
-    readonly reason: ConnectionWakeups.ConnectionWakeup;
-  }>({
-    sequence: 0,
-    reason: "application-active",
-  });
   const closedSessions = yield* Ref.make<
     ReadonlyArray<Deferred.Deferred<never, ConnectionTransientError>>
   >([]);
@@ -237,15 +229,6 @@ const makeHarness = Effect.fn("TestConnectionHarness.make")(function* (options?:
     }),
     Layer.succeed(Connectivity.Connectivity, connectivity),
     Layer.succeed(
-      ConnectionWakeups.ConnectionWakeups,
-      ConnectionWakeups.ConnectionWakeups.of({
-        changes: SubscriptionRef.changes(wakeups).pipe(
-          Stream.drop(1),
-          Stream.map((event) => event.reason),
-        ),
-      }),
-    ),
-    Layer.succeed(
       ConnectionDriver.ConnectionDriver,
       ConnectionDriver.ConnectionDriver.of({
         connect,
@@ -262,11 +245,6 @@ const makeHarness = Effect.fn("TestConnectionHarness.make")(function* (options?:
     sessionCount,
     releaseCount,
     setNetworkStatus: (status: NetworkStatus) => SubscriptionRef.set(networkStatus, status),
-    wake: (reason: ConnectionWakeups.ConnectionWakeup) =>
-      SubscriptionRef.update(wakeups, (event) => ({
-        sequence: event.sequence + 1,
-        reason,
-      })),
     closeLatestSession: Effect.fn("TestConnectionHarness.closeLatestSession")(function* (
       error = transient("Session closed."),
     ) {
@@ -445,7 +423,7 @@ describe("EnvironmentSupervisor", () => {
       }).pipe(Effect.provide(harness.dependencies));
 
       yield* awaitState(supervisor.state, (state) => state.phase === "blocked");
-      yield* harness.wake("credentials-changed");
+      yield* supervisor.wake("credentials-changed");
       yield* awaitState(supervisor.state, (state) => state.phase === "connected");
 
       expect(yield* Ref.get(harness.prepareCount)).toBe(2);
@@ -466,9 +444,9 @@ describe("EnvironmentSupervisor", () => {
       yield* Deferred.await(firstAttemptStarted);
       yield* Effect.all(
         [
-          harness.wake("credentials-changed"),
-          harness.wake("application-active"),
-          harness.wake("credentials-changed"),
+          supervisor.wake("credentials-changed"),
+          supervisor.wake("application-active"),
+          supervisor.wake("credentials-changed"),
         ],
         { concurrency: "unbounded" },
       );
@@ -544,7 +522,7 @@ describe("EnvironmentSupervisor", () => {
         traceId: null,
       });
 
-      yield* harness.wake("application-active");
+      yield* supervisor.wake("application-active");
       const replacing = yield* awaitState(
         supervisor.state,
         (state) => state.phase === "connecting" && state.stage === "preparing",
@@ -580,7 +558,7 @@ describe("EnvironmentSupervisor", () => {
         (state) => state.phase === "connected" && state.generation === 2 && state.attempt === 2,
       );
 
-      yield* harness.wake("application-active-reconnect");
+      yield* supervisor.wake("application-active-reconnect");
       yield* awaitState(
         supervisor.state,
         (state) => state.phase === "connected" && state.generation === 3 && state.attempt === 1,
@@ -609,7 +587,7 @@ describe("EnvironmentSupervisor", () => {
         (state) => state.phase === "connecting" && state.attempt === 2,
       );
 
-      yield* harness.wake("application-active-reconnect");
+      yield* supervisor.wake("application-active-reconnect");
       yield* awaitState(
         supervisor.state,
         (state) => state.phase === "connected" && state.generation === 2 && state.attempt === 1,
@@ -632,7 +610,7 @@ describe("EnvironmentSupervisor", () => {
       }).pipe(Effect.provide(harness.dependencies));
 
       yield* awaitState(supervisor.state, (state) => state.phase === "connected");
-      yield* harness.wake("application-active");
+      yield* supervisor.wake("application-active");
       yield* Deferred.await(probeCalled);
 
       expect(yield* Ref.get(probeCount)).toBe(1);
@@ -657,11 +635,9 @@ describe("EnvironmentSupervisor", () => {
       }).pipe(Effect.provide(harness.dependencies));
 
       yield* awaitState(supervisor.state, (state) => state.phase === "connected");
-      yield* harness.wake("application-active-reconnect");
+      yield* supervisor.wake("application-active-reconnect");
       yield* Deferred.await(probed);
-      for (let attempt = 0; attempt < 10; attempt += 1) {
-        yield* Effect.yieldNow;
-      }
+      yield* awaitState(supervisor.verifying, (verifying) => !verifying);
 
       expect(yield* Ref.get(probeCount)).toBe(1);
       expect(yield* Ref.get(harness.sessionCount)).toBe(1);
@@ -685,9 +661,10 @@ describe("EnvironmentSupervisor", () => {
       );
       // Let the supervisor finish entering the connected state.
       yield* Effect.yieldNow;
-      yield* harness.wake("application-active-reconnect");
+      yield* supervisor.wake("application-active-reconnect");
       yield* TestClock.adjust("999 millis");
       expect(yield* Ref.get(harness.sessionCount)).toBe(1);
+      expect(yield* SubscriptionRef.get(supervisor.verifying)).toBe(true);
       expect((yield* SubscriptionRef.get(supervisor.state)).phase).toBe("connected");
 
       // No backoff: the replacement starts as soon as the probe times out.
@@ -714,9 +691,9 @@ describe("EnvironmentSupervisor", () => {
         supervisor.state,
         (state) => state.phase === "connected" && state.generation === 1,
       );
-      yield* harness.wake("application-active-probe");
+      yield* supervisor.wake("application-active-probe");
       yield* Effect.yieldNow;
-      yield* harness.wake("application-active-reconnect");
+      yield* supervisor.wake("application-active-reconnect");
       yield* Effect.yieldNow;
       yield* TestClock.adjust("1 second");
       yield* awaitState(
@@ -743,7 +720,7 @@ describe("EnvironmentSupervisor", () => {
       }).pipe(Effect.provide(harness.dependencies));
 
       yield* awaitState(supervisor.state, (state) => state.phase === "connected");
-      yield* harness.wake("application-active-probe");
+      yield* supervisor.wake("application-active-probe");
       yield* Deferred.await(probeStarted);
       yield* harness.closeLatestSession();
 
@@ -772,7 +749,7 @@ describe("EnvironmentSupervisor", () => {
       }).pipe(Effect.provide(harness.dependencies));
 
       yield* awaitState(supervisor.state, (state) => state.phase === "connected");
-      yield* harness.wake("application-active");
+      yield* supervisor.wake("application-active");
       const reconnecting = yield* awaitState(
         supervisor.state,
         (state) => state.phase === "connecting",
@@ -803,7 +780,7 @@ describe("EnvironmentSupervisor", () => {
       }).pipe(Effect.provide(harness.dependencies));
 
       yield* awaitState(supervisor.state, (state) => state.phase === "connected");
-      yield* harness.wake("application-active");
+      yield* supervisor.wake("application-active");
       yield* Deferred.await(probeStarted);
       yield* supervisor.disconnect;
       yield* awaitState(supervisor.state, (state) => state.phase === "available");
@@ -820,7 +797,7 @@ describe("EnvironmentSupervisor", () => {
       }).pipe(Effect.provide(harness.dependencies));
 
       yield* awaitState(supervisor.state, (state) => state.phase === "connected");
-      yield* harness.wake("credentials-changed");
+      yield* supervisor.wake("credentials-changed");
       yield* Effect.yieldNow;
 
       expect(yield* Ref.get(harness.sessionCount)).toBe(1);
@@ -839,7 +816,7 @@ describe("EnvironmentSupervisor", () => {
       }).pipe(Effect.provide(harness.dependencies));
 
       yield* awaitState(supervisor.state, (state) => state.phase === "connected");
-      yield* harness.wake("credentials-changed");
+      yield* supervisor.wake("credentials-changed");
       yield* awaitState(
         supervisor.state,
         (state) => state.phase === "connected" && state.generation === 2,
@@ -1044,9 +1021,9 @@ describe("EnvironmentSupervisor", () => {
       yield* Effect.all(
         [
           supervisor.disconnect,
-          harness.wake("credentials-changed"),
-          harness.wake("application-active"),
-          harness.wake("credentials-changed"),
+          supervisor.wake("credentials-changed"),
+          supervisor.wake("application-active"),
+          supervisor.wake("credentials-changed"),
         ],
         { concurrency: "unbounded" },
       );
@@ -1198,7 +1175,7 @@ describe("EnvironmentSupervisor routes", () => {
       );
 
       yield* Ref.set(lanReachable, false);
-      yield* harness.wake("network-changed");
+      yield* supervisor.wake("network-changed");
       yield* TestClock.adjust("3 seconds");
 
       yield* awaitState(
