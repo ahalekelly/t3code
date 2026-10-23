@@ -78,8 +78,6 @@ import {
 } from "./scheduledTaskDraft";
 import { settingsTargetsForProject } from "./settings-environment-filter.logic";
 import { useScheduledTaskEditor } from "./scheduled-task-editor";
-import { scheduledTaskEditorSessionAtom } from "./scheduled-task-editor-state";
-import { appAtomRegistry } from "../../state/atom-registry";
 import {
   formatNextScheduledTaskRun,
   formatScheduledTaskInterval,
@@ -504,8 +502,6 @@ function SettingsScheduledTaskEditorScreen({ title }: { readonly title: string }
   const voiceInput = useVoiceInputController({
     ownerKey,
     label: editor?.draft.title.trim() || title,
-    subscribeToDraftChanges: (onChange) =>
-      appAtomRegistry.subscribe(scheduledTaskEditorSessionAtom, onChange),
     selection,
     readDraftMessage: () => {
       const current = readEditor();
