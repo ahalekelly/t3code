@@ -106,12 +106,9 @@ interface HomeScreenProps {
   readonly selectedProjectKey: string | null;
   readonly projectSortOrder: HomeProjectSortOrder;
   readonly projectGroupingMode: SidebarProjectGroupingMode;
-  readonly onSearchQueryChange: (query: string) => void;
   readonly onEnvironmentChange: (environmentId: EnvironmentId | null) => void;
   readonly onProjectChange: (projectKey: string | null) => void;
   readonly onAddConnection: () => void;
-  readonly onOpenSettings: () => void;
-  readonly onStartNewTask: () => void;
   readonly onSelectThread: (thread: EnvironmentThreadShell) => void;
   readonly onArchiveThread: (thread: EnvironmentThreadShell) => void;
   readonly onDeleteThread: (thread: EnvironmentThreadShell) => void;
@@ -137,7 +134,6 @@ interface HomeScreenProps {
   readonly onSelectPendingTask: (pendingTask: PendingNewTask) => void;
   readonly onDeletePendingTask: (pendingTask: PendingNewTask) => void;
   readonly onNewThreadOnBranch: (thread: EnvironmentThreadShell) => void;
-  readonly onNewThreadInProject: (project: EnvironmentProject) => void;
 }
 
 const ESTIMATED_THREAD_LIST_V2_ROW_HEIGHT = 72;
