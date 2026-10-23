@@ -1,7 +1,6 @@
 import { useAtomValue } from "@effect/atom-react";
 import type { EnvironmentId } from "@t3tools/contracts";
 import { requireNativeModule } from "expo";
-import Constants from "expo-constants";
 import { Atom } from "effect/reactivity";
 import { useEffect } from "react";
 
@@ -39,7 +38,7 @@ const controlProjectsAtom = Atom.make((get) => {
 export function NewChatControlSync() {
   const projects = useAtomValue(controlProjectsAtom);
   useEffect(() => {
-    if (projects !== null && !Constants.expoConfig?.extra?.iosPersonalTeamBuild) {
+    if (projects !== null) {
       NativeControls.syncNewChatControlProjects(projects);
     }
   }, [projects]);
