@@ -38,6 +38,7 @@ import {
 import { symlinksSupported } from "@t3tools/shared/testing/symlinks";
 import * as ServerConfig from "../config.ts";
 import {
+  isNonRepositoryGitStderr,
   makeGitVcsDriverCore,
   parseGitCheckoutProgressLine,
   splitNullSeparatedGitStdoutPaths,
@@ -179,6 +180,15 @@ it.effect("runs background Git in its own lane so user commands never queue behi
     assert.equal((yield* Fiber.join(foreground)).length, 4);
   }).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
 );
+
+it("treats a .git file that points to a missing folder as no repository", () => {
+  // Git 2.56 and later; older Git says "not a git repository" for the same case.
+  assert.isTrue(
+    isNonRepositoryGitStderr(
+      "fatal: gitfile does not point to a valid repository: /tmp/removed/.git/worktrees/feature\n",
+    ),
+  );
+});
 
 describe("Git output collection", () => {
   // Git writes in arbitrary chunk sizes; one byte per chunk splits every
