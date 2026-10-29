@@ -489,7 +489,7 @@ function AssistantForkButton(props: {
           })
           .finally(() => setBusy(false));
       }}
-      className="h-7 w-7 items-center justify-center disabled:opacity-40"
+      className="size-10 items-center justify-center disabled:opacity-40"
       style={
         Platform.OS === "android"
           ? { width: props.buttonSize, height: props.buttonSize }
@@ -2321,7 +2321,7 @@ function renderFeedEntry(
         ) : null}
         <View
           className={
-            showAssistantMeta ? "mt-1 flex-row items-center gap-1" : "flex-row items-center gap-1"
+            showAssistantMeta ? "mt-1 flex-row items-center gap-2" : "flex-row items-center gap-2"
           }
         >
           {showAssistantMeta ? (
@@ -2354,7 +2354,7 @@ function renderFeedEntry(
             />
           ) : null}
           {showAssistantMeta ? (
-            <Text className="font-t3-medium text-xs tabular-nums text-foreground-secondary">
+            <Text className="font-t3-medium text-sm tabular-nums text-foreground-secondary">
               {timestampLabel}
             </Text>
           ) : null}
@@ -2828,7 +2828,7 @@ export const ThreadFeed = memo(function ThreadFeed({
     () =>
       Platform.OS === "android"
         ? { button: androidButtonSize, icon: androidIconSize }
-        : { button: 28, icon: 13 },
+        : { button: 40, icon: 18 },
     [androidButtonSize, androidIconSize],
   );
   const screenColor = theme["--color-screen"];
