@@ -25,7 +25,7 @@ export const ReadResponseButton = memo(function ReadResponseButton(props: {
       accessibilityLabel={speaking ? "Stop reading response" : "Read response aloud"}
       accessibilityState={{ selected: speaking }}
       hitSlop={4}
-      className="size-7 items-center justify-center rounded-lg"
+      className="size-10 items-center justify-center rounded-lg"
       style={({ pressed }) => ({ opacity: pressed ? 0.52 : 1 })}
       onPress={() => {
         autoReadResponse.cancel(props.scope);
@@ -39,7 +39,7 @@ export const ReadResponseButton = memo(function ReadResponseButton(props: {
     >
       <SymbolView
         name={speaking ? "stop.fill" : "speaker.wave.2"}
-        size={13}
+        size={18}
         tintColor={props.tintColor}
         type="monochrome"
       />

@@ -474,14 +474,14 @@ function AssistantForkButton(props: {
           })
           .finally(() => setBusy(false));
       }}
-      className="h-7 w-7 items-center justify-center disabled:opacity-40"
+      className="size-10 items-center justify-center disabled:opacity-40"
     >
       {busy ? (
         <AppActivityIndicator size="small" />
       ) : (
         <SymbolView
           name="arrow.triangle.branch"
-          size={13}
+          size={18}
           tintColor={props.iconColor}
           type="monochrome"
         />
@@ -1874,7 +1874,7 @@ function renderFeedEntry(
         ) : null}
         <View
           className={
-            showAssistantMeta ? "mt-1 flex-row items-center gap-1" : "flex-row items-center gap-1"
+            showAssistantMeta ? "mt-1 flex-row items-center gap-2" : "flex-row items-center gap-2"
           }
         >
           {showAssistantMeta ? (
@@ -1882,8 +1882,8 @@ function renderFeedEntry(
               accessibilityLabel="Copy message"
               text={renderedText}
               tintColor={iconSubtleColor}
-              buttonSize={28}
-              iconSize={13}
+              buttonSize={40}
+              iconSize={18}
             />
           ) : null}
           {showAssistantMeta && message.projectedItem ? (
@@ -1905,7 +1905,7 @@ function renderFeedEntry(
             />
           ) : null}
           {showAssistantMeta ? (
-            <Text className="font-t3-medium text-xs tabular-nums text-foreground-secondary">
+            <Text className="font-t3-medium text-sm tabular-nums text-foreground-secondary">
               {timestampLabel}
             </Text>
           ) : null}
