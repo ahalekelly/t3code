@@ -79,21 +79,20 @@ jobs:
           until curl -sf http://localhost:8081/status > /dev/null; do sleep 2; done
           # Bundling takes minutes on this runner, longer than the app waits; build the bundle it requests first.
           curl -sf -o /dev/null "http://localhost:8081/apps/mobile/index.ts.bundle?platform=ios&dev=true&hot=false&lazy=true&transform.engine=hermes&transform.bytecode=1&transform.routerRoot=app&transform.reactCompiler=true&unstable_transformProfile=hermes-stable"
-          tap() {
-            for _ in $(seq 60); do
-              axe describe-ui --udid "$UDID" | jq -e --arg label "$1" 'any(.. | objects; .AXLabel? == $label)' > /dev/null &&
-                axe tap --label "$1" --udid "$UDID" && return
-              sleep 2
-            done
-            echo "No \"$1\" button appeared." >&2
-            return 1
-          }
-          xcrun simctl openurl "$UDID" "t3code-dev://expo-development-client/?url=http%3A%2F%2Flocalhost%3A8081"
-          tap Open
-          # Expo's developer menu opens on the first launch.
-          tap Continue
-          tap Close
+          curl -sf -o /dev/null -H "expo-platform: ios" http://localhost:8081/
+          # The launcher gives up on a manifest after 10 seconds, which this runner sometimes needs;
+          # relaunch until the app's own tab bar shows.
+          shows() { axe describe-ui --udid "$UDID" | jq -e --arg label "$1" 'any(.. | objects; .AXLabel? == $label)' > /dev/null; }
+          for _ in 1 2 3; do
+            xcrun simctl launch --terminate-running-process "$UDID" com.t3tools.t3code.dev --initialUrl "http://localhost:8081?disableOnboarding=1"
+            SECONDS=0
+            until shows Chats || (( SECONDS > 60 )); do sleep 2; done
+            shows Chats && break
+          done
+          shows Chats || { echo "The app stayed on the development launcher." >&2; exit 1; }
+          # Expo's developer menu can open over the first launch.
           sleep 5
+          if shows Close; then axe tap --label Close --udid "$UDID"; sleep 2; fi
           xcrun simctl io "$UDID" screenshot "$ARTIFACTS/launch.png"
           axe describe-ui --udid "$UDID" > "$ARTIFACTS/launch-ui.json"
 
