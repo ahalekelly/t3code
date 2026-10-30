@@ -1,4 +1,4 @@
-import { buildFileLinkParentSuffixByPath, fileLinkLabel } from "@t3tools/shared/fileLinks";
+import { fileLinkLabel } from "@t3tools/shared/fileLinks";
 import {
   isWindowsDrivePathHref,
   normalizeMarkdownLinkDestination,
@@ -633,13 +633,6 @@ function useChatMarkdownState({
     }
     return metaByText;
   })();
-  const fileLinkParentSuffixByPath = (() => {
-    const filePaths = [
-      ...[...markdownFileLinkMetaByHref.values()].map((meta) => meta.filePath),
-      ...[...inlineCodeFileLinkMetaByText.values()].map((meta) => meta.filePath),
-    ];
-    return buildFileLinkParentSuffixByPath(filePaths);
-  })();
   const markdownUrlTransform = (href: string) => {
     if (parseAssistantCitationHref(href)) return href;
     if (parseComposerContextHref(href)) return href;
@@ -848,14 +841,11 @@ function useChatMarkdownState({
         workspaceRelativePath={fileLinkMeta.workspaceRelativePath}
         panelPath={panelPath}
         line={fileLinkMeta.line}
-        label={fileLinkLabel(
-          {
-            path: fileLinkMeta.filePath,
-            ...(fileLinkMeta.line !== undefined ? { line: fileLinkMeta.line } : {}),
-            ...(fileLinkMeta.column !== undefined ? { column: fileLinkMeta.column } : {}),
-          },
-          fileLinkParentSuffixByPath,
-        )}
+        label={fileLinkLabel({
+          path: fileLinkMeta.workspaceRelativePath ?? fileLinkMeta.filePath,
+          ...(fileLinkMeta.line !== undefined ? { line: fileLinkMeta.line } : {}),
+          ...(fileLinkMeta.column !== undefined ? { column: fileLinkMeta.column } : {}),
+        })}
         copyMarkdown={copyMarkdown}
         theme={resolvedTheme}
         threadRef={threadRef}
