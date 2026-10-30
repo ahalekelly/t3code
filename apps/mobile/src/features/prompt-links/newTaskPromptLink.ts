@@ -63,6 +63,7 @@ type LinkedDraftRequest = {
   readonly provider: string | null;
   readonly model: string | null;
   readonly pullRequest: PromptLinkPullRequest | null;
+  readonly dictate: boolean;
 };
 
 // A cold launch from a link has no projects or threads yet. Matching then would offer to clone a
@@ -260,10 +261,11 @@ async function openProjectDraft(project: EnvironmentProject, request: LinkedDraf
   }
   const modelUnavailable = writeDraft(draftKey, project.environmentId, request);
   dispatchFromNewTask(
-    StackActions.push("Thread", {
+    StackActions.replace("Thread", {
       draft: {
         draftId: draftKey,
         title: request.pullRequest ? `PR #${request.pullRequest.number}` : project.title,
+        ...(request.dictate ? { dictate: "1" } : {}),
       },
     }),
   );
@@ -362,6 +364,18 @@ function cloneRepository(repository: PromptLinkRepository, request: LinkedDraftR
 
 function resolveLink(linkSearch: string) {
   const threads = appAtomRegistry.get(environmentThreadShells.threadShellsAtom);
+  const search = new URLSearchParams(linkSearch);
+  const dictate = search.get("dictate") === "1";
+  if (search.get("scratch") === "1") {
+    void openScratchDraft({
+      prompt: null,
+      provider: null,
+      model: null,
+      pullRequest: null,
+      dictate,
+    });
+    return;
+  }
   const parsed = parseNewThreadLink(linkSearch);
   if (!parsed.ok) {
     Dialog.alert("Could not open link", parsed.error);
@@ -370,8 +384,20 @@ function resolveLink(linkSearch: string) {
   const link = parsed.value;
   const request: LinkedDraftRequest =
     link.kind === "new"
-      ? { prompt: link.prompt, provider: link.provider, model: link.model, pullRequest: null }
-      : { prompt: link.prompt, provider: null, model: null, pullRequest: link.pullRequest };
+      ? {
+          prompt: link.prompt,
+          provider: link.provider,
+          model: link.model,
+          pullRequest: null,
+          dictate,
+        }
+      : {
+          prompt: link.prompt,
+          provider: null,
+          model: null,
+          pullRequest: link.pullRequest,
+          dictate,
+        };
 
   if (link.kind === "pull-request") {
     const thread = findPromptLinkPullRequestThread(threads, link.pullRequest);
