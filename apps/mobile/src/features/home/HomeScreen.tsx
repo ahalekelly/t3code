@@ -666,6 +666,7 @@ export function HomeScreen(props: HomeScreenProps) {
   const cachesLoaded = useAtomValue(shellCachesLoadedAtom);
   const markLaunchPainted = useAtomSet(homeLaunchPaintedAtom);
   const launchContentReady = cachesLoaded && (hasAnyThreads || !emptyState.loading);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- waits one animation frame so the launch screen hides only after this content has painted
   useEffect(() => {
     if (!launchContentReady) return;
     const frame = requestAnimationFrame(() => markLaunchPainted(true));
