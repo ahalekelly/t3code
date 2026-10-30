@@ -14,13 +14,14 @@ struct NewChatControlEnvironment: Codable {
 }
 
 enum NewChatControlStore {
-  static let kind = "NewProjectChatControl"
+  static let newChatKind = "NewProjectChatControl"
+  static let dictateChatKind = "DictateProjectChatControl"
   private static let key = "T3NewChatProjects"
 
   private static func defaults() throws -> UserDefaults {
     guard let group = Bundle.main.object(forInfoDictionaryKey: "ExpoWidgetsAppGroupIdentifier") as? String,
           let defaults = UserDefaults(suiteName: group) else {
-      throw NSError(domain: kind, code: 1, userInfo: [
+      throw NSError(domain: newChatKind, code: 1, userInfo: [
         NSLocalizedDescriptionKey: "The new-chat control requires the T3 shared App Group."
       ])
     }
@@ -48,6 +49,7 @@ enum NewChatControlStore {
     let storage = try defaults()
     guard storage.data(forKey: key) != data else { return }
     storage.set(data, forKey: key)
-    ControlCenter.shared.reloadControls(ofKind: kind)
+    ControlCenter.shared.reloadControls(ofKind: newChatKind)
+    ControlCenter.shared.reloadControls(ofKind: dictateChatKind)
   }
 }
