@@ -35,6 +35,7 @@ import {
   MacPasskeySigningConfigurationResolutionError,
   packWindowsServerAsar,
   preflightWindowsDesktopBuild,
+  MissingMacPasskeyProvisioningProfileError,
   renderMacEntitlements,
   resolveMacWebAuthnEntitlements,
   resolveMacPasskeySigningConfiguration,
@@ -542,6 +543,25 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
         ),
       ),
     ),
+  );
+
+  it.effect(
+    "gives signed macOS builds entitlements, and a provisioning profile only when set",
+    () =>
+      Effect.gen(function* () {
+        const config = yield* createBuildConfig("mac", "dmg", "0.0.33", true, false, undefined, {
+          entitlementsPath: "/stage/entitlements.mac.plist",
+          provisioningProfilePath: undefined,
+        });
+        assert.include(config.mac, { entitlements: "/stage/entitlements.mac.plist" });
+        assert.notProperty(config.mac, "provisioningProfile");
+      }).pipe(
+        Effect.provide(
+          ConfigProvider.layer(
+            ConfigProvider.fromEnv({ env: { GITHUB_REPOSITORY: "pingdotgg/t3code" } }),
+          ),
+        ),
+      ),
   );
 
   // pnpm writes "set this to true or false" placeholders into allowBuilds when a
@@ -1493,7 +1513,7 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
     );
   });
 
-  it("signs macOS builds without passkeys when no provisioning profile is set", () => {
+  it("signs macOS builds without passkeys when no team ID or provisioning profile is set", () => {
     assert.isUndefined(
       resolveMacPasskeySigningConfiguration({
         T3CODE_CLERK_PASSKEY_RP_DOMAINS: "example.clerk.accounts.dev",
@@ -1515,6 +1535,16 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
       }
       return assert.fail("Expected passkey signing configuration to fail.");
     };
+
+    const missingProfileError = captureError({
+      T3CODE_APPLE_TEAM_ID: "ABC1234567",
+      T3CODE_CLERK_PASSKEY_RP_DOMAINS: "example.clerk.accounts.dev",
+    });
+    assert.instanceOf(missingProfileError, MissingMacPasskeyProvisioningProfileError);
+    assert.equal(
+      missingProfileError.message,
+      "T3CODE_MACOS_PROVISIONING_PROFILE must point to an Associated Domains provisioning profile.",
+    );
 
     const unsafeDomain =
       "https://domain-user:domain-secret@example.clerk.accounts.dev/path?token=query-secret";

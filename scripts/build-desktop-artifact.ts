@@ -1153,6 +1153,15 @@ export class InvalidAppleTeamIdError extends Schema.TaggedError<InvalidAppleTeam
   }
 }
 
+export class MissingMacPasskeyProvisioningProfileError extends Schema.TaggedError<MissingMacPasskeyProvisioningProfileError>()(
+  "MissingMacPasskeyProvisioningProfileError",
+  {},
+) {
+  override get message(): string {
+    return "T3CODE_MACOS_PROVISIONING_PROFILE must point to an Associated Domains provisioning profile.";
+  }
+}
+
 export class MissingMacPasskeyDomainConfigurationError extends Schema.TaggedError<MissingMacPasskeyDomainConfigurationError>()(
   "MissingMacPasskeyDomainConfigurationError",
   {},
@@ -1185,6 +1194,7 @@ export class MissingMacPasskeyRpDomainError extends Schema.TaggedError<MissingMa
 export const MacPasskeySigningConfigurationError = Schema.Union([
   InvalidMacPasskeyRpDomainError,
   InvalidAppleTeamIdError,
+  MissingMacPasskeyProvisioningProfileError,
   MissingMacPasskeyDomainConfigurationError,
   InvalidMacPasskeyPublishableKeyError,
   MissingMacPasskeyRpDomainError,
@@ -1233,18 +1243,22 @@ function normalizePasskeyRpDomain(value: string): string {
   return parsed.hostname;
 }
 
-/** Passkeys need an Associated Domains provisioning profile; signed builds without one omit them. */
+/** Passkeys need a team ID and an Associated Domains provisioning profile; signed builds without both omit them. */
 export function resolveMacPasskeySigningConfiguration(
   env: Readonly<Record<string, string | undefined>>,
 ): MacPasskeySigningConfiguration | undefined {
+  const teamId = env.T3CODE_APPLE_TEAM_ID?.trim().toUpperCase() ?? "";
   const provisioningProfilePath = env.T3CODE_MACOS_PROVISIONING_PROFILE?.trim() ?? "";
-  if (provisioningProfilePath.length === 0) {
+  if (teamId.length === 0 && provisioningProfilePath.length === 0) {
     return undefined;
   }
 
-  const teamId = env.T3CODE_APPLE_TEAM_ID?.trim().toUpperCase() ?? "";
   if (!APPLE_TEAM_ID_PATTERN.test(teamId)) {
     throw new InvalidAppleTeamIdError({ teamId });
+  }
+
+  if (provisioningProfilePath.length === 0) {
+    throw new MissingMacPasskeyProvisioningProfileError();
   }
 
   const configuredRpDomains = env.T3CODE_CLERK_PASSKEY_RP_DOMAINS?.trim();
