@@ -75,8 +75,10 @@ export function useVoiceInputController(input: {
   // stale draft.
   const draftShowsPendingSend =
     pendingSendText !== null && input.readDraftMessage() === pendingSendText;
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- submits the dictated message once the composer has rendered it
   useEffect(() => {
     if (!draftShowsPendingSend || state.phase !== "idle") return;
+    // oxlint-disable-next-line react/set-state-in-effect -- consumes the one-shot send request as it submits
     setPendingSendText(null);
     const submit = latestInput.current.onSubmit;
     if (!submit) return;
