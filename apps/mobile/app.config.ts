@@ -123,8 +123,10 @@ function resolveAppVariant(value: string | undefined): AppVariant {
 }
 
 const variant = VARIANT_CONFIG[APP_VARIANT];
+// Personal builds keep each variant's suffix (`.dev`, `.preview`), so variants install side by side.
 const iosBundleIdentifier = isIosPersonalBuild
-  ? personalBundleIdentifier!
+  ? personalBundleIdentifier! +
+    variant.iosBundleIdentifier.slice(VARIANT_CONFIG.production.iosBundleIdentifier.length)
   : variant.iosBundleIdentifier;
 
 const dmSansFonts = {
