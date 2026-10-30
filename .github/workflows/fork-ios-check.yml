@@ -19,8 +19,9 @@ permissions:
 jobs:
   check:
     name: iOS simulator
-    runs-on: macos-15
-    timeout-minutes: 75
+    runs-on: macos-26
+    # A cold native build takes most of this; the cache below skips it until native code changes.
+    timeout-minutes: 150
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -32,9 +33,6 @@ jobs:
       - uses: ./.github/actions/setup-ci-deps
         with:
           install-args: --filter=@t3tools/mobile... --filter=@t3tools/scripts...
-
-      # The image's default Xcode is older than Expo's minimum.
-      - run: sudo xcode-select -s /Applications/Xcode_26.3.app
 
       - name: Install AXe
         run: |
@@ -51,20 +49,51 @@ jobs:
           echo "ARTIFACTS=$RUNNER_TEMP/ios-check" >> "$GITHUB_ENV"
           mkdir -p "$RUNNER_TEMP/ios-check"
 
+      # The install helper keeps a client per native fingerprint here and reuses a matching one.
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: ~/.cache/t3code/native-clients/artifacts
+          key: ios-dev-client-${{ github.run_id }}
+          restore-keys: ios-dev-client-
+
       - name: Build and install the development client
+        id: install
         env:
           T3_NATIVE_CLIENT_CACHE: "off"
           T3_NATIVE_CLIENT_VERBOSE: "1"
-        run: vp run mobile:install ios "$UDID"
+        run: |
+          set -o pipefail
+          vp run mobile:install ios "$UDID" | tee "$RUNNER_TEMP/install.json"
+          echo "built=$(grep '^{' "$RUNNER_TEMP/install.json" | jq '.source == "build"')" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        if: steps.install.outputs.built == 'true'
+        with:
+          path: ~/.cache/t3code/native-clients/artifacts
+          key: ios-dev-client-${{ github.run_id }}
 
       - name: Open the app on Metro
         working-directory: apps/mobile
         run: |
           APP_VARIANT=development nohup vp exec expo start --dev-client --localhost --port 8081 > "$ARTIFACTS/metro.log" 2>&1 &
           until curl -sf http://localhost:8081/status > /dev/null; do sleep 2; done
-          curl -sf -o /dev/null "http://localhost:8081/apps/mobile/index.bundle?platform=ios&dev=true&minify=false"
+          # Bundling takes minutes on this runner, longer than the app waits; build the bundle it requests first.
+          curl -sf -o /dev/null "http://localhost:8081/apps/mobile/index.ts.bundle?platform=ios&dev=true&hot=false&lazy=true&transform.engine=hermes&transform.bytecode=1&transform.routerRoot=app&transform.reactCompiler=true&unstable_transformProfile=hermes-stable"
+          tap() {
+            for _ in $(seq 60); do
+              axe describe-ui --udid "$UDID" | jq -e --arg label "$1" 'any(.. | objects; .AXLabel? == $label)' > /dev/null &&
+                axe tap --label "$1" --udid "$UDID" && return
+              sleep 2
+            done
+            echo "No \"$1\" button appeared." >&2
+            return 1
+          }
           xcrun simctl openurl "$UDID" "t3code-dev://expo-development-client/?url=http%3A%2F%2Flocalhost%3A8081"
-          sleep 30
+          tap Open
+          # Expo's developer menu opens on the first launch.
+          tap Continue
+          tap Close
+          sleep 5
           xcrun simctl io "$UDID" screenshot "$ARTIFACTS/launch.png"
           axe describe-ui --udid "$UDID" > "$ARTIFACTS/launch-ui.json"
 
@@ -74,9 +103,12 @@ jobs:
           FLOW: ${{ inputs.flow }}
         run: bash -euo pipefail -c "$FLOW"
 
-      - name: Collect device logs
+      - name: Collect the final screen and device logs
         if: always() && env.UDID != ''
-        run: xcrun simctl spawn "$UDID" log show --last 1h --style compact --predicate 'process == "T3CodeDev"' > "$ARTIFACTS/device.log"
+        run: |
+          xcrun simctl io "$UDID" screenshot "$ARTIFACTS/final.png"
+          axe describe-ui --udid "$UDID" > "$ARTIFACTS/final-ui.json"
+          xcrun simctl spawn "$UDID" log show --last 1h --style compact --predicate 'process == "T3CodeDev"' > "$ARTIFACTS/device.log"
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         if: always()
