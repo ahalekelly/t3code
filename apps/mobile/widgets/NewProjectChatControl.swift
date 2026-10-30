@@ -12,7 +12,7 @@ struct NewProjectChatControl: ControlWidget {
   var body: some ControlWidgetConfiguration {
     AppIntentControlConfiguration(kind: NewChatControlStore.kind, intent: NewProjectChatConfiguration.self) { configuration in
       ControlWidgetButton(action: OpenProjectChatIntent(project: configuration.project, dictate: configuration.dictate)) {
-        Label("New Chat", systemImage: "square.and.pencil")
+        Label("New Chat", systemImage: configuration.dictate ? "mic.badge.plus" : "square.and.pencil")
       }
     }
     .displayName("New Chat")
