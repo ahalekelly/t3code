@@ -1,8 +1,9 @@
-import { describe, expect, it } from "@effect/vitest";
+import { describe, expect, it, vi } from "@effect/vitest";
 import { EnvironmentId } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
 import * as Option from "effect/Option";
+import * as TestClock from "effect/testing/TestClock";
 import * as Tracer from "effect/Tracer";
 
 import { RelayConnectionTarget, type PreparedConnection } from "../connection/model.ts";
@@ -117,28 +118,28 @@ describe("ConnectionTraceRecorder", () => {
     }),
   );
 
-  it.live("records one JS-thread stall however many callers monitor", () =>
+  it.effect("records one JS-thread stall however many callers monitor", () =>
     Effect.gen(function* () {
+      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
       const { recorder } = makeRecorder();
       const monitor = yield* Effect.forkChild(
         Effect.all([recorder.monitorStalls, recorder.monitorStalls], { concurrency: 2 }),
       );
-      yield* Effect.sleep("60 millis");
-      // @effect-diagnostics-next-line globalDateInEffect:off - wall time while the event loop is blocked
-      const busyUntil = Date.now() + 150;
-      // @effect-diagnostics-next-line globalDateInEffect:off
-      while (Date.now() < busyUntil) {
-        // Block the event loop so the 50 ms timer fires late.
-      }
-      yield* Effect.sleep("60 millis");
+      yield* TestClock.adjust("50 millis");
+      expect(vi.getTimerCount()).toBe(1);
+      vi.advanceTimersByTime(50);
+      // The JS thread is blocked for 150 ms, so the next 50 ms timer fires 100 ms late.
+      yield* TestClock.adjust("150 millis");
+      vi.advanceTimersByTime(50);
       yield* Fiber.interrupt(monitor);
+      expect(vi.getTimerCount()).toBe(0);
 
       const stalls = drainedSpans(recorder).filter((span) => span.name === "client.jsThread.stall");
       expect(stalls).toHaveLength(1);
       const stallMs =
         Number(BigInt(stalls[0]!.endTimeUnixNano) - BigInt(stalls[0]!.startTimeUnixNano)) / 1e6;
-      expect(stallMs).toBeGreaterThanOrEqual(90);
-    }),
+      expect(stallMs).toBe(100);
+    }).pipe(Effect.ensuring(Effect.sync(() => vi.useRealTimers()))),
   );
 });
 
