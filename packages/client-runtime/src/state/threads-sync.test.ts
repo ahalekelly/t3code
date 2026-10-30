@@ -294,11 +294,14 @@ const makeHarness = Effect.fn("TestEnvironmentThreads.makeHarness")(function* (o
   };
 });
 
-const awaitSubscriptionCount = Effect.fn("TestEnvironmentThreads.awaitSubscriptionCount")(
-  function* (harness: { readonly subscriptionCount: Ref.Ref<number> }, count: number) {
-    while ((yield* Ref.get(harness.subscriptionCount)) < count) yield* Effect.yieldNow;
-  },
-);
+const awaitSubscriptionCount = (
+  harness: { readonly subscriptionCount: SubscriptionRef.SubscriptionRef<number> },
+  count: number,
+) =>
+  SubscriptionRef.changes(harness.subscriptionCount).pipe(
+    Stream.filter((current) => current >= count),
+    Stream.runHead,
+  );
 
 const snapshot = (
   projection: OrchestrationV2ThreadProjection,
