@@ -46,6 +46,7 @@ export function SelectableMarkdownText(props: SelectableMarkdownTextProps) {
   return (
     <View style={{ marginTop: props.marginTop, marginBottom: props.marginBottom }}>
       {blocks.map((block, index) => (
+        // oxlint-disable-next-line react/no-array-index-key -- blocks are positions in the message, which the speech player addresses by index
         <SpeechBlock key={index} index={index} speech={speech}>
           <MobileEnrichedMarkdownText
             {...props}
@@ -74,6 +75,7 @@ function SpeechBlock(props: {
   const touch = useRef<{ x: number; y: number; time: number } | null>(null);
   const active = props.speech.activeBlock === props.index;
   const { revealBlock } = props.speech;
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- scrolls this block's native view into sight when the speech player reaches it
   useEffect(() => {
     if (active && ref.current) revealBlock(ref.current);
   }, [active, revealBlock]);
