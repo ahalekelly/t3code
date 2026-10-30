@@ -1,0 +1,87 @@
+name: Branch checks
+
+# Upstream CI's lint and typecheck for each branch main merges, so a branch shows whether it is
+# ready to open upstream. Push events run a branch's own workflow files, which these branches,
+# built on upstream tags, lack; so this runs on main and posts a "Branch checks" commit status on
+# each branch tip it has not checked yet. fork/* branches never go upstream and are skipped.
+
+on:
+  push:
+    branches: [main]
+
+concurrency:
+  group: branch-checks
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  statuses: write
+
+jobs:
+  branches:
+    name: Find unchecked branches
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    outputs:
+      branches: ${{ steps.find.outputs.branches }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+          filter: blob:none
+          sparse-checkout: .github
+
+      - id: find
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          git fetch --quiet --no-tags https://github.com/pingdotgg/t3code.git '+refs/tags/v*:refs/tags/v*'
+          base=$(git tag --merged HEAD --list 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | grep -v -m1 -- -)
+          branches=()
+          for branch in $(git for-each-ref --merged HEAD --no-merged "$base" --format='%(refname:lstrip=3)' refs/remotes/origin); do
+            [[ $branch == HEAD || $branch == main || $branch == fork/* ]] && continue
+            checked=$(gh api "repos/$GITHUB_REPOSITORY/commits/$(git rev-parse "origin/$branch")/status" \
+              --jq '[.statuses[] | select(.context == "Branch checks")] | length')
+            [[ $checked == 0 ]] && branches+=("$branch")
+          done
+          echo "Unchecked: ${branches[*]:-none}"
+          echo "branches=$(jq -cn '$ARGS.positional' --args "${branches[@]}")" >> "$GITHUB_OUTPUT"
+
+  check:
+    name: ${{ matrix.branch }}
+    needs: [branches]
+    if: needs.branches.outputs.branches != '[]'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        branch: ${{ fromJSON(needs.branches.outputs.branches) }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ matrix.branch }}
+          sparse-checkout: |
+            /*
+            !/.repos/
+          sparse-checkout-cone-mode: false
+      - uses: ./.github/actions/setup-ci-deps
+      - run: vp run --filter @t3tools/desktop ensure:electron
+
+      - id: check
+        name: Check and typecheck
+        run: vp check && vp run typecheck
+
+      # Only a finished check is recorded; a setup failure or cancellation leaves the tip
+      # unchecked, so the next run retries it.
+      - name: Record the result on the branch tip
+        if: always() && (steps.check.outcome == 'success' || steps.check.outcome == 'failure')
+        env:
+          GH_TOKEN: ${{ github.token }}
+          STATE: ${{ steps.check.outcome }}
+        run: |
+          gh api -X POST "repos/$GITHUB_REPOSITORY/statuses/$(git rev-parse HEAD)" \
+            -f state="$STATE" -f context="Branch checks" \
+            -f description="vp check and typecheck: $STATE" \
+            -f target_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
