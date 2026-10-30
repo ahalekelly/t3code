@@ -2,6 +2,7 @@ import * as Mime from "effect/http/Mime";
 import {
   AuthOrchestrationOperateScope,
   AuthOrchestrationReadScope,
+  ENVIRONMENT_OTLP_TRACES_PATH,
   EnvironmentHttpApi,
 } from "@t3tools/contracts";
 import { isDevProxiedPath } from "@t3tools/shared/devProxy";
@@ -24,7 +25,6 @@ import {
   HttpRouter,
   HttpServerResponse,
   HttpServerRequest,
-  HttpServerRespondable,
 } from "effect/http";
 import * as HttpApiBuilder from "effect/http-api/HttpApiBuilder";
 import { OtlpTracer, OtlpSerialization } from "effect/observability";
@@ -55,7 +55,6 @@ import {
   DESKTOP_RENDERER_ORIGINS,
 } from "./httpCors.ts";
 
-const OTLP_TRACES_PROXY_PATH = "/api/observability/v1/traces";
 const LOOPBACK_HOSTNAMES = new Set(["127.0.0.1", "::1", "localhost"]);
 const SVG_CONTENT_SECURITY_POLICY = "default-src 'none'; style-src 'unsafe-inline'; sandbox";
 // Opaque origin blocks cookies, storage and API access while allowing scripts.
@@ -330,62 +329,62 @@ class DecodeOtlpTraceRecordsError extends Data.TaggedError("DecodeOtlpTraceRecor
   readonly cause: unknown;
 }> {}
 
-// Tracing once-per-second renderer exports would create more spans than it forwards.
-export const layerOtlpTracesProxyRoute = HttpRouter.add(
-  "POST",
-  OTLP_TRACES_PROXY_PATH,
-  Effect.gen(function* () {
-    yield* authenticateRawRouteWithScope(AuthOrchestrationOperateScope);
-    const request = yield* HttpServerRequest.HttpServerRequest;
+// Web clients export up to once a second while they have spans buffered, and
+// mobile clients after each connect, so tracing this route would add more
+// server spans than it records.
+export const layerObservabilityHttpApi = HttpApiBuilder.group(
+  EnvironmentHttpApi,
+  "observability",
+  Effect.fnUntraced(function* (handlers) {
     const config = yield* ServerConfig.ServerConfig;
-    const otlpTracesUrl = config.otlpTracesUrl;
-    const otlpHeaders = config.otlpTracesExport.headers;
-    const browserTraceCollector = yield* BrowserTraceCollector.BrowserTraceCollector;
+    const clientTraceCollector = yield* BrowserTraceCollector.BrowserTraceCollector;
     const httpClient = yield* HttpClient.HttpClient;
     const serialization = yield* OtlpSerialization.OtlpSerialization;
-    const bodyJson = cast<unknown, OtlpTracer.TraceData>(yield* request.json);
+    return handlers.handleRaw(
+      "traces",
+      Effect.fnUntraced(function* ({ request }) {
+        yield* authenticateRawRouteWithScope(AuthOrchestrationOperateScope);
+        const otlpTracesUrl = config.otlpTracesUrl;
+        const bodyJson = cast<unknown, OtlpTracer.TraceData>(yield* Effect.orDie(request.json));
 
-    yield* Effect.try({
-      try: () => decodeOtlpTraceRecords(bodyJson),
-      catch: (cause) => new DecodeOtlpTraceRecordsError({ cause }),
-    }).pipe(
-      Effect.flatMap((records) => browserTraceCollector.record(records)),
-      Effect.catch((cause) => Effect.logWarning("Failed to decode browser OTLP traces", { cause })),
+        yield* Effect.try({
+          try: () => decodeOtlpTraceRecords(bodyJson),
+          catch: (cause) => new DecodeOtlpTraceRecordsError({ cause }),
+        }).pipe(
+          Effect.flatMap((records) => clientTraceCollector.record(records)),
+          Effect.catch((cause) =>
+            Effect.logWarning("Failed to decode client OTLP traces", { cause }),
+          ),
+        );
+
+        if (otlpTracesUrl === undefined) {
+          return HttpServerResponse.empty({ status: 204 });
+        }
+
+        return yield* httpClient
+          .post(otlpTracesUrl, {
+            body: serialization.traces(bodyJson),
+            headers: config.otlpTracesExport.headers,
+          })
+          .pipe(
+            Effect.flatMap(HttpClientResponse.filterStatusOk),
+            Effect.as(HttpServerResponse.empty({ status: 204 })),
+            Effect.tapError((cause) =>
+              Effect.logWarning("Failed to export client OTLP traces", {
+                cause,
+                otlpTracesUrl,
+              }),
+            ),
+            Effect.orElseSucceed(() =>
+              HttpServerResponse.text("Trace export failed.", { status: 502 }),
+            ),
+          );
+      }, Effect.withTracerEnabled(false)),
     );
-
-    if (otlpTracesUrl === undefined) {
-      return HttpServerResponse.empty({ status: 204 });
-    }
-
-    return yield* httpClient
-      .post(otlpTracesUrl, {
-        body: serialization.traces(bodyJson),
-        headers: otlpHeaders,
-      })
-      .pipe(
-        Effect.flatMap(HttpClientResponse.filterStatusOk),
-        Effect.as(HttpServerResponse.empty({ status: 204 })),
-        Effect.tapError((cause) =>
-          Effect.logWarning("Failed to export browser OTLP traces", {
-            cause,
-            otlpTracesUrl,
-          }),
-        ),
-        Effect.orElseSucceed(() =>
-          HttpServerResponse.text("Trace export failed.", { status: 502 }),
-        ),
-      );
-  }).pipe(
-    Effect.catchTags({
-      EnvironmentAuthInvalidError: HttpServerRespondable.toResponse,
-      EnvironmentInternalError: HttpServerRespondable.toResponse,
-      EnvironmentScopeRequiredError: HttpServerRespondable.toResponse,
-    }),
-    Effect.withTracerEnabled(false),
-  ),
+  }),
 );
 
-const UNTRACED_REQUEST_PATHS: ReadonlySet<string> = new Set([OTLP_TRACES_PROXY_PATH]);
+const UNTRACED_REQUEST_PATHS: ReadonlySet<string> = new Set([ENVIRONMENT_OTLP_TRACES_PATH]);
 
 // HttpRouter.serve builds routes privately; provide the server-wide TracerDisabledWhen to the served layer.
 const layerUntracedRequests = Layer.succeed(HttpMiddleware.TracerDisabledWhen)((request) => {
