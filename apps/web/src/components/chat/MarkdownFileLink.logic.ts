@@ -54,7 +54,7 @@ export function markdownFileCopyMenuItems({
   return items;
 }
 
-/** HTML and PDF files open as pages, unless the link points at a line of source. */
+/** HTML, PDF, and Markdown files open as pages, unless the link points at a line of source. */
 export function shouldUseMarkdownFileBrowserPrimaryAction(input: {
   iconPath: string;
   line: number | undefined;
@@ -63,8 +63,8 @@ export function shouldUseMarkdownFileBrowserPrimaryAction(input: {
   canOpenInPanel: boolean;
 }): boolean {
   return (
-    input.canOpenInBrowser &&
-    ((isBrowserPreviewFile(input.iconPath) && input.line === undefined) ||
-      (!input.canOpenInEditor && !input.canOpenInPanel))
+    ((isBrowserPreviewFile(input.iconPath) || /\.(?:md|markdown)$/i.test(input.iconPath)) &&
+      input.line === undefined) ||
+    (input.canOpenInBrowser && !input.canOpenInEditor && !input.canOpenInPanel)
   );
 }
