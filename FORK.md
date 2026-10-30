@@ -72,8 +72,8 @@ Widgets, Live Activities, the share extension, and push need iOS. `fork-ios-chec
 
 ```sh
 gh workflow run fork-ios-check.yml -R ahalekelly/t3code -f ref=<branch> -f flow='
-axe tap --label "Settings" --udid "$UDID"
-xcrun simctl io "$UDID" screenshot "$ARTIFACTS/settings.png"'
+axe tap --label "Add environment" --udid "$UDID"
+xcrun simctl io "$UDID" screenshot "$ARTIFACTS/add-environment.png"'
 gh run watch -R ahalekelly/t3code <run id>
 gh run download -R ahalekelly/t3code <run id> -D /tmp/ios-check
 ```
