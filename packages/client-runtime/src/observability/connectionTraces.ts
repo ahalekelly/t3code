@@ -277,13 +277,14 @@ export function makeConnectionTraceRecorder(
   });
 }
 
-export const exportConnectionTraces = (input: {
-  readonly recorder: ConnectionTraceRecorder["Service"];
-  readonly prepared: PreparedConnection;
-  readonly signer: Option.Option<ManagedRelayDpopSigner["Service"]>;
-  readonly remoteAuthorization: Option.Option<RemoteEnvironmentAuthorization["Service"]>;
-}): Effect.Effect<void, never, HttpClient.HttpClient> =>
-  Effect.gen(function* () {
+// Untraced: the export must not record spans of its own into the buffer it drains.
+export const exportConnectionTraces = Effect.fnUntraced(
+  function* (input: {
+    readonly recorder: ConnectionTraceRecorder["Service"];
+    readonly prepared: PreparedConnection;
+    readonly signer: Option.Option<ManagedRelayDpopSigner["Service"]>;
+    readonly remoteAuthorization: Option.Option<RemoteEnvironmentAuthorization["Service"]>;
+  }) {
     const pending = input.recorder.pending();
     if (Option.isNone(pending)) {
       return;
@@ -299,14 +300,14 @@ export const exportConnectionTraces = (input: {
       request: ({ client, headers }) => client.traces({ payload: pending.value.data, headers }),
     });
     input.recorder.acknowledge(pending.value.through);
-  }).pipe(
-    Effect.catchCause((cause) =>
-      Effect.logDebug("Could not export connection traces").pipe(
-        Effect.annotateLogs({ cause: Cause.pretty(cause) }),
-      ),
+  },
+  Effect.catchCause((cause) =>
+    Effect.logDebug("Could not export connection traces").pipe(
+      Effect.annotateLogs({ cause: Cause.pretty(cause) }),
     ),
-    Effect.withTracerEnabled(false),
-  );
+  ),
+  Effect.withTracerEnabled(false),
+);
 
 /** The buffer is shared, so each export also carries other environments' spans. */
 export const connectionTraceExportLayer: Layer.Layer<
