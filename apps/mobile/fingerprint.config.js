@@ -22,5 +22,6 @@ module.exports = {
       filePath: "../../native/apple-speech/AppleSpeechEngine.swift",
       reasons: ["appleSpeech"],
     },
+    { type: "dir", filePath: "widgets", reasons: ["newChatControl"] },
   ],
 };
