@@ -6,6 +6,7 @@ internal import ExpoWidgets
 struct T3Widgets: WidgetBundle {
   var body: some Widget {
     NewProjectChatControl()
+    DictateProjectChatControl()
     AgentActivity()
     WidgetLiveActivity()
   }
