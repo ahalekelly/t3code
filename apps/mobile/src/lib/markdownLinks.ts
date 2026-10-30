@@ -271,7 +271,7 @@ export function resolveMarkdownLinkPresentation(href: string): MarkdownLinkPrese
       kind: "file",
       href: normalized,
       icon: resolveMarkdownFileIcon(target.path),
-      label: fileLinkLabel(target, new Map()),
+      label: fileLinkLabel({ ...target, path: fileBasename(target.path) }),
       path: target.path,
       ...(target.line ? { line: target.line } : {}),
       ...(target.column ? { column: target.column } : {}),
