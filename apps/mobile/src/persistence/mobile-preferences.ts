@@ -16,6 +16,16 @@ import {
 } from "@t3tools/contracts";
 import type { AndroidNavigationStyle } from "../lib/androidNavigationStyle";
 import type { ComposerEnterBehavior } from "../lib/composerEnterBehavior";
+import {
+  VOICE_TRANSCRIPTION_SOURCE_LABELS,
+  type VoiceTranscriptionSource,
+} from "../lib/voiceTranscriptionSources";
+import {
+  SPEECH_MODELS,
+  SPEECH_PACES,
+  type SpeechModel,
+  type SpeechPace,
+} from "../lib/speechSettings";
 import type { FollowUpBehavior } from "../lib/followUpBehavior";
 import { isMicrophoneKind, type MicrophoneEntry } from "../lib/microphonePriority";
 import { MOBILE_THEME_IDS, type MobileThemeId, type MobileThemeMode } from "../lib/mobileTheme";
@@ -124,6 +134,13 @@ export interface Preferences {
   }>;
   readonly threadListSettledShelfExpanded?: boolean;
   readonly threadListSnoozedShelfExpanded?: boolean;
+  readonly voiceTranscriptionSource?: VoiceTranscriptionSource;
+  readonly responseSpeechModel?: SpeechModel;
+  readonly responseSpeechVoice?: string;
+  readonly responseSpeechPace?: SpeechPace;
+  readonly responseSpeechInstructions?: string;
+  readonly readVoiceRepliesAloud?: boolean;
+  readonly readThinkingUpdatesAloud?: boolean;
   readonly threadListWorkingShelfExpanded?: boolean;
   readonly threadListFilters?: ThreadListFilters;
   readonly pullRequestListFilters?: PullRequestListPreferences;
@@ -201,6 +218,13 @@ function sanitizePreferences(parsed: Preferences): Preferences {
     modelFavorites?: Preferences["modelFavorites"];
     threadListSettledShelfExpanded?: boolean;
     threadListSnoozedShelfExpanded?: boolean;
+    voiceTranscriptionSource?: VoiceTranscriptionSource;
+    responseSpeechModel?: SpeechModel;
+    responseSpeechVoice?: string;
+    responseSpeechPace?: SpeechPace;
+    responseSpeechInstructions?: string;
+    readVoiceRepliesAloud?: boolean;
+    readThinkingUpdatesAloud?: boolean;
     threadListWorkingShelfExpanded?: boolean;
     threadListFilters?: ThreadListFilters;
     pullRequestListFilters?: PullRequestListPreferences;
@@ -346,6 +370,36 @@ function sanitizePreferences(parsed: Preferences): Preferences {
   }
   if (typeof parsed.threadListSnoozedShelfExpanded === "boolean") {
     preferences.threadListSnoozedShelfExpanded = parsed.threadListSnoozedShelfExpanded;
+  }
+  if (
+    typeof parsed.voiceTranscriptionSource === "string" &&
+    parsed.voiceTranscriptionSource in VOICE_TRANSCRIPTION_SOURCE_LABELS
+  ) {
+    preferences.voiceTranscriptionSource = parsed.voiceTranscriptionSource;
+  }
+  if (
+    typeof parsed.responseSpeechModel === "string" &&
+    parsed.responseSpeechModel in SPEECH_MODELS
+  ) {
+    preferences.responseSpeechModel = parsed.responseSpeechModel;
+  }
+  if (typeof parsed.responseSpeechVoice === "string") {
+    preferences.responseSpeechVoice = parsed.responseSpeechVoice;
+  }
+  if (
+    typeof parsed.responseSpeechPace === "number" &&
+    (SPEECH_PACES as readonly number[]).includes(parsed.responseSpeechPace)
+  ) {
+    preferences.responseSpeechPace = parsed.responseSpeechPace as SpeechPace;
+  }
+  if (typeof parsed.responseSpeechInstructions === "string") {
+    preferences.responseSpeechInstructions = parsed.responseSpeechInstructions;
+  }
+  if (typeof parsed.readVoiceRepliesAloud === "boolean") {
+    preferences.readVoiceRepliesAloud = parsed.readVoiceRepliesAloud;
+  }
+  if (typeof parsed.readThinkingUpdatesAloud === "boolean") {
+    preferences.readThinkingUpdatesAloud = parsed.readThinkingUpdatesAloud;
   }
   if (typeof parsed.threadListWorkingShelfExpanded === "boolean") {
     preferences.threadListWorkingShelfExpanded = parsed.threadListWorkingShelfExpanded;
