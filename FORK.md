@@ -6,16 +6,16 @@
 
 Never commit to `main`; it is generated.
 
-- The manifest, `~/.agents/linux/t3-main.txt`, names an upstream tag and the origin branches merged onto it in order. Each branch holds one concern, so it can become an upstream PR; `fork/*` branches are fork-only.
+- The manifest, `~/.agents/linux/t3-main.txt`, names an upstream tag and the origin branches merged onto it in order. `fork/*` branches are fork-only; the rest can become upstream PRs. `AGENTS.md` has the rules for branches and worktrees.
 - `~/.agents/linux/t3-fork-main.py`, run every 10 minutes by `t3-fork-main.timer` on akelly-desktop, rebuilds `main` when a branch or the manifest changes, checks it with a frozen-lockfile install and the mobile typecheck, and force-pushes it. Its docstring covers conflicts and the commands:
-  - `ship <branch> <parent>...` adds a pushed branch to the manifest and rebuilds `main` now.
+  - `ship [<branch> <parent>...]` rebuilds `main` now, adding a new branch to the manifest when given one.
   - `rebase <upstream tag>` moves every branch onto a new upstream release.
-- To change a branch, work in your own worktree (`git -C ~/Git/t3code worktree add ...`), never in `~/Git/t3code`, which the timer owns. Push the branch; the next timer run rebuilds `main`.
+- Work in your own worktree (`git -C ~/Git/t3code worktree add ...`), never in `~/Git/t3code`, which the timer owns.
 - Install with `pnpm_config_minimum_release_age=1440 npx corepack pnpm install`. akelly-desktop has no global `vp`, so put the worktree's `node_modules/.bin` on `PATH`.
 
 ## Releases
 
-Each push to `main` runs `.github/workflows/fork-release.yml` (from `fork/releases`): tests, then the Linux CLI archive, macOS and Windows apps, and a GitHub release versioned `<next upstream patch>-fork.<run number>`. The timer opens a T3 thread when a release run fails.
+Each push to `main` runs `.github/workflows/fork-release.yml`: tests, then the Linux CLI archive, macOS and Windows apps, and a GitHub release versioned `<next upstream patch>-fork.<run number>`. This run is the fork's test gate. `ship` and `rebase` wait for it and print its failed jobs and tests; the timer opens a T3 thread for runs no command waited on. `fork-branch-checks.yml` also lints and typechecks each non-`fork/*` branch tip `main` merges, so a branch shows whether it is ready to open upstream.
 
 Roll a machine back with `t3 update <version> --allow-downgrade`. For an upstream version, set `T3CODE_RELEASE_BASE_URL=https://github.com/pingdotgg/t3code/releases/download`.
 
