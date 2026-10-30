@@ -172,4 +172,4 @@ Following an agent's file link to a file outside the workspace opens it read-onl
 
 ## HTML and PDF files in the file viewer
 
-On web and desktop, HTML and PDF files open rendered (HTML previews are sandboxed from your T3 Code session; line-specific HTML links open source view). On mobile, PDFs open in the native iOS viewer or an installed Android viewer.
+On web and desktop, HTML and PDF files open rendered (HTML previews are sandboxed from your T3 Code session; line-specific HTML links open source view). Where the integrated browser is available, HTML and PDF file links open where **Open links in** sends links; right-click and choose **Open in integrated browser** to open one in T3 Code. On mobile, PDFs open in the native iOS viewer or an installed Android viewer.
