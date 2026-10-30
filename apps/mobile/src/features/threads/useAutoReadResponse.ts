@@ -33,6 +33,7 @@ export function useAutoReadResponse(
   );
 
   const handsFree = Platform.OS === "ios" && focused && (pending !== null || speaking !== null);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- holds the native keep-awake lock while this focused thread waits for or reads a reply
   useEffect(() => {
     if (!handsFree) return;
     void activateKeepAwakeAsync(KEEP_AWAKE_TAG);
@@ -41,6 +42,7 @@ export function useAutoReadResponse(
     };
   }, [handsFree]);
 
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- feeds the native speech player the streamed text of the reply it reads, and starts the next reply or announcement
   useEffect(() => {
     if (Platform.OS !== "ios" || !focused || !voice.loaded) return;
     const messages = feed.flatMap((entry) => (entry.type === "message" ? [entry.message] : []));
