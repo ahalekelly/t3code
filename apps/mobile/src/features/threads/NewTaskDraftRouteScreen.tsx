@@ -225,6 +225,9 @@ export function NewTaskDraftRouteScreen({ route }: StaticScreenProps<NewTaskDraf
               : params.incomingShareId
           }
           draftId={draftId}
+          startsDictation={
+            (Array.isArray(params.dictate) ? params.dictate[0] : params.dictate) === "1"
+          }
         />
       )}
     </>

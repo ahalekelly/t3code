@@ -219,6 +219,7 @@ export interface ThreadDetailScreenProps {
     readonly editorRef: React.RefObject<ComposerEditorHandle | null>;
     readonly sendBlockedReason: string | null;
     readonly interactionLocked: boolean;
+    readonly startsDictation: boolean;
   };
   readonly worktreeSetup?: WorktreeSetupCardProps | null;
   readonly setupWorkingStartedAt?: string | null;
@@ -1817,6 +1818,7 @@ function ThreadDetailBody(
                               : null
                         }
                         interactionLocked={props.draftMode?.interactionLocked}
+                        startsDictation={props.draftMode?.startsDictation === true}
                         draftKey={props.composerDraftKey ?? undefined}
                         followUpBehavior={
                           props.activePendingApprovals.length > 0 &&
