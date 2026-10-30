@@ -33,10 +33,9 @@ import {
   InvalidMacPasskeyPublishableKeyError,
   UnsupportedDesktopBuildArchitectureError,
   MacPasskeySigningConfigurationResolutionError,
-  MissingMacPasskeyProvisioningProfileError,
   packWindowsServerAsar,
   preflightWindowsDesktopBuild,
-  renderMacPasskeyEntitlements,
+  renderMacEntitlements,
   resolveMacWebAuthnEntitlements,
   resolveMacPasskeySigningConfiguration,
   resolveMergedStageDependencies,
@@ -1403,9 +1402,10 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
       T3CODE_CLERK_PASSKEY_RP_DOMAINS:
         " Clerk.Example.com,example.clerk.accounts.dev,clerk.example.com ",
     });
-    const entitlements = renderMacPasskeyEntitlements(configuration, {
-      touchIdKeychainAccessGroup: undefined,
-      browserPasskeys: false,
+    assert.ok(configuration);
+    const entitlements = renderMacEntitlements({
+      configuration,
+      webAuthn: { touchIdKeychainAccessGroup: undefined, browserPasskeys: false },
     });
 
     assert.deepStrictEqual(configuration.rpDomains, [
@@ -1470,15 +1470,19 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
       },
     );
 
-    const entitlements = renderMacPasskeyEntitlements(
-      { ...configuration, rpDomains: ["clerk.example.com"], provisioningProfilePath: "" },
-      resolveMacWebAuthnEntitlements(
+    const entitlements = renderMacEntitlements({
+      configuration: {
+        ...configuration,
+        rpDomains: ["clerk.example.com"],
+        provisioningProfilePath: "",
+      },
+      webAuthn: resolveMacWebAuthnEntitlements(
         profile(
           `${teamWildcardGroups}<key>com.apple.developer.web-browser.public-key-credential</key><true/>`,
         ),
         configuration,
       ),
-    );
+    });
     assert.match(
       entitlements,
       /<key>keychain-access-groups<\/key>\s*<array>\s*<string>ABC1234567\.com\.t3tools\.t3code\.webauthn<\/string>\s*<\/array>/u,
@@ -1487,6 +1491,19 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
       entitlements,
       /<key>com\.apple\.developer\.web-browser\.public-key-credential<\/key>\s*<true\/>/u,
     );
+  });
+
+  it("signs macOS builds without passkeys when no provisioning profile is set", () => {
+    assert.isUndefined(
+      resolveMacPasskeySigningConfiguration({
+        T3CODE_CLERK_PASSKEY_RP_DOMAINS: "example.clerk.accounts.dev",
+      }),
+    );
+    const entitlements = renderMacEntitlements(undefined);
+    assert.include(entitlements, "<key>com.apple.security.cs.allow-jit</key>");
+    assert.include(entitlements, "<key>com.apple.security.device.camera</key>");
+    assert.notInclude(entitlements, "com.apple.application-identifier");
+    assert.notInclude(entitlements, "com.apple.developer.associated-domains");
   });
 
   it("rejects incomplete macOS passkey signing configuration", () => {
@@ -1498,16 +1515,6 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
       }
       return assert.fail("Expected passkey signing configuration to fail.");
     };
-
-    const missingProfileError = captureError({
-      T3CODE_APPLE_TEAM_ID: "ABC1234567",
-      T3CODE_CLERK_PASSKEY_RP_DOMAINS: "example.clerk.accounts.dev",
-    });
-    assert.instanceOf(missingProfileError, MissingMacPasskeyProvisioningProfileError);
-    assert.equal(
-      missingProfileError.message,
-      "T3CODE_MACOS_PROVISIONING_PROFILE must point to an Associated Domains provisioning profile.",
-    );
 
     const unsafeDomain =
       "https://domain-user:domain-secret@example.clerk.accounts.dev/path?token=query-secret";
