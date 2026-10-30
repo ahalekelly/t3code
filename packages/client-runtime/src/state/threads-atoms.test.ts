@@ -1,6 +1,7 @@
 import {
   EnvironmentId,
   EventId,
+  MessageId,
   ORCHESTRATION_V2_WS_METHODS,
   TurnItemId,
   type OrchestrationV2ThreadHistoryPage,
@@ -446,6 +447,63 @@ it.effect("keeps snapshot boundaries and completion markers ordered inside a rep
     const remount = h.registry.mount(h.stateAtom);
     const next = yield* Queue.take(h.subscriptions);
     expect(next.afterSequence).toBe(21);
+    remount();
+    yield* Deferred.await(next.closed);
+  }),
+);
+
+it.effect.each([1, 16, 500])("publishes V2 replay batches of %i once, at the marker", (batchSize) =>
+  Effect.gen(function* () {
+    const h = yield* makeHarness();
+    const unmount = h.registry.mount(h.stateAtom);
+    const first = yield* Queue.take(h.subscriptions);
+    let updates = 0;
+    const stop = h.registry.subscribe(
+      Atom.map(h.stateAtom, (state) => Option.getOrNull(state.data)?.messages),
+      () => updates++,
+      {
+        immediate: true,
+      },
+    );
+    updates = 0;
+    const events: OrchestrationV2ThreadStreamItem[] = Array.from({ length: 500 }, (_, index) => ({
+      kind: "event",
+      sequence: 8 + index,
+      event: {
+        id: EventId.make(`replay-${index}`),
+        type: "message.updated",
+        threadId: THREAD_ID,
+        occurredAt: THREAD.thread.createdAt,
+        payload: {
+          id: MessageId.make("replayed-message"),
+          threadId: THREAD_ID,
+          runId: null,
+          nodeId: null,
+          role: "assistant",
+          text: `${index},`,
+          streaming: true,
+          attachments: [],
+          createdBy: "agent",
+          creationSource: "provider",
+          createdAt: THREAD.thread.createdAt,
+          updatedAt: THREAD.thread.createdAt,
+        },
+      },
+    }));
+    for (let offset = 0; offset < events.length; offset += batchSize) {
+      yield* Queue.offerAll(first.events, events.slice(offset, offset + batchSize));
+      yield* Effect.yieldNow;
+    }
+    yield* Queue.offerAll(first.events, [events[499]!, events[0]!, { kind: "synchronized" }]);
+    yield* observeState(h.registry, h.stateAtom, (state) => state.status === "live");
+    expect(currentThread(h.registry, h.stateAtom).messages[0]?.text).toBe("499,");
+    expect(updates).toBe(1);
+    stop();
+    unmount();
+    yield* Deferred.await(first.closed);
+    const remount = h.registry.mount(h.stateAtom);
+    const next = yield* Queue.take(h.subscriptions);
+    expect(next.afterSequence).toBe(507);
     remount();
     yield* Deferred.await(next.closed);
   }),
