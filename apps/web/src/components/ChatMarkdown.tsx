@@ -1,4 +1,4 @@
-import { buildFileLinkParentSuffixByPath, fileLinkLabel } from "@t3tools/shared/fileLinks";
+import { fileLinkLabel } from "@t3tools/shared/fileLinks";
 import {
   isWindowsDrivePathHref,
   normalizeMarkdownLinkDestination,
@@ -479,11 +479,7 @@ function resolveFileLinkSources(
     const meta = resolveInlineCodeFileLinkMeta(span, cwd, imageBaseDir ?? cwd);
     if (meta) inlineCodeFileLinkMetaByText.set(span, meta);
   }
-  const fileLinkParentSuffixByPath = buildFileLinkParentSuffixByPath([
-    ...[...markdownFileLinkMetaByHref.values()].map((meta) => meta.filePath),
-    ...[...inlineCodeFileLinkMetaByText.values()].map((meta) => meta.filePath),
-  ]);
-  return { markdownFileLinkMetaByHref, inlineCodeFileLinkMetaByText, fileLinkParentSuffixByPath };
+  return { markdownFileLinkMetaByHref, inlineCodeFileLinkMetaByText };
 }
 
 function useChatMarkdownState({
@@ -681,8 +677,11 @@ function useChatMarkdownState({
   // renderer context, and every block reading it, unchanged.
   // A template literal marks the key as a string, so the compiler memoizes the maps on its value.
   const fileLinksKey = `${fileLinkSourcesKey(text, cwd, imageBaseDir)}`;
-  const { markdownFileLinkMetaByHref, inlineCodeFileLinkMetaByText, fileLinkParentSuffixByPath } =
-    resolveFileLinkSources(fileLinksKey, cwd, imageBaseDir);
+  const { markdownFileLinkMetaByHref, inlineCodeFileLinkMetaByText } = resolveFileLinkSources(
+    fileLinksKey,
+    cwd,
+    imageBaseDir,
+  );
   const resolveThreadPullRequest = (
     href: string,
   ): (ThreadPullRequestKey & { readonly url: string }) | null => {
@@ -845,14 +844,11 @@ function useChatMarkdownState({
         workspaceRelativePath={fileLinkMeta.workspaceRelativePath}
         panelPath={panelPath}
         line={fileLinkMeta.line}
-        label={fileLinkLabel(
-          {
-            path: fileLinkMeta.filePath,
-            ...(fileLinkMeta.line !== undefined ? { line: fileLinkMeta.line } : {}),
-            ...(fileLinkMeta.column !== undefined ? { column: fileLinkMeta.column } : {}),
-          },
-          fileLinkParentSuffixByPath,
-        )}
+        label={fileLinkLabel({
+          path: fileLinkMeta.workspaceRelativePath ?? fileLinkMeta.filePath,
+          ...(fileLinkMeta.line !== undefined ? { line: fileLinkMeta.line } : {}),
+          ...(fileLinkMeta.column !== undefined ? { column: fileLinkMeta.column } : {}),
+        })}
         copyMarkdown={copyMarkdown}
         theme={resolvedTheme}
         threadRef={threadRef}
