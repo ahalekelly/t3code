@@ -158,7 +158,7 @@ Read the matching doc before changing code in that area; code review enforces th
 
 ## This fork
 
-This checkout is Adrian's fork. Its `main` is generated from a manifest of branches by `~/.agents/linux/t3-fork-main.py`, whose docstring covers building, shipping, and rebasing.
+This checkout is Adrian's fork. Its `main` is generated from a manifest of branches; [FORK.md](FORK.md) covers how it is built and released, and how to run dev builds of every client headlessly.
 
 - Keep the branch count low. A branch holds one upstream PR or one fork-only concern, and later work on that concern, fixes included, lands on it as new commits. Start a branch only for an independent change, and ship it into the manifest.
 - After you push a manifest branch, run `uv run ~/.agents/linux/t3-fork-main.py ship` unsandboxed and in the background. The fork's release run stands in for upstream's PR CI here, so `ship` waits for it, about ten minutes, and prints any failed jobs and tests for you to fix on your branch.
