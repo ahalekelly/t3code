@@ -571,21 +571,16 @@ jobs:
               printf '%s' "$APPLE_API_KEY" > "$key_path"
               export APPLE_API_KEY="$key_path"
 
-              # Passkeys need an Associated Domains profile for the app's bundle ID.
+              # Passkeys need APPLE_TEAM_ID and MACOS_PROVISIONING_PROFILE; the packager rejects one without the other.
               if [[ -n "$MACOS_PROVISIONING_PROFILE" ]]; then
-                if [[ -z "$APPLE_TEAM_ID" ]]; then
-                  echo "MACOS_PROVISIONING_PROFILE is set, but APPLE_TEAM_ID is missing." >&2
-                  exit 1
-                fi
                 profile_path="$RUNNER_TEMP/t3code.provisionprofile"
                 printf '%s' "$MACOS_PROVISIONING_PROFILE" | base64 -D > "$profile_path"
                 security cms -D -i "$profile_path" >/dev/null
-                export T3CODE_APPLE_TEAM_ID="$APPLE_TEAM_ID"
                 export T3CODE_MACOS_PROVISIONING_PROFILE="$profile_path"
-                echo "macOS signing enabled."
-              else
-                echo "macOS signing enabled without passkeys (no MACOS_PROVISIONING_PROFILE)."
               fi
+              export T3CODE_APPLE_TEAM_ID="$APPLE_TEAM_ID"
+
+              echo "macOS signing enabled."
               args+=(--signed)
             else
               echo "macOS signing disabled (missing one or more Apple signing secrets)."
