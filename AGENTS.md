@@ -207,6 +207,14 @@ Architecture and its constraints: `docs/internals/overview.md`. Glossary: `docs/
 - Our users drive agents all day and notice a dropped frame, a lying spinner, and a stale label. No continuously repainting animations; they peg the GPU on high-refresh displays.
 - If a rule here fights the task in front of you, say so loudly and get a human sign-off before breaking it.
 
+## This fork
+
+This checkout is Adrian's fork. Its `main` is generated from a manifest of branches by `~/.agents/linux/t3-fork-main.py`, whose docstring covers building, shipping, and rebasing.
+
+- Keep the branch count low. A branch holds one upstream PR or one fork-only concern, and later work on that concern, fixes included, lands on it as new commits. Start a branch only for an independent change, and ship it into the manifest.
+- Once `main` carries a branch's work through another branch (merged upstream, ported, or folded), delete the old branch from origin unless it heads an open PR.
+- When you finish, remove each worktree you created with `git worktree remove` and delete its local branch.
+
 ## Additional tips
 
 - Security is important, but should not be over-indexed on, especially for dev mode/maintainer-only features.
