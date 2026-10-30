@@ -1,0 +1,86 @@
+name: Fork iOS check
+
+# Checks Apple-only behavior that akelly-desktop can't run: builds a ref's development client for
+# the iOS simulator, opens it on Metro, runs an optional flow, and uploads screenshots and logs.
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Branch, tag, or commit to check
+        required: true
+      flow:
+        description: Bash to run once the app shows, with UDID, ARTIFACTS, and axe available
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: iOS simulator
+    runs-on: macos-15
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ inputs.ref }}
+          sparse-checkout: |
+            /*
+            !/.repos/
+          sparse-checkout-cone-mode: false
+      - uses: ./.github/actions/setup-ci-deps
+        with:
+          install-args: --filter=@t3tools/mobile... --filter=@t3tools/scripts...
+
+      # The image's default Xcode is older than Expo's minimum.
+      - run: sudo xcode-select -s /Applications/Xcode_26.3.app
+
+      - name: Install AXe
+        run: |
+          brew tap cameroncooke/axe
+          if brew commands | grep -qx trust; then brew trust --formula cameroncooke/axe/axe; fi
+          brew install cameroncooke/axe/axe
+
+      - name: Boot a simulator
+        run: |
+          udid=$(xcrun simctl list devices available -j | jq -r '[.devices | to_entries[] | select(.key | contains("iOS-26")) | .value[] | select(.name | startswith("iPhone"))] | last | .udid')
+          xcrun simctl boot "$udid"
+          xcrun simctl bootstatus "$udid" -b
+          echo "UDID=$udid" >> "$GITHUB_ENV"
+          echo "ARTIFACTS=$RUNNER_TEMP/ios-check" >> "$GITHUB_ENV"
+          mkdir -p "$RUNNER_TEMP/ios-check"
+
+      - name: Build and install the development client
+        env:
+          T3_NATIVE_CLIENT_CACHE: "off"
+          T3_NATIVE_CLIENT_VERBOSE: "1"
+        run: vp run mobile:install ios "$UDID"
+
+      - name: Open the app on Metro
+        working-directory: apps/mobile
+        run: |
+          APP_VARIANT=development nohup vp exec expo start --dev-client --localhost --port 8081 > "$ARTIFACTS/metro.log" 2>&1 &
+          until curl -sf http://localhost:8081/status > /dev/null; do sleep 2; done
+          curl -sf -o /dev/null "http://localhost:8081/apps/mobile/index.bundle?platform=ios&dev=true&minify=false"
+          xcrun simctl openurl "$UDID" "t3code-dev://expo-development-client/?url=http%3A%2F%2Flocalhost%3A8081"
+          sleep 30
+          xcrun simctl io "$UDID" screenshot "$ARTIFACTS/launch.png"
+          axe describe-ui --udid "$UDID" > "$ARTIFACTS/launch-ui.json"
+
+      - name: Run the flow
+        if: inputs.flow != ''
+        env:
+          FLOW: ${{ inputs.flow }}
+        run: bash -euo pipefail -c "$FLOW"
+
+      - name: Collect device logs
+        if: always() && env.UDID != ''
+        run: xcrun simctl spawn "$UDID" log show --last 1h --style compact --predicate 'process == "T3CodeDev"' > "$ARTIFACTS/device.log"
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        if: always()
+        with:
+          name: ios-check
+          path: ${{ runner.temp }}/ios-check
+          if-no-files-found: warn
