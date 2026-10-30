@@ -10,6 +10,7 @@ import {
   type OrchestrationV2ThreadStreamItem,
 } from "@t3tools/contracts";
 import { afterEach, describe, expect, it, vi } from "@effect/vitest";
+import * as Arr from "effect/Array";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
@@ -456,6 +457,7 @@ it.effect.each([1, 16, 500])("publishes V2 replay batches of %i once, at the mar
     const h = yield* makeHarness();
     const unmount = h.registry.mount(h.stateAtom);
     const first = yield* Queue.take(h.subscriptions);
+    yield* observeState(h.registry, h.stateAtom, (state) => Option.isSome(state.data));
     let updates = 0;
     const stop = h.registry.subscribe(
       Atom.map(h.stateAtom, (state) => Option.getOrNull(state.data)?.messages),
@@ -489,10 +491,9 @@ it.effect.each([1, 16, 500])("publishes V2 replay batches of %i once, at the mar
         },
       },
     }));
-    for (let offset = 0; offset < events.length; offset += batchSize) {
-      yield* Queue.offerAll(first.events, events.slice(offset, offset + batchSize));
-      yield* Effect.yieldNow;
-    }
+    yield* Effect.forEach(Arr.chunksOf(events, batchSize), (batch) =>
+      Queue.offerAll(first.events, batch).pipe(Effect.andThen(Effect.yieldNow)),
+    );
     yield* Queue.offerAll(first.events, [events[499]!, events[0]!, { kind: "synchronized" }]);
     yield* observeState(h.registry, h.stateAtom, (state) => state.status === "live");
     expect(currentThread(h.registry, h.stateAtom).messages[0]?.text).toBe("499,");
