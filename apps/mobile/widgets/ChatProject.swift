@@ -5,20 +5,25 @@ struct ChatProject: AppEntity {
   static var typeDisplayRepresentation: TypeDisplayRepresentation = "Project"
   static var defaultQuery = ChatProjectQuery()
 
+  // The id is the link the intent hands to the containing app's navigation.
   let id: String
   let title: String
-  let environment: String
-  let workspaceRoot: String
+  let subtitle: String
 
   var displayRepresentation: DisplayRepresentation {
-    DisplayRepresentation(title: "\(title)", subtitle: "\(environment) · \(workspaceRoot)")
+    DisplayRepresentation(title: "\(title)", subtitle: "\(subtitle)")
   }
 
+  static let noProject = ChatProject(
+    id: "t3code://new?scratch=1",
+    title: "No project",
+    subtitle: "In your most recently used environment"
+  )
+
   static func all() throws -> [ChatProject] {
-    try NewChatControlStore.read().flatMap { environment in
+    let projects = try NewChatControlStore.read().flatMap { environment in
       (environment.projects ?? []).map { project in
         var url = URLComponents()
-        // The intent passes this link directly to the containing app's navigation.
         url.scheme = "t3code"
         url.host = "new"
         url.path = "/draft"
@@ -33,11 +38,11 @@ struct ChatProject: AppEntity {
         return ChatProject(
           id: deepLink.absoluteString,
           title: project.title,
-          environment: environment.label,
-          workspaceRoot: project.workspaceRoot
+          subtitle: "\(environment.label) · \(project.workspaceRoot)"
         )
       }
-    }.sorted { ($0.title, $0.environment, $0.workspaceRoot) < ($1.title, $1.environment, $1.workspaceRoot) }
+    }
+    return [noProject] + projects.sorted { ($0.title, $0.subtitle) < ($1.title, $1.subtitle) }
   }
 }
 
@@ -52,7 +57,7 @@ struct ChatProjectQuery: EntityStringQuery {
 
   func entities(matching string: String) async throws -> [ChatProject] {
     try ChatProject.all().filter {
-      "\($0.title) \($0.environment) \($0.workspaceRoot)".localizedCaseInsensitiveContains(string)
+      "\($0.title) \($0.subtitle)".localizedCaseInsensitiveContains(string)
     }
   }
 }
