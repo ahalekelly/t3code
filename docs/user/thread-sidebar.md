@@ -9,9 +9,11 @@ Use a separate thread for each task. Choose **New worktree** when a task needs i
 - **Defaults**: New threads inherit your last model and mode unless the project sets its own model default.
 
 On iOS, customize your Lock Screen, replace a bottom-corner control with T3 Code’s
-**New Chat**, then tap it while editing to choose a project and environment. Open
-T3 once to load your projects. Hold the control to open an empty composer; existing
-drafts stay saved. The same control is available in Control Center.
+**New Chat**, then tap it while editing to choose a project and environment, or
+**No project**, the default. Turn on **Start dictation** to open the composer
+already listening. Open T3 once to load your projects. Hold the control to open an
+empty composer; existing drafts stay saved. The same control is available in
+Control Center.
 
 ### Start without a project
 
