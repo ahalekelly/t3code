@@ -20,7 +20,7 @@ import {
 } from "@react-navigation/native";
 import { pipe } from "effect/Function";
 
-import { RegistryContext } from "@effect/atom-react";
+import { RegistryContext, useAtomValue } from "@effect/atom-react";
 import { ProjectChipIconRasterizer } from "./native/ProjectChipIconImages";
 import { ThreadArrangementHost } from "./features/threads/ThreadArrangementSheet";
 import * as Dialog from "./components/ui/Dialog";
@@ -50,7 +50,7 @@ import { RootStack, rootPathnameFromState, workspaceLocationFromState } from "./
 import { appAtomRegistry } from "./state/atom-registry";
 import { subscribeComposerDraftModelReconciliation } from "./state/use-composer-drafts";
 import { environmentThreadShells } from "./state/threads";
-import { environmentShell } from "./state/shell";
+import { environmentShell, shellCachesLoadedAtom } from "./state/shell";
 import { OverlayPortalHost } from "./components/ui/OverlayPortal";
 import { shouldHandleAppLink, restoreDraftLinkState } from "./lib/appLinking";
 import { hasCloudPublicConfig } from "./features/cloud/publicConfig";
@@ -217,13 +217,22 @@ disposeOnFoundationReplace(typeof module === "undefined" ? undefined : module.ho
   for (const dispose of appServiceDisposers) dispose();
 });
 
+const MAX_SPLASH_WAIT_FOR_CACHE_MS = 2_000;
+
 function SplashScreenCoordinator() {
   const { isReady } = useAppearancePreferences();
+  const cachesLoaded = useAtomValue(shellCachesLoadedAtom);
 
-  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- hides the native splash screen once appearance preferences have loaded
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- hides the native splash screen once appearance preferences and cached threads load, or after a timeout
   useEffect(() => {
-    if (isReady) void SplashScreen.hide();
-  }, [isReady]);
+    if (!isReady) return;
+    if (cachesLoaded) {
+      void SplashScreen.hide();
+      return;
+    }
+    const timer = setTimeout(() => void SplashScreen.hide(), MAX_SPLASH_WAIT_FOR_CACHE_MS);
+    return () => clearTimeout(timer);
+  }, [isReady, cachesLoaded]);
 
   return null;
 }
