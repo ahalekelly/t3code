@@ -122,6 +122,7 @@ import {
 export const COMPOSER_COLLAPSED_CHROME = 60;
 
 const NO_MACHINES: ReadonlyArray<ComposerEnvironmentCandidate> = [];
+const draftsWithStartedDictation = new Set<string>();
 const COLLAPSED_EDITOR_DEFAULT_INSET = 6;
 // iOS puts line-height slack above glyphs. DM Sans's lowercase midline is
 // descender (0.31em) + half x-height (0.504em) above the line bottom.
@@ -214,6 +215,7 @@ export interface ThreadComposerProps {
   readonly projectCwd: string | null;
   readonly sendBlockedReason?: string | null;
   readonly interactionLocked?: boolean;
+  readonly startsDictation: boolean;
   readonly draftKey?: string;
   readonly queuedEdit?: {
     readonly existingAttachments: ReadonlyArray<ChatAttachment>;
@@ -562,6 +564,14 @@ export const ThreadComposer = function ThreadComposer(props: ThreadComposerProps
     onChangeDraftMessage: (text) => setComposerDraftText(composerDraftKey, text),
     onChangeSelection: composerMenu.onSelectionChange,
   });
+  const { isAvailable: canStartDictation, start: startDictation } = voiceInput;
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- starts the microphone session a New Chat control link asked for, once per draft
+  useEffect(() => {
+    if (!props.startsDictation || !composerDraftKey || !canStartDictation) return;
+    if (draftsWithStartedDictation.has(composerDraftKey)) return;
+    draftsWithStartedDictation.add(composerDraftKey);
+    startDictation();
+  }, [props.startsDictation, composerDraftKey, canStartDictation, startDictation]);
   const isSubmissionLocked =
     props.interactionLocked === true || queuedEdit?.saving === true || voiceInput.blocksSubmission;
   const voicePresentation = resolveVoiceComposerPresentation(
@@ -1002,6 +1012,7 @@ export const ThreadComposer = function ThreadComposer(props: ThreadComposerProps
                 chipsInert={!isExpanded}
                 onInertChipPress={() => inputRef.current?.focus()}
                 ref={inputRef}
+                autoFocus={props.isDraft}
                 multiline
                 value={draftMessage}
                 // The save uses a draft snapshot; further typing would be discarded on success.
