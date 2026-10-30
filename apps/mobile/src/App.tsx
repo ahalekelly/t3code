@@ -45,7 +45,7 @@ import {
   installAppearanceRuntime,
   useAppearancePreferences,
 } from "./features/settings/appearance/AppearancePreferencesProvider";
-import { recordReactCommit, traceAppResumes } from "./features/observability/appTraces";
+import { recordReactCommit, traceAppLifecycle } from "./features/observability/appTraces";
 import { RootStack, rootPathnameFromState, workspaceLocationFromState } from "./Stack";
 import { appAtomRegistry } from "./state/atom-registry";
 import { subscribeComposerDraftModelReconciliation } from "./state/use-composer-drafts";
@@ -188,7 +188,7 @@ function handleNavigationStateChange(state: NavigationState | undefined): void {
 function handleNavigationReady(): void {
   handleNavigationStateChange(rootNavigationRef.getRootState());
   flushRootNavigationQueue();
-  traceAppResumes();
+  traceAppLifecycle();
 }
 
 declare const module: { readonly hot?: FoundationHotModule } | undefined;
