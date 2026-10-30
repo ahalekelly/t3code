@@ -167,6 +167,7 @@ export function NewTaskDraftScreen(props: {
   };
   readonly draftId?: string;
   readonly incomingShareId?: string;
+  readonly startsDictation: boolean;
 }) {
   const gt = useGT();
   const m = useMessages();
@@ -1097,6 +1098,7 @@ export function NewTaskDraftScreen(props: {
           editorRef: promptInputRef,
           sendBlockedReason: setupBlockReason,
           interactionLocked: isComposerInteractionLocked,
+          startsDictation: props.startsDictation,
         }}
         canOperateThread={canOperate}
         selectedThread={thread}

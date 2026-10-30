@@ -132,6 +132,7 @@ export const COMPOSER_COLLAPSED_CHROME = 60;
 export const THREAD_COMPOSER_BOTTOM_GUTTER = COMPOSER_BOTTOM_GUTTER;
 
 const NO_MACHINES: ReadonlyArray<ComposerEnvironmentCandidate> = [];
+const draftsWithStartedDictation = new Set<string>();
 
 export interface ThreadComposerProps {
   readonly isDraft?: boolean;
@@ -164,6 +165,7 @@ export interface ThreadComposerProps {
   readonly projectCwd: string | null;
   readonly sendBlockedReason?: string | null;
   readonly interactionLocked?: boolean;
+  readonly startsDictation: boolean;
   readonly draftKey?: string;
   readonly queuedEdit?: {
     readonly existingAttachments: ReadonlyArray<ChatAttachment>;
@@ -458,6 +460,14 @@ export const ThreadComposer = function ThreadComposer(props: ThreadComposerProps
     onChangeDraftMessage: (text) => setComposerDraftText(composerDraftKey, text),
     onChangeSelection: composerMenu.onSelectionChange,
   });
+  const { isAvailable: canStartDictation, start: startDictation } = voiceInput;
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- starts the microphone session a New Chat control link asked for, once per draft
+  useEffect(() => {
+    if (!props.startsDictation || !composerDraftKey || !canStartDictation) return;
+    if (draftsWithStartedDictation.has(composerDraftKey)) return;
+    draftsWithStartedDictation.add(composerDraftKey);
+    startDictation();
+  }, [props.startsDictation, composerDraftKey, canStartDictation, startDictation]);
   const isSubmissionLocked =
     props.interactionLocked === true || queuedEdit?.saving === true || voiceInput.blocksSubmission;
   const voicePresentation = resolveVoiceComposerPresentation(
