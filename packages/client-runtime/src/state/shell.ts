@@ -28,7 +28,7 @@ import * as ConnectionWakeups from "../connection/wakeups.ts";
 import { safeErrorLogAttributes } from "../errors/safeLog.ts";
 import * as Persistence from "../platform/persistence.ts";
 import { runCachePersistence } from "./cachePersistence.ts";
-import { subscribeDynamic } from "../rpc/client.ts";
+import { subscribeDynamicWithInput } from "../rpc/client.ts";
 import type { RpcSession } from "../rpc/session.ts";
 import * as ShellSnapshotLoader from "./shellSnapshotHttp.ts";
 import type { DeferredShellSnapshot } from "./shellPullRequests.ts";
@@ -376,6 +376,29 @@ export const makeEnvironmentShellState = Effect.fn("EnvironmentShellState.make")
     yield* fillDeferredPullRequests(cached.value, cachedSnapshot.value);
   }
 
+  // Stream.switchMap can still deliver a replaced attempt's buffered items, so
+  // only the current attempt's items apply; the new attempt's cursor makes the
+  // server replay the dropped ones. applyLock keeps a batch wholly before or
+  // after an attempt starts.
+  const applyLock = yield* Semaphore.make(1);
+  let attempt: unknown;
+  const startAttempt = applyLock.withPermits(1)(
+    Effect.sync(() => {
+      attempt = undefined;
+    }),
+  );
+  const receiveItems = (
+    received: ReadonlyArray<readonly [input: unknown, item: OrchestrationV2ShellStreamItem]>,
+  ) =>
+    applyLock.withPermits(1)(
+      Effect.suspend(() => {
+        // Skip applyItems for an empty batch: it would write a stale
+        // awaitingCompletion over the one a starting attempt sets unlocked.
+        const items = received.flatMap(([input, item]) => (input === attempt ? [item] : []));
+        return items.length === 0 ? Effect.void : applyItems(items);
+      }),
+    );
+
   const foregroundResubscriptions = Option.match(wakeups, {
     onNone: () => Stream.never,
     onSome: (service) =>
@@ -431,9 +454,10 @@ export const makeEnvironmentShellState = Effect.fn("EnvironmentShellState.make")
 
   yield* setSynchronizing;
   yield* Effect.forkScoped(
-    subscribeDynamic(
+    subscribeDynamicWithInput(
       ORCHESTRATION_V2_WS_METHODS.subscribeShell,
       Effect.fn("EnvironmentShellState.makeSubscribeInput")(function* (session) {
+        yield* startAttempt;
         yield* Ref.set(activeSubscriptionSession, session);
         const config = yield* session.initialConfig.pipe(Effect.option);
         const loadOptions = shellSnapshotLoadOptions(config);
@@ -492,20 +516,24 @@ export const makeEnvironmentShellState = Effect.fn("EnvironmentShellState.make")
           ...(omitOlderSettled ? { omitOlderSettled: true as const } : {}),
         };
         if (!canResume || Option.isNone(current.snapshot)) {
-          return { ...omission, requestCompletionMarker: true as const };
+          const input = { ...omission, requestCompletionMarker: true as const };
+          attempt = input;
+          return input;
         }
-        return {
+        const input = {
           afterSequence: current.snapshot.value.snapshotSequence,
           ...omission,
           requestCompletionMarker: true as const,
         };
+        attempt = input;
+        return input;
       }),
       {
         onExpectedFailure: (cause) => setStreamError(Cause.squash(cause)),
         retryExpectedFailureAfter: "250 millis",
         resubscribe: foregroundResubscriptions,
       },
-    ).pipe(Stream.runForEachArray((items) => applyItems(items))),
+    ).pipe(Stream.runForEachArray(receiveItems)),
   );
   yield* SubscriptionRef.changes(supervisor.state).pipe(
     Stream.runForEach((connectionState) => {
