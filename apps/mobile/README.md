@@ -85,8 +85,9 @@ Build and install a self-contained Release app that does not need Metro:
 vp run ios:release
 ```
 
-To sign with your own paid Apple team, set a bundle identifier you control. Personal builds
-install alongside the App Store app and omit push notifications, associated domains, and native
+To sign with your own paid Apple team, set a bundle identifier you control. Development and
+preview builds append `.dev` and `.preview` to it. Personal builds install alongside the App Store
+app and omit push notifications, associated domains, and native
 Sign in with Apple, which depend on T3's team.
 
 ```bash
