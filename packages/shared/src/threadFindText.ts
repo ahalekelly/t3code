@@ -3,23 +3,15 @@ import {
   formatProviderSkillDisplayName,
   type InlineSkill,
 } from "./inlineSkills.ts";
-import {
-  artifactTemplateFromHastProperties,
-  renderCodexInlineDirectivesAsMarkdown,
-} from "./codexMarkdownDirectives.ts";
+import { artifactTemplateFromHastProperties } from "./codexMarkdownDirectives.ts";
 import { codexArtifactTemplatePresentationLabel } from "./codexArtifactTemplates.ts";
-import {
-  buildFileLinkParentSuffixByPath,
-  splitFilePathPosition,
-  fileLinkLabel,
-} from "./fileLinks.ts";
+import { splitFilePathPosition, fileLinkLabel } from "./fileLinks.ts";
 import {
   isMarkdownFileLinkLabel,
-  extractMarkdownLinkHrefs,
-  extractInlineCodeSpans,
   inlineCodeFilePathCandidate,
   resolveMarkdownFileLinkTarget,
 } from "./markdownLinks.ts";
+import { workspaceRelativeFilePath } from "./path.ts";
 import { upgradeLegacyContextMessage } from "./composerContextLegacy.ts";
 import { parseComposerContextHref } from "./composerContextReferences.ts";
 import { assistantCitationLabel, parseAssistantCitationHref } from "./assistantCitations.ts";
@@ -115,14 +107,6 @@ function markdownThreadFindText(
       ? assistantBreaksProcessor
       : assistantProcessor;
   const tree = processor.runSync(processor.parse(markdown));
-  const paths = [
-    ...extractMarkdownLinkHrefs(renderCodexInlineDirectivesAsMarkdown(markdown)),
-    ...extractInlineCodeSpans(markdown).flatMap((span) => inlineCodeFilePathCandidate(span) ?? []),
-  ].flatMap((href) => {
-    const target = resolveMarkdownFileLinkTarget(href, cwd);
-    return target ? [splitFilePathPosition(target).path] : [];
-  });
-  const parentSuffixes = buildFileLinkParentSuffixByPath(paths);
   const segments: string[] = [];
   let text = "";
   const flush = () => {
@@ -161,7 +145,11 @@ function markdownThreadFindText(
         const label = labelText(node);
         if (node.tagName === "a" && candidate && !isMarkdownFileLinkLabel(label, candidate))
           text += `${label} `;
-        text += fileLinkLabel(splitFilePathPosition(target), parentSuffixes);
+        const position = splitFilePathPosition(target);
+        text += fileLinkLabel({
+          ...position,
+          path: workspaceRelativeFilePath(position.path, cwd) ?? position.path,
+        });
         return;
       }
     }
