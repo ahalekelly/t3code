@@ -15,7 +15,7 @@ Never commit to `main`; it is generated.
 
 ## Releases
 
-Each push to `main` runs `.github/workflows/fork-release.yml`: tests, then the Linux CLI archive, macOS and Windows apps, and a GitHub release versioned `<next upstream patch>-fork.<run number>`. This run is the fork's test gate. `ship` and `rebase` wait for it and print its failed jobs and tests; the timer opens a T3 thread for runs no command waited on. `fork-branch-checks.yml` also lints and typechecks each non-`fork/*` branch tip `main` merges, so a branch shows whether it is ready to open upstream.
+Each push to `main` runs `.github/workflows/fork-release.yml`: tests, then the Linux CLI archive, macOS and Windows apps, and a GitHub release versioned `<next upstream patch>-fork-<run number>`. This run is the fork's test gate. `ship` and `rebase` wait for it and print its failed jobs and tests; the timer opens a T3 thread for runs no command waited on. `fork-branch-checks.yml` also lints and typechecks each non-`fork/*` branch tip `main` merges, so a branch shows whether it is ready to open upstream.
 
 The macOS app is signed and notarized with Adrian's Developer ID certificate, which expires 2027-02-01. It lacks passkeys, which need an Associated Domains provisioning profile for upstream's bundle ID.
 
