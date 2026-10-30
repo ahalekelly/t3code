@@ -81,9 +81,10 @@ vi.mock("../layout/AdaptiveWorkspaceLayout", () => ({
 vi.mock("../../state/use-atom-command", () => ({ useAtomCommand: () => harness.checkout }));
 vi.mock("../../state/entities", () => ({ useProjects: () => useSnapshot().projects }));
 vi.mock("../../state/workspace", () => ({
-  useWorkspaceState: () => ({ state: useSnapshot().catalog }),
+  useWorkspaceState: () => ({ state: useSnapshot().catalog, environments: [] }),
 }));
 vi.mock("../../state/vcs", () => ({ vcsEnvironment: { readRefs: {}, switchRef: {} } }));
+vi.mock("../../state/shell", () => ({ environmentShell: { stateAtom: () => null } }));
 vi.mock("@react-navigation/native", () => ({
   CommonActions: { goBack: () => ({ type: "GO_BACK" }) },
   createNavigationContainerRef: () => ({ current: null }),
