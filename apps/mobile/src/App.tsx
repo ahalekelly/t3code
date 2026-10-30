@@ -3,7 +3,7 @@ import { installComposerAttachmentUploads } from "./state/composer-attachment-up
 import { installThreadOutboxDelivery } from "./state/threadOutboxDelivery";
 import * as Linking from "expo-linking";
 import * as SplashScreen from "expo-splash-screen";
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import { StatusBar } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { KeyboardProvider } from "react-native-keyboard-controller";
@@ -200,17 +200,17 @@ const MAX_SPLASH_WAIT_FOR_CACHE_MS = 2_000;
 function SplashScreenCoordinator() {
   const { isReady } = useAppearancePreferences();
   const cachesLoaded = useAtomValue(shellCachesLoadedAtom);
-  const [cacheWaitExpired, setCacheWaitExpired] = useState(false);
 
-  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- hides the native splash screen once appearance preferences have loaded
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- hides the native splash screen once appearance preferences and cached threads load, or after a timeout
   useEffect(() => {
-    const timer = setTimeout(() => setCacheWaitExpired(true), MAX_SPLASH_WAIT_FOR_CACHE_MS);
+    if (!isReady) return;
+    if (cachesLoaded) {
+      void SplashScreen.hide();
+      return;
+    }
+    const timer = setTimeout(() => void SplashScreen.hide(), MAX_SPLASH_WAIT_FOR_CACHE_MS);
     return () => clearTimeout(timer);
-  }, []);
-
-  useEffect(() => {
-    if (isReady && (cachesLoaded || cacheWaitExpired)) void SplashScreen.hide();
-  }, [isReady, cachesLoaded, cacheWaitExpired]);
+  }, [isReady, cachesLoaded]);
 
   return null;
 }
