@@ -64,7 +64,8 @@ jobs:
         run: |
           set -o pipefail
           vp run mobile:install ios "$UDID" | tee "$RUNNER_TEMP/install.json"
-          echo "built=$(grep '^{' "$RUNNER_TEMP/install.json" | jq '.source == "build"')" >> "$GITHUB_OUTPUT"
+          # The helper's result is its last line; verbose build output comes before it.
+          echo "built=$(tail -n1 "$RUNNER_TEMP/install.json" | jq '.source == "build"')" >> "$GITHUB_OUTPUT"
 
       - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         if: steps.install.outputs.built == 'true'
@@ -76,7 +77,11 @@ jobs:
         working-directory: apps/mobile
         run: |
           APP_VARIANT=development nohup vp exec expo start --dev-client --localhost --port 8081 > "$ARTIFACTS/metro.log" 2>&1 &
-          until curl -sf http://localhost:8081/status > /dev/null; do sleep 2; done
+          metro=$!
+          until curl -sf http://localhost:8081/status > /dev/null; do
+            kill -0 "$metro" || { echo "Metro exited; see metro.log." >&2; tail -n 40 "$ARTIFACTS/metro.log" >&2; exit 1; }
+            sleep 2
+          done
           # Bundling takes minutes on this runner, longer than the app waits; build the bundle it requests first.
           curl -sf -o /dev/null "http://localhost:8081/apps/mobile/index.ts.bundle?platform=ios&dev=true&hot=false&lazy=true&transform.engine=hermes&transform.bytecode=1&transform.routerRoot=app&transform.reactCompiler=true&unstable_transformProfile=hermes-stable"
           curl -sf -o /dev/null -H "expo-platform: ios" http://localhost:8081/
