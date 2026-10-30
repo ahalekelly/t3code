@@ -1,3 +1,5 @@
+import type { ViewInstance } from "react-native";
+
 export interface NativeMarkdownTextStyle {
   readonly selectionColor?: string;
   readonly selectionHandleColor?: string;
@@ -62,6 +64,13 @@ export interface MarkdownLinkCustomization {
   readonly chip?: { readonly accent?: string; readonly tintsIcon: boolean };
 }
 
+export interface MarkdownSpeechBlocks {
+  readonly activeBlock: number | null;
+  readonly highlightColor: string;
+  readonly onPressBlock: (block: number) => void;
+  readonly revealBlock: (view: ViewInstance) => void;
+}
+
 export interface SelectableMarkdownTextProps {
   readonly markdown: string;
   readonly textStyle: NativeMarkdownTextStyle;
@@ -78,4 +87,5 @@ export interface SelectableMarkdownTextProps {
   readonly onImagePress?: (href: string) => void;
   readonly marginTop?: number;
   readonly marginBottom?: number;
+  readonly speech?: MarkdownSpeechBlocks;
 }
