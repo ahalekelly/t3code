@@ -5,22 +5,20 @@ import {
   formatProviderSkillDisplayName,
   type InlineSkill,
 } from "./inlineSkills.ts";
-import { renderCodexInlineDirectivesAsMarkdown } from "./codexMarkdownDirectives.ts";
 import {
   artifactTemplateFromHastProperties,
   codexArtifactTemplatePresentationLabel,
 } from "./codexArtifactTemplates.ts";
-import { buildFileLinkParentSuffixByPath, fileLinkLabel } from "./fileLinks.ts";
+import { fileLinkLabel } from "./fileLinks.ts";
 import {
   classifyMarkdownImageSource,
   isMarkdownFileLinkLabel,
-  extractMarkdownLinkHrefs,
-  extractInlineCodeSpans,
   inlineCodeFilePathCandidate,
   resolveMarkdownFileLink,
   shouldRenderMarkdownImageAsFileLink,
 } from "./markdownLinks.ts";
 import { mediaKindFromPath } from "./mediaPreview.ts";
+import { workspaceRelativeFilePath } from "./path.ts";
 import { upgradeLegacyContextMessage } from "./composerContextLegacy.ts";
 import {
   isAttachmentOnlyBootstrapPrompt,
@@ -39,7 +37,6 @@ import {
   CHAT_MARKDOWN_REMARK_PLUGINS_WITH_BREAKS,
   CHAT_USER_MARKDOWN_REMARK_PLUGINS,
   chatMarkdownImageSource,
-  decodeMarkdownLinkEscapes,
   type ChatMarkdownImageProperties,
 } from "./markdownPipeline.ts";
 
@@ -103,16 +100,6 @@ function markdownThreadFindText(
       : insightProcessor
     : processor;
   const tree = renderer.runSync(renderer.parse(markdown), markdown);
-  const paths = [
-    ...extractMarkdownLinkHrefs(renderCodexInlineDirectivesAsMarkdown(markdown)).map(
-      decodeMarkdownLinkEscapes,
-    ),
-    ...extractInlineCodeSpans(markdown).flatMap((span) => inlineCodeFilePathCandidate(span) ?? []),
-  ].flatMap((href) => {
-    const resolved = resolveMarkdownFileLink(href, cwd);
-    return resolved ? [resolved.position.path] : [];
-  });
-  const parentSuffixes = buildFileLinkParentSuffixByPath(paths);
   const segments: string[] = [];
   let text = "";
   const flush = () => {
@@ -165,7 +152,10 @@ function markdownThreadFindText(
           node.value ?? (node.children ?? []).map(labelText).join("");
         const label = labelText(node);
         if (node.tagName === "a" && !isMarkdownFileLinkLabel(label, candidate)) text += `${label} `;
-        text += fileLinkLabel(resolved.position, parentSuffixes);
+        text += fileLinkLabel({
+          ...resolved.position,
+          path: workspaceRelativeFilePath(resolved.position.path, cwd) ?? resolved.position.path,
+        });
         return;
       }
     }
