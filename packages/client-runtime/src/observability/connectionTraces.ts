@@ -66,6 +66,13 @@ export class ConnectionTraceRecorder extends Context.Service<
       readonly through: number;
     }>;
     readonly acknowledge: (through: number) => void;
+    /** Times are epoch nanoseconds, like Effect's clock. */
+    readonly recordSpan: (
+      name: string,
+      startTime: bigint,
+      endTime: bigint,
+      attributes: Record<string, unknown>,
+    ) => void;
     /** Concurrent callers share one stall timer; runs until interrupted. */
     readonly monitorStalls: Effect.Effect<never>;
   }
@@ -172,17 +179,20 @@ class RecordedSpan implements Tracer.Span {
   }
 }
 
-function stallSpan(startTime: bigint, endTime: bigint): OtlpSpan {
+function rootSpan(
+  name: string,
+  startTime: bigint,
+  endTime: bigint,
+  attributes: Record<string, unknown>,
+): OtlpSpan {
   return {
     traceId: Hex.random(32),
     spanId: Hex.random(16),
-    name: "client.jsThread.stall",
+    name,
     kind: OTLP_SPAN_KIND.internal,
     startTimeUnixNano: String(startTime),
     endTimeUnixNano: String(endTime),
-    attributes: OtlpResource.entriesToAttributes([
-      ["client.stall_ms", Number(endTime - startTime) / 1_000_000],
-    ]),
+    attributes: OtlpResource.entriesToAttributes(Object.entries(attributes)),
     droppedAttributesCount: 0,
     events: [],
     droppedEventsCount: 0,
@@ -219,7 +229,11 @@ export function makeConnectionTraceRecorder(
       const now = clock.currentTimeNanosUnsafe();
       const late = now - expected;
       if (late >= STALL_INTERVAL_NANOS && late <= MAX_STALL_NANOS) {
-        push(stallSpan(expected, now));
+        push(
+          rootSpan("client.jsThread.stall", expected, now, {
+            "client.stall_ms": Number(late) / 1_000_000,
+          }),
+        );
       }
       expected = now + STALL_INTERVAL_NANOS;
       // @effect-diagnostics-next-line globalTimers:off - a late plain timer is the stall being measured
@@ -235,6 +249,8 @@ export function makeConnectionTraceRecorder(
         span: (options) => new RecordedSpan(options, delegate.span(options), push),
         ...(delegate.context ? { context: delegate.context } : {}),
       }),
+    recordSpan: (name, startTime, endTime, attributes) =>
+      push(rootSpan(name, startTime, endTime, attributes)),
     pending: () => {
       const first = firstPending();
       if (first === recorded) {
