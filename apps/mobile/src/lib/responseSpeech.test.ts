@@ -46,7 +46,6 @@ const request: SpeechRequest = {
   instructions: "Read clearly.",
   apiKeys: ["test-key"],
 };
-const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -69,7 +68,6 @@ describe("responseSpeech", () => {
     const played = Promise.withResolvers<boolean>();
     mocks.start.mockReturnValueOnce(played.promise);
     const reading = responseSpeech.toggle(first, "One.\n\nTwo.", request, "Thread");
-    await flush();
     expect(mocks.start).toHaveBeenCalledWith({ ...request, title: "Thread" }, expect.any(String));
     expect(mocks.append).toHaveBeenCalledExactlyOnceWith(["One.", "Two."], 0);
     expect(mocks.finish).toHaveBeenCalledOnce();
@@ -81,7 +79,6 @@ describe("responseSpeech", () => {
 
   it("reads a streaming response block by block as it grows", async () => {
     void responseSpeech.read(first, "One.\n\nTw", true, request, "Thread");
-    await flush();
     expect(mocks.append).toHaveBeenLastCalledWith(["One."], 0);
     responseSpeech.update(first, "One.\n\nTwo.\n\nThr", true);
     expect(mocks.append).toHaveBeenLastCalledWith(["Two."], 1);
@@ -96,7 +93,6 @@ describe("responseSpeech", () => {
   it("reparses a streaming response only when a new block can have started", async () => {
     const parse = vi.mocked(markdownBlocks);
     void responseSpeech.read(first, "One.", true, request, "Thread");
-    await flush();
     responseSpeech.update(first, "One. More", true);
     expect(parse).toHaveBeenCalledTimes(1);
     responseSpeech.update(first, "One. More.\n\n", true);
@@ -111,14 +107,12 @@ describe("responseSpeech", () => {
 
   it("rereads a sent block that changed by the time the response finished", async () => {
     void responseSpeech.read(first, "One.\n\nTwo.\n\nThr", true, request, "Thread");
-    await flush();
     responseSpeech.update(first, "One.\n\nTwo, more.\n\nThree.", false);
     expect(mocks.append).toHaveBeenLastCalledWith(["Two, more.", "Three."], 1);
   });
 
   it("tracks the block and pause state reported by the current native reading", async () => {
     void responseSpeech.toggle(first, "One.\n\nTwo.", request, "Thread");
-    await flush();
     const reading = mocks.start.mock.calls[0]![1];
     mocks.listener?.({ reading: `${reading}-old`, block: 0, paused: false });
     mocks.listener?.({ reading, block: 1, paused: true });
@@ -128,7 +122,6 @@ describe("responseSpeech", () => {
 
   it("tapping the active response stops it", async () => {
     void responseSpeech.toggle(first, "Hello", request, "Thread");
-    await flush();
     await responseSpeech.toggle({ ...first }, "Hello", request, "Thread");
     expect(responseSpeech.getSnapshot()).toBeNull();
     expect(mocks.stop).toHaveBeenCalledOnce();
@@ -148,13 +141,11 @@ describe("responseSpeech", () => {
     async (outcome) => {
       const previous = Promise.withResolvers<boolean>();
       mocks.start.mockReturnValueOnce(previous.promise);
-      void responseSpeech.toggle(first, "Hello", request, "Thread");
-      await flush();
+      const previousReading = responseSpeech.toggle(first, "Hello", request, "Thread");
       void responseSpeech.toggle(second, "World", request, "Thread");
-      await flush();
       if (outcome === "completion") previous.resolve(false);
       else previous.reject(new Error("Previous playback failed"));
-      await flush();
+      await previousReading;
       expect(responseSpeech.getSnapshot()?.response).toEqual(second);
       expect(mocks.alert).not.toHaveBeenCalled();
     },
@@ -164,7 +155,6 @@ describe("responseSpeech", () => {
     autoReadResponse.request(first);
     mocks.start.mockRejectedValueOnce(new Error("Add your Gemini API key in Settings → Voice."));
     await responseSpeech.toggle(first, "Hello", request, "Thread");
-    await flush();
     expect(responseSpeech.getSnapshot()).toBeNull();
     expect(autoReadResponse.getSnapshot(first.scope)).toBeNull();
     expect(mocks.alert).toHaveBeenCalledWith(
