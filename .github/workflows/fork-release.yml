@@ -61,8 +61,9 @@ jobs:
             exit 1
           fi
 
+  # No `vp check`: lint rules gate upstream PRs, not whether a build works.
   quality:
-    name: Check and typecheck
+    name: Typecheck
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
@@ -74,7 +75,6 @@ jobs:
           sparse-checkout-cone-mode: false
       - uses: ./.github/actions/setup-ci-deps
       - run: vp run --filter @t3tools/desktop ensure:electron
-      - run: vp check
       - run: vp run typecheck
 
   test:
@@ -190,9 +190,56 @@ jobs:
       cli_archive: true
       launch_check: true
 
+  # The Mac and Windows machines run the desktop app, which bundles its own server, so neither
+  # needs its platform's CLI archive.
+  desktop_mac_arm64:
+    name: macOS arm64
+    needs: [preflight, build_bundle]
+    uses: ./.github/workflows/release-desktop.yml
+    with:
+      version: ${{ needs.preflight.outputs.version }}
+      ref: ${{ github.sha }}
+      release_channel: stable
+      relay_client_tracing: false
+      clerk_publishable_key: pk_live_Y2xlcmsudDMuY29kZXMk
+      clerk_jwt_template: t3-relay
+      clerk_cli_oauth_client_id: hzxSgY2cH10sDU2r
+      relay_url: https://relay.t3.codes
+      label: macOS arm64
+      runner: macos-15
+      platform: mac
+      target: dmg
+      arch: arm64
+      rust_target: aarch64-apple-darwin
+      resource_key: darwin-arm64
+      launch_check: true
+
+  # Packaged on Linux, checked on Windows. Embeds the Linux CLI archive for the WSL backend.
+  desktop_win_x64:
+    name: Windows x64
+    needs: [preflight, build_bundle]
+    uses: ./.github/workflows/release-desktop.yml
+    with:
+      version: ${{ needs.preflight.outputs.version }}
+      ref: ${{ github.sha }}
+      release_channel: stable
+      relay_client_tracing: false
+      clerk_publishable_key: pk_live_Y2xlcmsudDMuY29kZXMk
+      clerk_jwt_template: t3-relay
+      clerk_cli_oauth_client_id: hzxSgY2cH10sDU2r
+      relay_url: https://relay.t3.codes
+      label: Windows x64
+      runner: ubuntu-24.04
+      verify_runner: windows-2025
+      platform: win
+      target: nsis
+      arch: x64
+      rust_target: x86_64-pc-windows-msvc
+      resource_key: win32-x64
+
   release:
     name: Publish release
-    needs: [preflight, quality, test, test_web, test_server, desktop_linux_x64]
+    needs: [preflight, quality, test, test_web, test_server, desktop_linux_x64, desktop_mac_arm64, desktop_win_x64]
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:
@@ -203,6 +250,16 @@ jobs:
           pattern: cli-*
           merge-multiple: true
           path: release-assets
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          pattern: desktop-*
+          merge-multiple: true
+          path: release-assets
+
+      # The build job suffixes the Windows feed with its arch; electron-updater reads latest.yml.
+      - name: Name the Windows update feed
+        run: mv release-assets/latest-win-x64.yml release-assets/latest.yml
 
       # Installers verify archives against this file.
       - name: Write CLI archive checksums
