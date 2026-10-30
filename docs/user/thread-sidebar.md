@@ -21,10 +21,10 @@ if that project exists there. Otherwise it selects an environment that has it.
 
 On iOS, customize your Lock Screen, replace a bottom-corner control with T3 Code’s
 **New Chat**, then tap it while editing to choose a project and environment, or
-**No project**, the default. Turn on **Start dictation** to open the composer
-already listening. Open T3 once to load your projects. Hold the control to open an
-empty composer; existing drafts stay saved. The same control is available in
-Control Center.
+**No project**, the default. **Dictate Chat** works the same way and opens the
+composer already listening. Open T3 once to load your projects. Hold a control to
+open an empty composer; existing drafts stay saved. Both controls are also
+available in Control Center.
 
 ### Start without a project
 

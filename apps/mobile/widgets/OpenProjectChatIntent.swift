@@ -4,6 +4,7 @@ import UIKit
 struct OpenProjectChatIntent: OpenIntent {
   static var title: LocalizedStringResource = "New Chat"
   static var description = IntentDescription("Open a fresh T3 chat, in a project or without one.")
+  static var isDiscoverable = false
 
   @Parameter(title: "Project") var target: ChatProject
   // Optional because an OpenIntent may have no required parameter besides `target`.
@@ -14,12 +15,6 @@ struct OpenProjectChatIntent: OpenIntent {
   init(project: ChatProject?, dictate: Bool) {
     target = project ?? .noProject
     self.dictate = dictate
-  }
-
-  static var parameterSummary: some ParameterSummary {
-    Summary("New chat in \(\.$target)") {
-      \.$dictate
-    }
   }
 
   @MainActor
