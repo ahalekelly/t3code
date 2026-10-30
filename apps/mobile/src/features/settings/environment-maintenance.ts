@@ -6,6 +6,7 @@ import {
   type ServerProvider,
 } from "@t3tools/contracts";
 import {
+  CLI_RELEASE_INDEX_PAGE_SIZE,
   CLI_RELEASES_PAGE_URL,
   cliReleaseChannelOf,
   cliReleaseIndexPageUrl,
@@ -79,15 +80,19 @@ export async function findEnvironmentUpdate(currentVersion: string, signal: Abor
   let version = newestCliReleaseVersion(releases, channel);
 
   // The feed only includes ten releases, so later nightlies can displace a published preview.
-  for (let page = 1; version === undefined; page++) {
-    const response = await fetchReleases(
-      cliReleaseIndexPageUrl(page),
-      "application/vnd.github+json",
-      signal,
-    );
-    const releases = decodeReleases(await response.json());
+  if (version === undefined) {
+    const releases: Array<typeof Release.Type> = [];
+    for (let page = 1; ; page++) {
+      const response = await fetchReleases(
+        cliReleaseIndexPageUrl(page),
+        "application/vnd.github+json",
+        signal,
+      );
+      const pageReleases = decodeReleases(await response.json());
+      releases.push(...pageReleases);
+      if (pageReleases.length < CLI_RELEASE_INDEX_PAGE_SIZE) break;
+    }
     version = newestCliReleaseVersion(releases, channel);
-    if (releases.length < 100) break;
   }
 
   if (version === undefined) throw new Error(`No ${channel} release was found.`);

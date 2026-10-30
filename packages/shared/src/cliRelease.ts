@@ -99,12 +99,15 @@ export function acceptsTrackSwitchRelease(
   );
 }
 
-/** Page until the channel matches; nightlies can push preview/stable releases past the first page. */
+/** GitHub's release index order is undocumented and neither by version nor by date (v0.1.6-x.9
+ * lists before v0.1.6-x.24), so callers read every page and compare versions. */
+export const CLI_RELEASE_INDEX_PAGE_SIZE = 100;
+
 export function cliReleaseIndexPageUrl(page: number): string {
-  return `https://api.github.com/repos/${CLI_RELEASE_REPOSITORY}/releases?per_page=100&page=${page}`;
+  return `https://api.github.com/repos/${CLI_RELEASE_REPOSITORY}/releases?per_page=${CLI_RELEASE_INDEX_PAGE_SIZE}&page=${page}`;
 }
 
-/** Draft assets are not downloadable. */
+/** The highest version on the channel, in any order. Draft assets are not downloadable. */
 export function newestCliReleaseVersion(
   releases: ReadonlyArray<{
     readonly tag_name: string;
@@ -112,13 +115,14 @@ export function newestCliReleaseVersion(
   }>,
   channel: CliReleaseChannel,
 ): string | undefined {
+  let newest: string | undefined;
   for (const release of releases) {
     if (release.draft) continue;
     const version = /^v(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)$/.exec(release.tag_name)?.[1];
-    if (version === undefined) continue;
-    if (cliReleaseChannelOf(version) === channel) return version;
+    if (version === undefined || cliReleaseChannelOf(version) !== channel) continue;
+    if (newest === undefined || compareSemverVersions(version, newest) > 0) newest = version;
   }
-  return undefined;
+  return newest;
 }
 
 const NpmReleaseMigrationManifest = Schema.Struct({
