@@ -572,11 +572,11 @@ Required secrets used by the workflow:
 - `APPLE_API_KEY`
 - `APPLE_API_KEY_ID`
 - `APPLE_API_ISSUER`
-- `MACOS_PROVISIONING_PROFILE` (base64-encoded provisioning profile with Associated Domains)
 
-Required repository variables:
+Passkeys also need both of these; signed builds without them omit passkeys:
 
-- `APPLE_TEAM_ID`
+- `MACOS_PROVISIONING_PROFILE` secret (base64-encoded provisioning profile with Associated Domains)
+- `APPLE_TEAM_ID` repository variable
 
 Optional repository variables:
 
