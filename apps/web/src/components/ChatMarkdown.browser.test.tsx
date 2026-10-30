@@ -329,10 +329,10 @@ describe("ChatMarkdown HTML file links", () => {
     threadId: ThreadId.make("thread"),
   };
 
-  it("opens HTML pages in the default browser when links open there", async () => {
+  it("opens HTML and Markdown pages in the default browser when links open there", async () => {
     setup();
     environment.httpBaseUrl = "http://host.test";
-    environment.previewAvailable = true;
+    environment.previewAvailable = false;
     const openExternal = vi.fn(async (_url: string) => {});
     environment.openExternal = openExternal;
     createAssetUrl.mockResolvedValue(AsyncResult.success({ relativeUrl: "/assets/report.html" }));
@@ -340,10 +340,10 @@ describe("ChatMarkdown HTML file links", () => {
       .spyOn(useRightPanelStore.getState(), "openFile")
       .mockImplementation(() => {});
     await using screen = await renderText(
-      "[Report](/tmp/project/report.html) and [Source](/tmp/project/report.html:3)",
+      "[Report](/tmp/project/report.html), [Source](/tmp/project/report.html:3), [Notes](/tmp/project/notes.md)",
       { threadRef },
     );
-    const [report, source] = screen.container.querySelectorAll("a");
+    const [report, source, notes] = screen.container.querySelectorAll("a");
 
     await act(async () => report!.click());
     await vi.waitFor(() =>
@@ -364,6 +364,13 @@ describe("ChatMarkdown HTML file links", () => {
     await act(async () => source!.click());
     expect(openFile).toHaveBeenCalledExactlyOnceWith(threadRef, "report.html", 3);
     expect(openExternal).toHaveBeenCalledOnce();
+
+    createAssetUrl.mockResolvedValue(AsyncResult.success({ relativeUrl: "/assets/notes.md" }));
+    await act(async () => notes!.click());
+    await vi.waitFor(() =>
+      expect(openExternal).toHaveBeenLastCalledWith("http://host.test/assets/notes.md"),
+    );
+    expect(openFile).toHaveBeenCalledOnce();
   });
 });
 
