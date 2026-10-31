@@ -1,10 +1,9 @@
 import type { EnvironmentId } from "@t3tools/contracts";
 import { splitFilePathPosition } from "@t3tools/shared/fileLinks";
+import { isMarkdownPath } from "@t3tools/shared/filePreview";
 
-import {
-  shouldOpenMarkdownFileLinkInBrowserByDefault,
-  type MarkdownFileLinkMeta,
-} from "../../markdown-links";
+import { isBrowserPreviewFile } from "../../browser/openFileInPreview";
+import type { MarkdownFileLinkMeta } from "../../markdown-links";
 import type { RemoteOpenMode } from "../../remoteOpen";
 
 export function canUseMarkdownFileShellActions(
@@ -48,15 +47,17 @@ export function markdownFileCopyMenuItems({
   return items;
 }
 
+/** HTML, PDF, and Markdown files open as pages, unless the link points at a line of source. */
 export function shouldUseMarkdownFileBrowserPrimaryAction(input: {
   iconPath: string;
+  line: number | undefined;
   canOpenInEditor: boolean;
   canOpenInBrowser: boolean;
   canOpenInPanel: boolean;
 }): boolean {
   return (
-    input.canOpenInBrowser &&
-    (shouldOpenMarkdownFileLinkInBrowserByDefault(input.iconPath) ||
-      (!input.canOpenInEditor && !input.canOpenInPanel))
+    ((isBrowserPreviewFile(input.iconPath) || isMarkdownPath(input.iconPath)) &&
+      input.line === undefined) ||
+    (input.canOpenInBrowser && !input.canOpenInEditor && !input.canOpenInPanel)
   );
 }
