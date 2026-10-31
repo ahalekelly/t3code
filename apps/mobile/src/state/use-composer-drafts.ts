@@ -1430,6 +1430,7 @@ function isSameAttachment(a: DraftComposerAttachment, b: DraftComposerAttachment
 /**
  * Restore puts back attachments after failed sends, so it skips the duplicate check and the caps.
  * Returns how many attachments the caps rejected.
+ * appendReference chips file attachments into the text; images, like on web, show only in the strip.
  */
 export function appendComposerDraftAttachments(
   draftKey: string,
@@ -1449,8 +1450,11 @@ export function appendComposerDraftAttachments(
   let duplicates: ReadonlyArray<DraftComposerAttachment> = [];
   updateComposerDrafts((current) => {
     const existing = normalizeDraft(current[draftKey]);
-    const retained = options?.appendReference
-      ? draftWithoutInsertionSelection(draftKey, existing, options.insertion)
+    const needsReference = (attachment: DraftComposerAttachment) =>
+      options?.appendReference === true && attachment.type !== "image";
+    const referencing = incoming.some(needsReference);
+    const retained = referencing
+      ? draftWithoutInsertionSelection(draftKey, existing, options?.insertion)
       : existing;
     const seen = [...retained.attachments];
     const attachments = options?.restore
@@ -1471,7 +1475,7 @@ export function appendComposerDraftAttachments(
           ) - retained.attachments.length,
         );
     const contextCapacity =
-      options?.appendReference && !options.restore
+      referencing && !options?.restore
         ? Math.max(0, COMPOSER_CONTEXT_MAX_RECORDS - (retained.context?.records.length ?? 0))
         : attachments.length;
     const accepted = attachments.slice(0, Math.min(remaining, contextCapacity));
@@ -1480,8 +1484,10 @@ export function appendComposerDraftAttachments(
       return current;
     }
     let draft = { ...existing, attachments: [...existing.attachments, ...accepted] };
-    if (options?.appendReference) {
-      const records = accepted.map((attachment) => attachmentContextRecord(attachment));
+    const records = accepted
+      .filter(needsReference)
+      .map((attachment) => attachmentContextRecord(attachment));
+    if (records.length > 0) {
       const inserted = draftWithInsertedContext(
         draftKey,
         draft,
@@ -1489,8 +1495,8 @@ export function appendComposerDraftAttachments(
           text: records.map(formatComposerContextReference).join(" "),
           context: { version: 1, records },
         },
-        options.insertion,
-        options.restore ? Infinity : COMPOSER_CONTEXT_MAX_RECORDS,
+        options?.insertion,
+        options?.restore ? Infinity : COMPOSER_CONTEXT_MAX_RECORDS,
       );
       if (!inserted) {
         rejected = attachments;
