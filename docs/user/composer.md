@@ -168,7 +168,7 @@ File links point to the file on the environment's machine, so moving or deleting
 
 ## Files outside the workspace
 
-Following an agent's file link to a file outside the workspace opens it read-only. External HTML files cannot load neighboring scripts, styles, or images.
+Following an agent's file link to a file outside the workspace opens it read-only. Absolute paths written as plain text, such as `/home/me/report.md`, are links too. External HTML files cannot load neighboring scripts, styles, or images.
 
 ## HTML and PDF files in the file viewer
 
