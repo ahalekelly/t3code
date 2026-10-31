@@ -147,10 +147,10 @@ it("links absolute file paths written as plain text", () => {
   );
   expect(
     render(
-      "[label](/a/b.md) `/a/c.md` https://x.dev/a/b.md /etc/hosts GET /api/v1/users.json /tmp/x/a.md-old /tmp/C#/a.cs",
+      "[label](/a/b.md) `/a/c.md` https://x.dev/a/b.md /etc/hosts. GET /api/assets /tmp/x/a.md-old /tmp/C#/a.cs",
     ),
   ).toBe(
-    "<a /a/b.md>label</a> /a/c.md <a https://x.dev/a/b.md>https://x.dev/a/b.md</a> /etc/hosts GET /api/v1/users.json /tmp/x/a.md-old /tmp/C#/a.cs",
+    "<a /a/b.md>label</a> /a/c.md <a https://x.dev/a/b.md>https://x.dev/a/b.md</a> <a /etc/hosts>/etc/hosts</a>. GET /api/assets <a /tmp/x/a.md-old>/tmp/x/a.md-old</a> /tmp/C#/a.cs",
   );
 });
 
