@@ -98,6 +98,7 @@ import { isDuoDevice } from "../../lib/device-type";
 import {
   memo,
   useCallback,
+  createContext,
   useContext,
   useEffect,
   useEffectEvent,
@@ -123,6 +124,7 @@ import {
   type ColorValue,
   useWindowDimensions,
   View,
+  type ViewInstance,
 } from "react-native";
 import { Image as ExpoImage } from "expo-image";
 import { useResolveClassNames } from "uniwind";
@@ -133,7 +135,7 @@ import { messageImageGallery } from "./messageImageGallery";
 import { FilePreviewModal, type FilePreviewSource } from "../../components/FilePreviewModal";
 import { inlineFilePreviewKind, isPdfFile } from "../../lib/filePreview";
 import { ThreadInlineFilePreview } from "./ThreadInlineFilePreview";
-import { flattenThemeColor } from "../../lib/mobileTheme";
+import { flattenThemeColor, themeColorWithAlpha } from "../../lib/mobileTheme";
 import { PresentationSource } from "../../components/ui/NativePresentation";
 import { NativeScrollViewMarker } from "../../native/NativeScrollViewMarker";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -164,6 +166,9 @@ import { getReviewSectionIdForCheckpoint } from "../review/reviewModel";
 import { setReviewSelectedSectionId } from "../review/reviewState";
 import { Menu } from "../../components/ui/Menu";
 import { copyPromptLink } from "../prompt-links/prompt-link-actions";
+import { autoReadResponse } from "../../lib/autoReadResponse";
+import { ReadResponseButton } from "./ReadResponseButton";
+import { responseSpeech, useSpokenBlock } from "../../lib/responseSpeech";
 import { parseReviewCommentMessageSegments } from "../review/reviewCommentSelection";
 import {
   ReviewCommentCard,
@@ -469,14 +474,14 @@ function AssistantForkButton(props: {
           })
           .finally(() => setBusy(false));
       }}
-      className="h-7 w-7 items-center justify-center disabled:opacity-40"
+      className="size-10 items-center justify-center disabled:opacity-40"
     >
       {busy ? (
         <AppActivityIndicator size="small" />
       ) : (
         <SymbolView
           name="arrow.triangle.branch"
-          size={13}
+          size={18}
           tintColor={props.iconColor}
           type="monochrome"
         />
@@ -839,6 +844,8 @@ interface MarkdownStyleSet {
   readonly nativeTextStyle: NativeMarkdownTextStyle;
 }
 
+const RevealSpokenBlockContext = createContext<(view: ViewInstance) => void>(() => {});
+
 const ARTIFACT_TEMPLATE_SYMBOL_BY_KIND: Record<
   CodexArtifactTemplate["artifactKind"],
   AppSymbolName
@@ -898,6 +905,8 @@ function ArtifactTemplateCard(props: {
 }
 
 const AssistantMarkdownContent = memo(function AssistantMarkdownContent(props: {
+  readonly speechScope?: string | undefined;
+  readonly speechMessageId?: string | undefined;
   readonly markdown: string;
   readonly environmentId: EnvironmentId;
   readonly markdownStyles: MarkdownStyleSet;
@@ -909,6 +918,22 @@ const AssistantMarkdownContent = memo(function AssistantMarkdownContent(props: {
   const liveMarkdown = useLiveThreadLinkLabels(props.markdown, props.environmentId);
   const segments = useMemo(() => splitCodexArtifactTemplateMarkdown(liveMarkdown), [liveMarkdown]);
   const threadIcons = useThreadChipIcons(props.environmentId, liveMarkdown);
+  const spokenBlock = useSpokenBlock(props.speechScope ?? "", props.speechMessageId ?? "");
+  const revealBlock = useContext(RevealSpokenBlockContext);
+  const highlightColor = themeColorWithAlpha(useUniwindTheme()["--color-focus"], 0.14);
+  // Artifact templates split the message, so their block indices would not match the reading.
+  const speech = useMemo(
+    () =>
+      spokenBlock === undefined || segments.length !== 1
+        ? undefined
+        : {
+            activeBlock: spokenBlock,
+            highlightColor,
+            onPressBlock: (block: number) => void responseSpeech.seekToBlock(block),
+            revealBlock,
+          },
+    [highlightColor, revealBlock, segments.length, spokenBlock],
+  );
   const linkHandlers: MarkdownLinkHandlers = {
     ...props.linkHandlers,
     linkCustomization: (href) =>
@@ -936,6 +961,7 @@ const AssistantMarkdownContent = memo(function AssistantMarkdownContent(props: {
         textStyle={props.markdownStyles.nativeTextStyle}
         {...linkHandlers}
         renderImage={props.renderImage}
+        speech={speech}
       />
     );
   });
@@ -1818,6 +1844,12 @@ function renderFeedEntry(
         {renderedText.trim().length > 0 ? (
           <MarkdownImageAvailableWidthContext value={props.markdownContentWidth}>
             <AssistantMarkdownContent
+              speechScope={
+                Platform.OS === "ios"
+                  ? scopedThreadKey(props.environmentId, props.threadId)
+                  : undefined
+              }
+              speechMessageId={message.id}
               markdown={renderedText}
               environmentId={props.environmentId}
               markdownStyles={styles}
@@ -1840,28 +1872,44 @@ function renderFeedEntry(
             onOpenTurnDiff={props.onOpenTurnDiff}
           />
         ) : null}
-        {showAssistantMeta ? (
-          <View className="mt-1 flex-row items-center gap-1">
+        <View
+          className={
+            showAssistantMeta ? "mt-1 flex-row items-center gap-2" : "flex-row items-center gap-2"
+          }
+        >
+          {showAssistantMeta ? (
             <CopyTextButton
               accessibilityLabel="Copy message"
               text={renderedText}
               tintColor={iconSubtleColor}
-              buttonSize={28}
-              iconSize={13}
+              buttonSize={40}
+              iconSize={18}
             />
-            {message.projectedItem ? (
-              <AssistantForkButton
-                environmentId={props.environmentId}
-                iconColor={iconSubtleColor}
-                projectedItem={message.projectedItem}
-                sourceTitle={props.threadTitle}
-              />
-            ) : null}
-            <Text className="font-t3-medium text-xs tabular-nums text-foreground-secondary">
+          ) : null}
+          {showAssistantMeta && message.projectedItem ? (
+            <AssistantForkButton
+              environmentId={props.environmentId}
+              iconColor={iconSubtleColor}
+              projectedItem={message.projectedItem}
+              sourceTitle={props.threadTitle}
+            />
+          ) : null}
+          {Platform.OS === "ios" && renderedText.trim().length > 0 ? (
+            <ReadResponseButton
+              scope={scopedThreadKey(props.environmentId, props.threadId)}
+              messageId={message.id}
+              title={props.threadTitle}
+              text={renderedText}
+              canStart={showAssistantMeta}
+              tintColor={iconSubtleColor}
+            />
+          ) : null}
+          {showAssistantMeta ? (
+            <Text className="font-t3-medium text-sm tabular-nums text-foreground-secondary">
               {timestampLabel}
             </Text>
-          </View>
-        ) : null}
+          ) : null}
+        </View>
       </Animated.View>
     );
   }
@@ -2177,6 +2225,15 @@ export const ThreadFeed = memo(function ThreadFeed({
       });
     },
     [navigation, props.environmentId, props.threadId],
+  );
+  useFocusEffect(
+    useCallback(() => {
+      const scope = scopedThreadKey(props.environmentId, props.threadId);
+      return () => {
+        autoReadResponse.cancel(scope);
+        if (responseSpeech.getSnapshot()?.response.scope === scope) void responseSpeech.stop();
+      };
+    }, [props.environmentId, props.threadId]),
   );
   const { themeAppearance } = useAppearancePreferences();
   const copyFeedbackTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -3189,6 +3246,23 @@ export const ThreadFeed = memo(function ThreadFeed({
     </Animated.View>
   );
 
+  const listFrameRef = useRef<ViewInstance>(null);
+  const revealSpokenBlock = useCallback(
+    (view: ViewInstance) => {
+      const list = listRef.current;
+      if (!list || !listFrameRef.current || userScrollSessionRef.current) return;
+      listFrameRef.current.measureInWindow((_listX, listY, _listWidth, listHeight) => {
+        view.measureInWindow((_x, y, _width, height) => {
+          const top = listY + anchorTopInset + 12;
+          const bottom = listY + listHeight - bottomContentInset - 12;
+          if (y >= top && (y + height <= bottom || y - top < 1)) return;
+          void list.scrollToOffset({ offset: list.getState().scroll + y - top, animated: true });
+        });
+      });
+    },
+    [anchorTopInset, bottomContentInset, listRef],
+  );
+
   if (props.contentPresentation.kind === "unavailable" && props.queuedMessages.length === 0) {
     return (
       <ThreadFeedPlaceholder
@@ -3201,10 +3275,10 @@ export const ThreadFeed = memo(function ThreadFeed({
     );
   }
 
-  return (
+  const feed = (
     <PresentationSource identifier={fileShareSourceIdentifier} style={{ flex: 1 }}>
       <View className="flex-1" onLayout={handleViewportLayout}>
-        <View className="flex-1">
+        <View ref={listFrameRef} className="flex-1">
           {/* oxlint-disable-next-line t3code/require-registered-list-scroll -- ThreadFeedScrollView is passed through the iOS-only spread below; the prop rejects undefined. */}
           <KeyboardAwareLegendList
             ref={attachList}
@@ -3355,6 +3429,7 @@ export const ThreadFeed = memo(function ThreadFeed({
       </View>
     </PresentationSource>
   );
+  return <RevealSpokenBlockContext value={revealSpokenBlock}>{feed}</RevealSpokenBlockContext>;
 });
 
 function ThreadFeedLoadEarlierControl(props: ThreadFeedHistoryControls) {
