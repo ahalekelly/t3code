@@ -199,6 +199,8 @@ const BROWSER_MIME_TYPE_BY_EXTENSION = new Map([
   [".htm", "text/html"],
   [".html", "text/html"],
   [".pdf", "application/pdf"],
+  [".md", "text/markdown"],
+  [".markdown", "text/markdown"],
 ]);
 
 const FONT_MIME_TYPE_BY_EXTENSION = new Map([
@@ -232,6 +234,10 @@ function hasPreviewExtension(path: string, extensions: ReadonlyArray<string>): b
   return extensions.some((extension) => literalPath.endsWith(extension));
 }
 
+export function isMarkdownPath(path: string): boolean {
+  return /\.(?:md|markdown)$/i.test(path);
+}
+
 export function isWorkspaceBrowserPreviewPath(path: string): boolean {
   return hasPreviewExtension(path, WORKSPACE_BROWSER_PREVIEW_EXTENSIONS);
 }
@@ -244,6 +250,7 @@ export function isWorkspaceVideoPreviewPath(path: string): boolean {
 export function isWorkspacePreviewEntryPath(path: string): boolean {
   return (
     isWorkspaceBrowserPreviewPath(path) ||
+    isMarkdownPath(path) ||
     isWorkspaceImagePreviewPath(path) ||
     isWorkspaceFontPreviewPath(path) ||
     officePreviewKind({ name: path }) !== null ||

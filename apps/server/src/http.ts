@@ -142,6 +142,10 @@ export function assetResponseHeaders(
       "Content-Security-Policy": HTML_CONTENT_SECURITY_POLICY,
     };
   }
+  // Browsers download `text/markdown`; Markdown viewer extensions read text/plain.
+  if (mimeType === "text/markdown") {
+    return { ...base, "Content-Type": "text/plain; charset=utf-8" };
+  }
   return {
     ...base,
     "Content-Type": mimeType,
