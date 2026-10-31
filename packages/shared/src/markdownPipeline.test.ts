@@ -118,6 +118,42 @@ it("keeps backslashes that CommonMark would read as escapes in prose Windows pat
   );
 });
 
+it("links absolute file paths written as plain text", () => {
+  const processor = unified()
+    .use(remarkParse)
+    .use(CHAT_MARKDOWN_REMARK_PLUGINS)
+    .use(remarkRehype, { allowDangerousHtml: true })
+    .use(CHAT_MARKDOWN_REHYPE_PLUGINS);
+  type Node = {
+    type: string;
+    value?: string;
+    tagName?: string;
+    properties?: { href?: string };
+    children?: Node[];
+  };
+  const html = (node: Node): string =>
+    node.type === "text"
+      ? (node.value ?? "")
+      : node.tagName === "a"
+        ? `<a ${node.properties?.href}>${(node.children ?? []).map(html).join("")}</a>`
+        : (node.children ?? []).map(html).join("");
+  const render = (markdown: string) => html(processor.runSync(processor.parse(markdown)) as Node);
+
+  expect(render("Report: /home/me/reports/review.md. See ~/x/a.ts:12, too.")).toBe(
+    "Report: <a /home/me/reports/review.md>/home/me/reports/review.md</a>. See <a ~/x/a.ts:12>~/x/a.ts:12</a>, too.",
+  );
+  expect(render(String.raw`Saved C:\Users\me\out.png`)).toBe(
+    String.raw`Saved <a file:///C:/Users/me/out.png>C:\Users\me\out.png</a>`,
+  );
+  expect(
+    render(
+      "[label](/a/b.md) `/a/c.md` https://x.dev/a/b.md /etc/hosts GET /api/v1/users.json /tmp/x/a.md-old /tmp/C#/a.cs",
+    ),
+  ).toBe(
+    "<a /a/b.md>label</a> /a/c.md <a https://x.dev/a/b.md>https://x.dev/a/b.md</a> /etc/hosts GET /api/v1/users.json /tmp/x/a.md-old /tmp/C#/a.cs",
+  );
+});
+
 it("keeps an image on its own line under a label but leaves inline images inline", () => {
   const processor = unified()
     .use(remarkParse)
