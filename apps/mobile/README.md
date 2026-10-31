@@ -79,29 +79,27 @@ After changing a native dependency patch, rerun CocoaPods before rebuilding an e
 project. pnpm gives each patch hash a new package path; Pods can otherwise keep compiling the
 previous directory.
 
-If your Xcode account only has a Personal Team, use a bundle identifier you control and opt into the
-reduced-capability local build. Personal Team builds omit the widget and share extensions, push
-entitlement, and native Sign in with Apple entitlement; builds without this opt-in are unchanged.
-
-```bash
-T3CODE_IOS_PERSONAL_TEAM=1 \
-T3CODE_IOS_PERSONAL_TEAM_BUNDLE_ID=com.example.t3code.dev \
-vp run ios:dev
-```
-
 Build and install a self-contained Release app that does not need Metro:
 
 ```bash
 vp run ios:release
 ```
 
-The Personal Team equivalent also needs a unique bundle identifier:
+To sign with your own paid Apple team, set a bundle identifier you control. Development and
+preview builds append `.dev` and `.preview` to it. Personal builds install alongside the App Store
+app and omit push notifications, associated domains, and native
+Sign in with Apple, which depend on T3's team.
 
 ```bash
-T3CODE_IOS_PERSONAL_TEAM=1 \
-T3CODE_IOS_PERSONAL_TEAM_BUNDLE_ID=com.example.t3code \
+T3CODE_IOS_SIGNING=personal \
+T3CODE_IOS_TEAM_ID=ABCDE12345 \
+T3CODE_IOS_BUNDLE_ID=com.example.t3code \
 vp run ios:release
 ```
+
+For Android, `T3CODE_ANDROID_PACKAGE` sets a package name you control the same way, and
+`T3CODE_ANDROID_VERSION_CODE` sets the build number, which must grow for Android to install an
+update over the previous build.
 
 Build and run the local iOS preview app:
 
