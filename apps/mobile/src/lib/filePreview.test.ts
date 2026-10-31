@@ -104,6 +104,7 @@ vi.mock("../components/ui/AppText", () => ({
   AppText: ({ children }: { children?: ReactNode }) => createElement("span", null, children),
 }));
 vi.mock("../components/ui/AppSymbol", () => ({ SymbolView: () => null }));
+vi.mock("../features/threads/ReadResponseButton", () => ({ ReadResponseButton: () => null }));
 vi.mock("../components/ui/Button", () => ({
   Button: (props: { label: string; onPress(): void; disabled?: boolean }) =>
     createElement("button", { onClick: props.onPress, disabled: props.disabled }, props.label),
@@ -1133,6 +1134,7 @@ describe("ThreadInlineFilePreview playback", () => {
       await activateAudioSession(recording);
       expect(audio.setAudioMode).toHaveBeenLastCalledWith({
         allowsRecording: true,
+        allowsBackgroundRecording: true,
         interruptionMode: "doNotMix",
         playsInSilentMode: true,
         shouldPlayInBackground: false,
