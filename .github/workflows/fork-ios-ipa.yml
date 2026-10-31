@@ -54,6 +54,9 @@ jobs:
             /*
             !/.repos/
           sparse-checkout-cone-mode: false
+      # This repository lacks upstream's newer release tags; fetch them as fork-release.yml does.
+      - name: Fetch upstream release tags
+        run: git fetch --quiet --no-tags https://github.com/pingdotgg/t3code.git '+refs/tags/v*:refs/tags/v*'
       - uses: ./.github/actions/setup-ci-deps
         with:
           install-args: --filter=@t3tools/mobile... --filter=@t3tools/scripts...
