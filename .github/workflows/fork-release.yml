@@ -4,7 +4,7 @@ name: Fork release
 # the desktop apps and CLI as this repository's Latest release `v<version>`, and the iPhone and
 # Android apps as `ios-<version>` and `android-<version>`, which are never Latest. Installed fork
 # builds update from these releases.
-# Versions are prereleases of the next upstream patch, `<major>.<minor>.<patch + 1>-fork-<run>`,
+# Versions are prereleases of the next upstream patch, `<major>.<minor>.<patch + 1>-akelly-<run>`,
 # so each one ranks above the upstream release it is built on and below the next one. The run is
 # zero-padded to four digits, because GitHub lists a day's releases by comparing that part as text.
 
@@ -51,7 +51,7 @@ jobs:
           # The newest stable tag main contains; version sort ranks prereleases above it, so drop them.
           base=$(git tag --merged HEAD --list 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | grep -v -m1 -- -)
           IFS=. read -r major minor patch <<<"${base#v}"
-          version=$(printf '%s.%s.%s-fork-%04d' "$major" "$minor" "$((patch + 1))" "$GITHUB_RUN_NUMBER")
+          version=$(printf '%s.%s.%s-akelly-%04d' "$major" "$minor" "$((patch + 1))" "$GITHUB_RUN_NUMBER")
           echo "Building $version on $base"
           echo "base=$base" >> "$GITHUB_OUTPUT"
           echo "version=$version" >> "$GITHUB_OUTPUT"
