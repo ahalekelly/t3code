@@ -1,5 +1,6 @@
 import type { EnvironmentId } from "@t3tools/contracts";
 import { splitFilePathPosition } from "@t3tools/shared/fileLinks";
+import { isMarkdownPath } from "@t3tools/shared/filePreview";
 
 import { isBrowserPreviewFile } from "../../browser/openFileInPreview";
 import type { MarkdownFileLinkMeta } from "../../markdown-links";
@@ -55,7 +56,7 @@ export function shouldUseMarkdownFileBrowserPrimaryAction(input: {
   canOpenInPanel: boolean;
 }): boolean {
   return (
-    ((isBrowserPreviewFile(input.iconPath) || /\.(?:md|markdown)$/i.test(input.iconPath)) &&
+    ((isBrowserPreviewFile(input.iconPath) || isMarkdownPath(input.iconPath)) &&
       input.line === undefined) ||
     (input.canOpenInBrowser && !input.canOpenInEditor && !input.canOpenInPanel)
   );
