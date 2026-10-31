@@ -1,3 +1,5 @@
+import * as NodeChildProcess from "node:child_process";
+
 import type { ExpoConfig } from "expo/config";
 
 import { BRAND_ASSET_PATHS } from "../../scripts/lib/brand-assets.ts";
@@ -9,13 +11,33 @@ const repoEnv = loadRepoEnv();
 Object.assign(process.env, repoEnv);
 
 const APP_VARIANT = resolveAppVariant(repoEnv.APP_VARIANT);
-const isIosPersonalTeamBuild = repoEnv.T3CODE_IOS_PERSONAL_TEAM === "1";
+const iosSigning = repoEnv.T3CODE_IOS_SIGNING ?? "distribution";
+if (!["distribution", "personal"].includes(iosSigning)) {
+  throw new Error("T3CODE_IOS_SIGNING must be distribution or personal.");
+}
+const isIosPersonalBuild = iosSigning === "personal";
+const personalTeam = repoEnv.T3CODE_IOS_TEAM_ID?.trim();
+if (isIosPersonalBuild && !/^[A-Z0-9]{10}$/.test(personalTeam ?? "")) {
+  throw new Error("T3CODE_IOS_TEAM_ID must be your 10-character Apple team ID.");
+}
 const runtimeVersionPolicy =
   process.env.MOBILE_VERSION_POLICY ??
   (APP_VARIANT === "development" ? "appVersion" : "fingerprint");
 
-const personalTeamBundleIdentifier = repoEnv.T3CODE_IOS_PERSONAL_TEAM_BUNDLE_ID?.trim();
+const personalBundleIdentifier = repoEnv.T3CODE_IOS_BUNDLE_ID?.trim();
 const IOS_BUNDLE_IDENTIFIER_PATTERN = /^[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+$/;
+const personalAndroidPackage = repoEnv.T3CODE_ANDROID_PACKAGE?.trim();
+if (
+  personalAndroidPackage !== undefined &&
+  !/^[a-z]\w*(?:\.[a-z]\w*)+$/.test(personalAndroidPackage)
+) {
+  throw new Error("T3CODE_ANDROID_PACKAGE must be a package name such as com.example.t3code.");
+}
+const androidVersionCode = repoEnv.T3CODE_ANDROID_VERSION_CODE;
+if (androidVersionCode !== undefined && !/^[1-9]\d*$/.test(androidVersionCode)) {
+  throw new Error("T3CODE_ANDROID_VERSION_CODE must be a positive integer.");
+}
+const isPersonalBuild = isIosPersonalBuild || personalAndroidPackage !== undefined;
 
 // Compiled into the native project. Without a relay, Observe's native side could dispatch to
 // Expo's own ingest before observe.ts turns it off; `.invalid` never resolves (RFC 6761).
@@ -27,12 +49,11 @@ const fromRepoRoot = (relativePath: string) => `../../${relativePath}`;
 const androidAdaptiveForeground = "./assets/android-icon-foreground.png";
 
 if (
-  isIosPersonalTeamBuild &&
-  (!personalTeamBundleIdentifier ||
-    !IOS_BUNDLE_IDENTIFIER_PATTERN.test(personalTeamBundleIdentifier))
+  isIosPersonalBuild &&
+  (!personalBundleIdentifier || !IOS_BUNDLE_IDENTIFIER_PATTERN.test(personalBundleIdentifier))
 ) {
   throw new Error(
-    "T3CODE_IOS_PERSONAL_TEAM_BUNDLE_ID must be a reverse-DNS identifier such as com.example.t3code when T3CODE_IOS_PERSONAL_TEAM=1.",
+    "T3CODE_IOS_BUNDLE_ID must be a reverse-DNS identifier such as com.example.t3code when using personal signing.",
   );
 }
 
@@ -114,9 +135,15 @@ function resolveAppVariant(value: string | undefined): AppVariant {
 }
 
 const variant = VARIANT_CONFIG[APP_VARIANT];
-const iosBundleIdentifier = isIosPersonalTeamBuild
-  ? personalTeamBundleIdentifier!
+// Personal builds keep each variant's suffix (`.dev`, `.preview`), so variants install side by side.
+const iosBundleIdentifier = isIosPersonalBuild
+  ? personalBundleIdentifier! +
+    variant.iosBundleIdentifier.slice(VARIANT_CONFIG.production.iosBundleIdentifier.length)
   : variant.iosBundleIdentifier;
+const androidPackage = personalAndroidPackage
+  ? personalAndroidPackage +
+    variant.androidPackage.slice(VARIANT_CONFIG.production.androidPackage.length)
+  : variant.androidPackage;
 
 const dmSansFonts = {
   regular: "@expo-google-fonts/dm-sans/400Regular/DMSans_400Regular.ttf",
@@ -129,7 +156,7 @@ const widgetsPlugin: NonNullable<ExpoConfig["plugins"]>[number] = [
   {
     bundleIdentifier: `${iosBundleIdentifier}.widgets`,
     groupIdentifier: `group.${iosBundleIdentifier}`,
-    enablePushNotifications: true,
+    enablePushNotifications: !isIosPersonalBuild,
     // Frequent updates need the iOS entitlement to avoid early throttling.
     frequentUpdates: true,
     enableAndroid: true,
@@ -199,8 +226,7 @@ const sharingPlugin: NonNullable<ExpoConfig["plugins"]>[number] = [
   "expo-sharing",
   {
     ios: {
-      // Personal Teams cannot sign App Groups or extension targets; keep local builds usable.
-      enabled: !isIosPersonalTeamBuild,
+      enabled: true,
       extensionBundleIdentifier: `${iosBundleIdentifier}.sharing`,
       appGroupId: `group.${iosBundleIdentifier}`,
       activationRule: {
@@ -246,21 +272,28 @@ const config: ExpoConfig = {
     supportsTablet: true,
     requireFullScreen: process.env.T3_SHOWCASE_CAPTURE_BUILD === "1",
     bundleIdentifier: iosBundleIdentifier,
-    // Avoid Personal Team fallback: it cannot sign App Groups, Apple sign-in or push entitlements.
-    appleTeamId: "ARK85ZXQ4Z",
-    associatedDomains: [
-      `applinks:${variant.relyingParty}`,
-      `webcredentials:${variant.relyingParty}`,
-    ],
-    entitlements: {
-      "keychain-access-groups": [`$(AppIdentifierPrefix)${variant.iosBundleIdentifier}`],
-    },
+    // Pin code signing so non-interactive `expo run:ios` does not fall back to
+    // another team in the Xcode account.
+    appleTeamId: isIosPersonalBuild ? personalTeam : "ARK85ZXQ4Z",
+    // T3's web domain vouches only for T3's team, so personal builds cannot claim it.
+    ...(!isIosPersonalBuild
+      ? {
+          associatedDomains: [
+            `applinks:${variant.relyingParty}`,
+            `webcredentials:${variant.relyingParty}`,
+          ],
+        }
+      : {}),
+    entitlements: !isIosPersonalBuild
+      ? { "keychain-access-groups": [`$(AppIdentifierPrefix)${variant.iosBundleIdentifier}`] }
+      : {},
     infoPlist: {
       UISupportedInterfaceOrientations: [
         "UIInterfaceOrientationPortrait",
         "UIInterfaceOrientationLandscapeLeft",
         "UIInterfaceOrientationLandscapeRight",
       ],
+      ...(isIosPersonalBuild ? { CFBundleDisplayName: `${variant.appName} Custom` } : {}),
       NSAppTransportSecurity: {
         NSAllowsArbitraryLoads: true,
       },
@@ -285,7 +318,8 @@ const config: ExpoConfig = {
   },
   android: {
     icon: variant.assets.appIcon,
-    package: variant.androidPackage,
+    package: androidPackage,
+    ...(androidVersionCode ? { versionCode: Number(androidVersionCode) } : {}),
     ...(repoEnv.T3CODE_ANDROID_GOOGLE_SERVICES_FILE
       ? { googleServicesFile: repoEnv.T3CODE_ANDROID_GOOGLE_SERVICES_FILE }
       : {}),
@@ -334,9 +368,8 @@ const config: ExpoConfig = {
     ],
     "expo-secure-store",
     "expo-sqlite",
-    ...(isIosPersonalTeamBuild
-      ? [sharingPlugin]
-      : ["./plugins/withShareExtensionDisplayName.cjs", sharingPlugin]),
+    "./plugins/withShareExtensionDisplayName.cjs",
+    sharingPlugin,
     [
       "expo-notifications",
       {
@@ -345,8 +378,7 @@ const config: ExpoConfig = {
         mode: APP_VARIANT === "development" ? "development" : "production",
       },
     ],
-    // Gate Clerk here: withoutIosPersonalTeamCapabilities runs too early to strip its entitlement.
-    ["@clerk/expo", { theme: "./clerk-theme.json", appleSignIn: !isIosPersonalTeamBuild }],
+    ["@clerk/expo", { theme: "./clerk-theme.json", appleSignIn: !isIosPersonalBuild }],
     "expo-web-browser",
     [
       "expo-quick-actions",
@@ -425,9 +457,9 @@ const config: ExpoConfig = {
     ["expo-sensors", { motionPermission: false }],
     // Mods run in reverse order; expo-widgets must create and wipe the target before assets and
     // native sources are added.
-    ...(!isIosPersonalTeamBuild
-      ? ["./plugins/withWidgetLogoAsset.cjs", "./plugins/withNewChatControl.cjs", widgetsPlugin]
-      : []),
+    "./plugins/withWidgetLogoAsset.cjs",
+    "./plugins/withNewChatControl.cjs",
+    widgetsPlugin,
     "./plugins/withAndroidNetworkSecurityConfig.cjs",
     "./plugins/withAndroidGradleHeap.cjs",
     "./plugins/withAndroidInputBackground.cjs",
@@ -435,11 +467,34 @@ const config: ExpoConfig = {
     "./plugins/withAndroidModernAlertDialog.cjs",
     "./plugins/withAndroidPredictiveBackCompat.cjs",
     "./plugins/withAndroidTabletOrientation.cjs",
-    ...(isIosPersonalTeamBuild ? ["./plugins/withoutIosPersonalTeamCapabilities.cjs"] : []),
   ],
   extra: {
     appVariant: APP_VARIANT,
-    iosPersonalTeamBuild: isIosPersonalTeamBuild,
+    buildTime: isPersonalBuild ? new Date().toISOString() : undefined,
+    buildCommit: isPersonalBuild
+      ? NodeChildProcess.execFileSync("git", ["rev-parse", "--short=9", "HEAD"], {
+          cwd: __dirname,
+          encoding: "utf8",
+        }).trim()
+      : undefined,
+    serverRelease: isPersonalBuild
+      ? NodeChildProcess.execFileSync(
+          "git",
+          [
+            "describe",
+            "--tags",
+            "--abbrev=0",
+            "--exclude",
+            "*-*",
+            "--match",
+            "v[0-9]*.[0-9]*.[0-9]*",
+          ],
+          { cwd: __dirname, encoding: "utf8" },
+        )
+          .trim()
+          .slice(1)
+      : undefined,
+    iosPushEnabled: !isIosPersonalBuild,
     relay: {
       url: repoEnv.T3CODE_RELAY_URL ?? null,
     },
