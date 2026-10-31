@@ -31,8 +31,11 @@ jobs:
       EXPO_NO_GIT_STATUS: "1"
       VERSION: ${{ inputs.version }}
     steps:
+      # The app's About screen names the upstream release it builds on, from `git describe`.
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
+          fetch-depth: 0
+          filter: blob:none
           sparse-checkout: |
             /*
             !/.repos/
