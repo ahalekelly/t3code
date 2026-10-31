@@ -26,6 +26,18 @@ const runtimeVersionPolicy =
 
 const personalBundleIdentifier = repoEnv.T3CODE_IOS_BUNDLE_ID?.trim();
 const IOS_BUNDLE_IDENTIFIER_PATTERN = /^[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+$/;
+const personalAndroidPackage = repoEnv.T3CODE_ANDROID_PACKAGE?.trim();
+if (
+  personalAndroidPackage !== undefined &&
+  !/^[a-z]\w*(?:\.[a-z]\w*)+$/.test(personalAndroidPackage)
+) {
+  throw new Error("T3CODE_ANDROID_PACKAGE must be a package name such as com.example.t3code.");
+}
+const androidVersionCode = repoEnv.T3CODE_ANDROID_VERSION_CODE;
+if (androidVersionCode !== undefined && !/^[1-9]\d*$/.test(androidVersionCode)) {
+  throw new Error("T3CODE_ANDROID_VERSION_CODE must be a positive integer.");
+}
+const isPersonalBuild = isIosPersonalBuild || personalAndroidPackage !== undefined;
 
 // Compiled into the native project. Without a relay, Observe's native side could dispatch to
 // Expo's own ingest before observe.ts turns it off; `.invalid` never resolves (RFC 6761).
@@ -130,6 +142,10 @@ const iosBundleIdentifier = isIosPersonalBuild
   ? personalBundleIdentifier! +
     variant.iosBundleIdentifier.slice(VARIANT_CONFIG.production.iosBundleIdentifier.length)
   : variant.iosBundleIdentifier;
+const androidPackage = personalAndroidPackage
+  ? personalAndroidPackage +
+    variant.androidPackage.slice(VARIANT_CONFIG.production.androidPackage.length)
+  : variant.androidPackage;
 
 const dmSansFonts = {
   regular: "@expo-google-fonts/dm-sans/400Regular/DMSans_400Regular.ttf",
@@ -304,7 +320,8 @@ const config: ExpoConfig = {
   },
   android: {
     icon: variant.assets.appIcon,
-    package: variant.androidPackage,
+    package: androidPackage,
+    ...(androidVersionCode ? { versionCode: Number(androidVersionCode) } : {}),
     ...(repoEnv.T3CODE_ANDROID_GOOGLE_SERVICES_FILE
       ? { googleServicesFile: repoEnv.T3CODE_ANDROID_GOOGLE_SERVICES_FILE }
       : {}),
@@ -455,14 +472,14 @@ const config: ExpoConfig = {
   ],
   extra: {
     appVariant: APP_VARIANT,
-    buildTime: isIosPersonalBuild ? new Date().toISOString() : undefined,
-    buildCommit: isIosPersonalBuild
+    buildTime: isPersonalBuild ? new Date().toISOString() : undefined,
+    buildCommit: isPersonalBuild
       ? NodeChildProcess.execFileSync("git", ["rev-parse", "--short=9", "HEAD"], {
           cwd: __dirname,
           encoding: "utf8",
         }).trim()
       : undefined,
-    serverRelease: isIosPersonalBuild
+    serverRelease: isPersonalBuild
       ? NodeChildProcess.execFileSync(
           "git",
           [
