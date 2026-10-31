@@ -97,6 +97,10 @@ T3CODE_IOS_BUNDLE_ID=com.example.t3code \
 vp run ios:release
 ```
 
+For Android, `T3CODE_ANDROID_PACKAGE` sets a package name you control the same way, and
+`T3CODE_ANDROID_VERSION_CODE` sets the build number, which must grow for Android to install an
+update over the previous build.
+
 Build and run the local iOS preview app:
 
 ```bash
