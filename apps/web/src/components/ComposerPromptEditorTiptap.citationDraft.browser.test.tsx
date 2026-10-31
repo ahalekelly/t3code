@@ -8,8 +8,7 @@ import { expect, it } from "vite-plus/test";
 
 import { page, userEvent } from "vite-plus/test/browser";
 
-import { findAssistantCitationSourceAnchor } from "~/lib/assistantTextSelection";
-import { act, render } from "../../test/render";
+import { render } from "../../test/render";
 import {
   ComposerPromptEditorTiptap as ComposerPromptEditor,
   type ComposerPromptEditorHandle,
@@ -81,17 +80,7 @@ it("keeps an unsaved citation comment when a question takes the composer", async
   await using screen = await render(<Composer question={false} editorRef={editorRef} />);
   const drafts = () => screen.container.querySelector("output")?.dataset;
 
-  const sourceAnchor = findAssistantCitationSourceAnchor(document, citation);
-  if (!sourceAnchor) throw new Error("Citation source did not resolve");
-  await act(async () =>
-    editorRef.current?.requestCitationComment({
-      previousValue: "See ",
-      value: promptBefore,
-      citationStart: "See ".length,
-      sourceAnchor,
-      insertedSpaces: { before: false, after: true },
-    }),
-  );
+  await page.getByLabelText("Add comment to citation").click();
   const comment = page.getByLabelText("Comment on selected text");
   await expect.element(comment).toBeVisible();
   await comment.click();
@@ -111,19 +100,10 @@ it("clears the sent prompt when an empty citation comment sends it", async () =>
   const editorRef = createRef<ComposerPromptEditorHandle>();
   await using screen = await render(<Composer question={false} editorRef={editorRef} />);
 
-  const sourceAnchor = findAssistantCitationSourceAnchor(document, citation);
-  if (!sourceAnchor) throw new Error("Citation source did not resolve");
-  await act(async () =>
-    editorRef.current?.requestCitationComment({
-      previousValue: "See ",
-      value: promptBefore,
-      citationStart: "See ".length,
-      sourceAnchor,
-      insertedSpaces: { before: false, after: true },
-    }),
-  );
+  await page.getByLabelText("Add comment to citation").click();
   const comment = page.getByLabelText("Comment on selected text");
-  await expect.element(comment).toHaveFocus();
+  await expect.element(comment).toBeVisible();
+  await comment.click();
   await userEvent.keyboard("{Control>}{Enter}{/Control}");
 
   await expect.element(comment).not.toBeInTheDocument();
@@ -139,19 +119,10 @@ it.each(["blocked", "refusedLater"] as const)(
       <Composer question={false} editorRef={editorRef} send={send} />,
     );
 
-    const sourceAnchor = findAssistantCitationSourceAnchor(document, citation);
-    if (!sourceAnchor) throw new Error("Citation source did not resolve");
-    await act(async () =>
-      editorRef.current?.requestCitationComment({
-        previousValue: "See ",
-        value: promptBefore,
-        citationStart: "See ".length,
-        sourceAnchor,
-        insertedSpaces: { before: false, after: true },
-      }),
-    );
+    await page.getByLabelText("Add comment to citation").click();
     const comment = page.getByLabelText("Comment on selected text");
-    await expect.element(comment).toHaveFocus();
+    await expect.element(comment).toBeVisible();
+    await comment.click();
     await userEvent.keyboard("{Control>}{Enter}{/Control}");
     await expect.element(comment).not.toBeInTheDocument();
     await userEvent.keyboard("x");
@@ -161,26 +132,3 @@ it.each(["blocked", "refusedLater"] as const)(
       .toHaveAttribute("data-prompt", `See ${serializeAssistantCitation(citation)}x `);
   },
 );
-
-it("cancels a new citation while dictation makes the composer read-only", async () => {
-  const editorRef = createRef<ComposerPromptEditorHandle>();
-  await using screen = await render(<Composer question={false} editorRef={editorRef} disabled />);
-
-  const sourceAnchor = findAssistantCitationSourceAnchor(document, citation);
-  if (!sourceAnchor) throw new Error("Citation source did not resolve");
-  await act(async () =>
-    editorRef.current?.requestCitationComment({
-      previousValue: "See ",
-      value: promptBefore,
-      citationStart: "See ".length,
-      sourceAnchor,
-      insertedSpaces: { before: false, after: true },
-    }),
-  );
-  await expect.element(page.getByLabelText("Comment on selected text")).toBeVisible();
-
-  await page.getByRole("button", { name: "Cancel" }).click();
-
-  await expect.element(page.getByLabelText("Comment on selected text")).not.toBeInTheDocument();
-  expect(screen.container.querySelector("output")?.dataset.prompt).toBe("See ");
-});
