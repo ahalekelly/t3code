@@ -2,7 +2,7 @@ name: Fork iPhone build
 
 # Builds the production app as an ad hoc IPA for Adrian's iPhone, signed by his team. The build
 # number is the version's run number, so `xcrun devicectl device info apps` shows which release a
-# phone runs. fork-release.yml calls it for each release; dispatch it to try a branch.
+# phone runs. fork-release.yml calls it when the app's code changes; dispatch it to try a branch.
 on:
   workflow_call:
     inputs:
@@ -34,6 +34,15 @@ jobs:
       T3CODE_IOS_BUNDLE_ID: com.akelly.t3code
       T3CODE_IOS_TEAM_ID: T3TBGN4UX7
       EXPO_NO_GIT_STATUS: "1"
+      # No upstream OTA update matches this build's native project, so skip both the update
+      # checks and the fingerprint that names its runtime.
+      T3CODE_MOBILE_UPDATES_ENABLED: "0"
+      MOBILE_VERSION_POLICY: appVersion
+      # The Podfile routes C, Objective-C, and C++ compiles through React Native's ccache wrapper,
+      # which runs $CCACHE_BINARY. Xcode keeps that build setting out of the compiler's
+      # environment, so without this the wrapper runs plain clang.
+      USE_CCACHE: "1"
+      CCACHE_BINARY: /opt/homebrew/bin/ccache
       VERSION: ${{ inputs.version }}
     steps:
       # The app's About screen names the upstream release it builds on, from `git describe`.
@@ -74,6 +83,15 @@ jobs:
           security list-keychains -d user -s "$keychain" $(security list-keychains -d user | tr -d '"')
           printf '%s' "$APPLE_API_KEY" > "$RUNNER_TEMP/AuthKey_$APPLE_API_KEY_ID.p8"
 
+      - name: Install ccache
+        run: HOMEBREW_NO_AUTO_UPDATE=1 brew install ccache
+      # Each run restores the newest cache and saves its own, so the cache follows the code.
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: ~/Library/Caches/ccache
+          key: ios-ccache-${{ github.run_id }}
+          restore-keys: ios-ccache-
+
       - name: Generate the native project
         working-directory: apps/mobile
         run: |
@@ -111,6 +129,10 @@ jobs:
             -exportOptionsPlist "$RUNNER_TEMP/options.plist" "${signing[@]}"
           mkdir -p "$GITHUB_WORKSPACE/release-ios"
           mv "$RUNNER_TEMP"/export/*.ipa "$GITHUB_WORKSPACE/release-ios/T3-Code-$VERSION.ipa"
+
+      - name: Show ccache hits
+        if: always()
+        run: ccache --show-stats
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
