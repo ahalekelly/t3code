@@ -162,12 +162,13 @@ export async function openFileInPreview<AssetError, PreviewError>(
       ),
     );
   }
+  const hostRef = rightPanelHostRef(input.threadRef);
   const assetUrl = await createFileAssetUrl(input);
   if (assetUrl._tag === "Failure") {
     return AsyncResult.failure(assetUrl.cause);
   }
   return openUrlInPreview({
-    threadRef: rightPanelHostRef(input.threadRef),
+    threadRef: hostRef,
     url: assetUrl.value,
     openPreview: input.openPreview,
   });
