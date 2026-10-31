@@ -206,7 +206,8 @@ function normalizeRouteLine(value: string | null): number | null {
 
 function defaultViewMode(path: string | null): FileViewMode {
   return path !== null &&
-    (isWorkspaceBrowserPreviewPath(path) ||
+    (isMarkdownPreviewFile(path) ||
+      isWorkspaceBrowserPreviewPath(path) ||
       isWorkspaceImagePreviewPath(path) ||
       isVideoPreviewFile(path) ||
       isAudioPreviewFile(path) ||
@@ -647,7 +648,9 @@ export function ThreadFileScreen(props: ThreadFileRouteScreenProps) {
   const activeMode =
     relativePath !== null && modeOverride?.path === relativePath
       ? modeOverride.mode
-      : targetLine !== null && filePreviewDelimiter({ name: relativePath ?? "" }) !== null
+      : targetLine !== null &&
+          (isMarkdownPreviewFile(relativePath ?? "") ||
+            filePreviewDelimiter({ name: relativePath ?? "" }) !== null)
         ? "source"
         : defaultViewMode(relativePath);
   const resolvedActiveMode =
