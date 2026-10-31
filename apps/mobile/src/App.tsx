@@ -4,7 +4,7 @@ import { installThreadOutboxDelivery } from "./state/threadOutboxDelivery";
 import * as Linking from "expo-linking";
 import * as SplashScreen from "expo-splash-screen";
 import { NativeModule, requireNativeModule } from "expo";
-import { useEffect } from "react";
+import { Profiler, useEffect } from "react";
 import { StatusBar } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { KeyboardProvider } from "react-native-keyboard-controller";
@@ -45,6 +45,7 @@ import {
   installAppearanceRuntime,
   useAppearancePreferences,
 } from "./features/settings/appearance/AppearancePreferencesProvider";
+import { recordReactCommit, traceAppLifecycle } from "./features/observability/appTraces";
 import { RootStack, rootPathnameFromState, workspaceLocationFromState } from "./Stack";
 import { appAtomRegistry } from "./state/atom-registry";
 import { subscribeComposerDraftModelReconciliation } from "./state/use-composer-drafts";
@@ -187,6 +188,7 @@ function handleNavigationStateChange(state: NavigationState | undefined): void {
 function handleNavigationReady(): void {
   handleNavigationStateChange(rootNavigationRef.getRootState());
   flushRootNavigationQueue();
+  traceAppLifecycle();
 }
 
 declare const module: { readonly hot?: FoundationHotModule } | undefined;
@@ -231,7 +233,9 @@ export default function App() {
     <RegistryContext.Provider value={appAtomRegistry}>
       <CloudAuthProvider>
         <AppearancePreferencesProvider>
-          <AppContent />
+          <Profiler id="app" onRender={recordReactCommit}>
+            <AppContent />
+          </Profiler>
         </AppearancePreferencesProvider>
       </CloudAuthProvider>
     </RegistryContext.Provider>
