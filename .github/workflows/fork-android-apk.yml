@@ -1,0 +1,84 @@
+name: Fork Android build
+
+# Builds the production app as an arm64 release APK for Adrian's Pixel, signed with the fork's key.
+# Its version code is the version's run number. fork-release.yml calls it when the app's code
+# changes; dispatch it to try a branch.
+on:
+  workflow_call:
+    inputs:
+      version:
+        type: string
+        required: true
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Release version to stamp, such as 0.1.6-fork-0001
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  apk:
+    name: Android
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    env:
+      # T3 Connect's public values, as in fork-release.yml. Without them the app never loads its
+      # T3 Connect sign-in, so no environment connects.
+      T3CODE_CLERK_PUBLISHABLE_KEY: pk_live_Y2xlcmsudDMuY29kZXMk
+      T3CODE_CLERK_JWT_TEMPLATE: t3-relay
+      T3CODE_RELAY_URL: https://relay.t3.codes
+      APP_VARIANT: production
+      T3CODE_ANDROID_PACKAGE: com.akelly.t3code
+      EXPO_NO_GIT_STATUS: "1"
+      # No upstream OTA update matches this build's native project, so skip both the update
+      # checks and the fingerprint that names its runtime.
+      T3CODE_MOBILE_UPDATES_ENABLED: "0"
+      MOBILE_VERSION_POLICY: appVersion
+      VERSION: ${{ inputs.version }}
+    steps:
+      # The app's About screen names the upstream release it builds on, from `git describe`.
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+          filter: blob:none
+          sparse-checkout: |
+            /*
+            !/.repos/
+          sparse-checkout-cone-mode: false
+      - uses: ./.github/actions/setup-ci-deps
+        with:
+          install-args: --filter=@t3tools/mobile... --filter=@t3tools/scripts...
+      - uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: gradle/actions/setup-gradle@8da46b539cd8fe6ab27ca75128919a18d757604c # v6
+
+      - name: Generate the native project
+        working-directory: apps/mobile
+        run: T3CODE_ANDROID_VERSION_CODE="$((10#${VERSION##*-}))" vp exec expo prebuild --clean --platform android --no-install
+
+      # Android Studio's injected signing properties override the generated debug signing.
+      - name: Build the APK
+        working-directory: apps/mobile/android
+        env:
+          ANDROID_KEYSTORE: ${{ secrets.ANDROID_KEYSTORE }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+        run: |
+          set -euo pipefail
+          printf '%s' "$ANDROID_KEYSTORE" | base64 --decode > "$RUNNER_TEMP/release.jks"
+          ./gradlew assembleRelease -PreactNativeArchitectures=arm64-v8a \
+            -Pandroid.injected.signing.store.file="$RUNNER_TEMP/release.jks" \
+            -Pandroid.injected.signing.store.password="$ANDROID_KEYSTORE_PASSWORD" \
+            -Pandroid.injected.signing.key.alias=t3code \
+            -Pandroid.injected.signing.key.password="$ANDROID_KEYSTORE_PASSWORD"
+          mkdir -p "$GITHUB_WORKSPACE/release-android"
+          mv app/build/outputs/apk/release/app-release.apk "$GITHUB_WORKSPACE/release-android/T3-Code-$VERSION.apk"
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: android-apk
+          path: release-android/*.apk
+          if-no-files-found: error

@@ -1,8 +1,9 @@
 name: Fork release
 
 # Tests each main revision and publishes the builds whose code changed since their last release:
-# the desktop apps and CLI as this repository's Latest release `v<version>`, and the iPhone app as
-# `ios-<version>`, which is never Latest. Installed fork builds update from these releases.
+# the desktop apps and CLI as this repository's Latest release `v<version>`, and the iPhone and
+# Android apps as `ios-<version>` and `android-<version>`, which are never Latest. Installed fork
+# builds update from these releases.
 # Versions are prereleases of the next upstream patch, `<major>.<minor>.<patch + 1>-fork-<run>`,
 # so each one ranks above the upstream release it is built on and below the next one. The run is
 # zero-padded to four digits, because GitHub lists a day's releases by comparing that part as text.
@@ -31,6 +32,7 @@ jobs:
       base: ${{ steps.version.outputs.base }}
       host: ${{ steps.changes.outputs.host }}
       mobile: ${{ steps.changes.outputs.mobile }}
+      android: ${{ steps.changes.outputs.android }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -56,7 +58,7 @@ jobs:
 
       # pnpm lists each package changed since a release and every package depending on it. The root
       # package stands for files outside any package, and the mobile app config imports scripts/.
-      # The desktop base is the Latest release; the iPhone base is the highest-run `ios-` tag.
+      # The desktop base is the Latest release; each phone's base is its highest-run tag.
       - id: changes
         name: Find the builds to release
         env:
@@ -71,13 +73,20 @@ jobs:
             listed=$(npx --yes corepack pnpm --filter "...[$base]" --changed-files-ignore-pattern '**/*.md' ls --depth -1 --json)
             jq --args 'any(.[].name; IN($ARGS.positional[]))' @t3tools/monorepo @t3tools/scripts "$@" <<<"$listed"
           }
+          last_tag() {
+            git tag --list "$1-[0-9]*" | awk -F- '{ print $NF, $0 }' | sort -n | awk 'END { print $2 }'
+          }
           host_base=$(gh release view -R "$GITHUB_REPOSITORY" --json tagName --jq .tagName)
-          mobile_base=$(git tag --list 'ios-[0-9]*' | awk -F- '{ print $NF, $0 }' | sort -n | awk 'END { print $2 }')
+          mobile_base=$(last_tag ios)
+          android_base=$(last_tag android)
           host=$(affects "$host_base" t3 @t3tools/web @t3tools/desktop)
           mobile=$(affects "$mobile_base" @t3tools/mobile)
-          echo "Desktop and CLI: $host since $host_base; iPhone: $mobile since ${mobile_base:-no release}"
+          android=$(affects "$android_base" @t3tools/mobile)
+          echo "Desktop and CLI: $host since $host_base"
+          echo "iPhone: $mobile since ${mobile_base:-no release}; Android: $android since ${android_base:-no release}"
           echo "host=$host" >> "$GITHUB_OUTPUT"
           echo "mobile=$mobile" >> "$GITHUB_OUTPUT"
+          echo "android=$android" >> "$GITHUB_OUTPUT"
 
       # Fork migrations collide with upstream's numbering when the fork moves to a new release.
       - name: Refuse fork-only database migrations
@@ -283,6 +292,15 @@ jobs:
       version: ${{ needs.preflight.outputs.version }}
     secrets: inherit
 
+  android_apk:
+    name: Android
+    needs: [preflight]
+    if: needs.preflight.outputs.android == 'true'
+    uses: ./.github/workflows/fork-android-apk.yml
+    with:
+      version: ${{ needs.preflight.outputs.version }}
+    secrets: inherit
+
   release:
     name: Publish release
     needs: [preflight, quality, test, test_web, test_server, desktop_linux_x64, desktop_mac_arm64, desktop_win_x64]
@@ -349,3 +367,27 @@ jobs:
           gh release create "ios-$VERSION" release-ios/* \
             --target "$GITHUB_SHA" --title "T3 Code iPhone $VERSION" --latest=false \
             --notes "Fork iPhone build of \`main\` at $GITHUB_SHA, on upstream $BASE."
+
+  release_android:
+    name: Publish Android release
+    needs: [preflight, quality, test, test_web, test_server, android_apk]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: android-apk
+          path: release-android
+
+      - name: Publish Android release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          VERSION: ${{ needs.preflight.outputs.version }}
+          BASE: ${{ needs.preflight.outputs.base }}
+        run: |
+          gh release create "android-$VERSION" release-android/* \
+            --target "$GITHUB_SHA" --title "T3 Code Android $VERSION" --latest=false \
+            --notes "Fork Android build of \`main\` at $GITHUB_SHA, on upstream $BASE."
