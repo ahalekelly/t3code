@@ -358,7 +358,8 @@ automatically. HTML previews cannot access your T3 Code session.
 
 Selecting an HTML, PDF, or Markdown file link opens it where **Open links in**
 sends links. Right-click an HTML or PDF link and choose **Open in integrated
-browser** to open it in T3 Code.
+browser** to open it in T3 Code. Markdown opens as plain text unless the browser
+has a Markdown viewer extension.
 
 The file viewer recognizes images, HTML, and PDF files by their filename extension,
 including filenames or folders containing `#` or `?`.
