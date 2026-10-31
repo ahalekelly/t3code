@@ -245,9 +245,17 @@ jobs:
       rust_target: x86_64-pc-windows-msvc
       resource_key: win32-x64
 
+  ios_ipa:
+    name: iPhone
+    needs: [preflight]
+    uses: ./.github/workflows/fork-ios-ipa.yml
+    with:
+      version: ${{ needs.preflight.outputs.version }}
+    secrets: inherit
+
   release:
     name: Publish release
-    needs: [preflight, quality, test, test_web, test_server, desktop_linux_x64, desktop_mac_arm64, desktop_win_x64]
+    needs: [preflight, quality, test, test_web, test_server, desktop_linux_x64, desktop_mac_arm64, desktop_win_x64, ios_ipa]
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:
@@ -263,6 +271,11 @@ jobs:
         with:
           pattern: desktop-*
           merge-multiple: true
+          path: release-assets
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: ios-ipa
           path: release-assets
 
       # The build job suffixes the Windows feed with its arch; electron-updater reads latest.yml.
