@@ -12,7 +12,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: Release version to stamp, such as 0.1.6-fork-0001
+        description: Release version to stamp, such as 0.1.7-akelly-0001
         required: true
 
 permissions:
