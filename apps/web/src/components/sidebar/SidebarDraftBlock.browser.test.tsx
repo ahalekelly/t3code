@@ -1,10 +1,10 @@
 import { scopeProjectRef, scopeThreadRef } from "@t3tools/client-runtime/environment";
 import { EnvironmentId, MessageId, ProjectId, ThreadId } from "@t3tools/contracts";
+import { serializeAssistantCitation } from "@t3tools/shared/assistantCitations";
 import { Profiler } from "react";
 import { expect, it, vi } from "vite-plus/test";
 
 import { act, render } from "../../../test/render";
-import { formatAssistantCitationForComposer } from "../../composer-logic";
 import { DraftId, useComposerDraftStore } from "../../composerDraftStore";
 import { SidebarDraftBlock, useSidebarDrafts } from "./SidebarDraftBlock";
 
@@ -72,7 +72,7 @@ it("keeps draft previews current through edits, promotion and removal", async ()
   await expect.element(row).toHaveAccessibleName("Updated draft preview, Unsent draft");
 
   const quote = "Cache the parsed config per worktree.";
-  const citation = formatAssistantCitationForComposer({
+  const citation = serializeAssistantCitation({
     version: 1,
     environmentId,
     threadId: ThreadId.make("source-thread"),
@@ -83,7 +83,7 @@ it("keeps draft previews current through edits, promotion and removal", async ()
     prefix: "",
     suffix: "",
   });
-  await act(() => initial.setPrompt(draftId, `${citation}Why per worktree?`));
+  await act(() => initial.setPrompt(draftId, `${citation} Why per worktree?`));
   await expect.element(row).toHaveAccessibleName(`${quote} Why per worktree?, Unsent draft`);
 
   await act(() => initial.markDraftThreadPromoting(draftId));
