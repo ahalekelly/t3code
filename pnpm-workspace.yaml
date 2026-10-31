@@ -133,6 +133,7 @@ overrides:
   gt-react-native: 11.4.18
   app-builder-lib: 26.16.1
   electron-updater: 6.8.9
+  "@electron/notarize": 2.5.0
   expo-modules-core: 58.1.0
   # Keep jsdom's optional peer consistent so Vite+ has one test-runner instance.
   "@exodus/bytes>@noble/hashes": "1.8.0"
@@ -295,6 +296,7 @@ patchedDependencies:
   effect@4.1.5: patches/effect@4.1.5.patch
   "@generaltranslation/format@0.1.9": patches/@generaltranslation__format@0.1.9.patch
   gt-i18n@1.0.40: patches/gt-i18n@1.0.40.patch
+  "@electron/notarize@2.5.0": patches/@electron__notarize@2.5.0.patch
 
 # Unmet peers fail resolution, so a pin outside a dependency's peer range is
 # caught when the lockfile changes instead of scrolling past as a warning.
