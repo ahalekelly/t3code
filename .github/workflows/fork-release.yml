@@ -1,7 +1,8 @@
 name: Fork release
 
-# Builds every artifact the fork's machines run from one main revision, tests it, and publishes it
-# as this repository's Latest release. Installed fork builds update from these releases.
+# Tests each main revision and publishes the builds whose code changed since their last release:
+# the desktop apps and CLI as this repository's Latest release `v<version>`, and the iPhone app as
+# `ios-<version>`, which is never Latest. Installed fork builds update from these releases.
 # Versions are prereleases of the next upstream patch, `<major>.<minor>.<patch + 1>-fork-<run>`,
 # so each one ranks above the upstream release it is built on and below the next one. The run is
 # zero-padded to four digits, because GitHub lists a day's releases by comparing that part as text.
@@ -28,6 +29,8 @@ jobs:
     outputs:
       version: ${{ steps.version.outputs.version }}
       base: ${{ steps.version.outputs.base }}
+      host: ${{ steps.changes.outputs.host }}
+      mobile: ${{ steps.changes.outputs.mobile }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -50,6 +53,31 @@ jobs:
           echo "Building $version on $base"
           echo "base=$base" >> "$GITHUB_OUTPUT"
           echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      # pnpm lists each package changed since a release and every package depending on it. The root
+      # package stands for files outside any package, and the mobile app config imports scripts/.
+      # The desktop base is the Latest release; the iPhone base is the highest-run `ios-` tag.
+      - id: changes
+        name: Find the builds to release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          shopt -s inherit_errexit
+          affects() {
+            local base=$1; shift
+            if [[ -z "$base" ]]; then echo true; return; fi
+            local listed
+            listed=$(npx --yes corepack pnpm --filter "...[$base]" --changed-files-ignore-pattern '**/*.md' ls --depth -1 --json)
+            jq --args 'any(.[].name; IN($ARGS.positional[]))' @t3tools/monorepo @t3tools/scripts "$@" <<<"$listed"
+          }
+          host_base=$(gh release view -R "$GITHUB_REPOSITORY" --json tagName --jq .tagName)
+          mobile_base=$(git tag --list 'ios-[0-9]*' | awk -F- '{ print $NF, $0 }' | sort -n | awk 'END { print $2 }')
+          host=$(affects "$host_base" t3 @t3tools/web @t3tools/desktop)
+          mobile=$(affects "$mobile_base" @t3tools/mobile)
+          echo "Desktop and CLI: $host since $host_base; iPhone: $mobile since ${mobile_base:-no release}"
+          echo "host=$host" >> "$GITHUB_OUTPUT"
+          echo "mobile=$mobile" >> "$GITHUB_OUTPUT"
 
       # Fork migrations collide with upstream's numbering when the fork moves to a new release.
       - name: Refuse fork-only database migrations
@@ -137,6 +165,7 @@ jobs:
   build_bundle:
     name: Build JS bundle
     needs: [preflight]
+    if: needs.preflight.outputs.host == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     env:
@@ -248,6 +277,7 @@ jobs:
   ios_ipa:
     name: iPhone
     needs: [preflight]
+    if: needs.preflight.outputs.mobile == 'true'
     uses: ./.github/workflows/fork-ios-ipa.yml
     with:
       version: ${{ needs.preflight.outputs.version }}
@@ -255,7 +285,7 @@ jobs:
 
   release:
     name: Publish release
-    needs: [preflight, quality, test, test_web, test_server, desktop_linux_x64, desktop_mac_arm64, desktop_win_x64, ios_ipa]
+    needs: [preflight, quality, test, test_web, test_server, desktop_linux_x64, desktop_mac_arm64, desktop_win_x64]
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:
@@ -271,11 +301,6 @@ jobs:
         with:
           pattern: desktop-*
           merge-multiple: true
-          path: release-assets
-
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
-        with:
-          name: ios-ipa
           path: release-assets
 
       # The build job suffixes the Windows feed with its arch; electron-updater reads latest.yml.
@@ -300,3 +325,27 @@ jobs:
           gh release create "v$VERSION" release-assets/* \
             --target "$GITHUB_SHA" --title "T3 Code $VERSION" --latest \
             --notes "Fork build of \`main\` at $GITHUB_SHA, on upstream $BASE."
+
+  release_ios:
+    name: Publish iPhone release
+    needs: [preflight, quality, test, test_web, test_server, ios_ipa]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: ios-ipa
+          path: release-ios
+
+      - name: Publish iPhone release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          VERSION: ${{ needs.preflight.outputs.version }}
+          BASE: ${{ needs.preflight.outputs.base }}
+        run: |
+          gh release create "ios-$VERSION" release-ios/* \
+            --target "$GITHUB_SHA" --title "T3 Code iPhone $VERSION" --latest=false \
+            --notes "Fork iPhone build of \`main\` at $GITHUB_SHA, on upstream $BASE."
