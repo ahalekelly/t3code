@@ -64,6 +64,23 @@ const POSIX_FILE_ROOT_PREFIXES = [
   "/workspaces/",
 ] as const;
 
+// Ends at whitespace, quotes, brackets, and `#?%`, which a link would read as URL syntax.
+const BARE_FILE_PATH_PATTERN =
+  /(?<![\w.~:/\\`#?%-])(?:~?\/|[A-Za-z]:[\\/])(?:[^\s`"'<>()[\]{}|#?%\\/]+[\\/])+[^\s`"'<>()[\]{}|#?%\\/]*\.[A-Za-z0-9]+(?::\d+(?::\d+)?)?(?![\w/\\~-])/g;
+
+/**
+ * Absolute file paths in prose: under a filesystem root, `~/`, or a drive, with a file
+ * extension and an optional `:line[:column]`, minus trailing sentence punctuation.
+ */
+export function bareFilePathMatches(text: string): Array<{ index: number; path: string }> {
+  return [...text.matchAll(BARE_FILE_PATH_PATTERN)]
+    .filter(
+      ([path]) =>
+        !path.startsWith("/") || POSIX_FILE_ROOT_PREFIXES.some((root) => path.startsWith(root)),
+    )
+    .map((match) => ({ index: match.index, path: match[0] }));
+}
+
 const EXTENSIONLESS_FILE_NAMES = new Set([
   "Makefile",
   "makefile",
