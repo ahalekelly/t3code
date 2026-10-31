@@ -1,0 +1,393 @@
+name: Fork release
+
+# Tests each main revision and publishes the builds whose code changed since their last release:
+# the desktop apps and CLI as this repository's Latest release `v<version>`, and the iPhone and
+# Android apps as `ios-<version>` and `android-<version>`, which are never Latest. Installed fork
+# builds update from these releases.
+# Versions are prereleases of the next upstream patch, `<major>.<minor>.<patch + 1>-fork-<run>`,
+# so each one ranks above the upstream release it is built on and below the next one. The run is
+# zero-padded to four digits, because GitHub lists a day's releases by comparing that part as text.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: fork-release
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  # release-desktop.yml asks for it; a called workflow gets no more than its caller.
+  actions: read
+
+jobs:
+  preflight:
+    name: Resolve version
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      base: ${{ steps.version.outputs.base }}
+      host: ${{ steps.changes.outputs.host }}
+      mobile: ${{ steps.changes.outputs.mobile }}
+      android: ${{ steps.changes.outputs.android }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+          filter: blob:none
+          sparse-checkout: |
+            /*
+            !/.repos/
+          sparse-checkout-cone-mode: false
+
+      - id: version
+        name: Resolve version
+        run: |
+          set -euo pipefail
+          git fetch --quiet --no-tags https://github.com/pingdotgg/t3code.git '+refs/tags/v*:refs/tags/v*'
+          # The newest stable tag main contains; version sort ranks prereleases above it, so drop them.
+          base=$(git tag --merged HEAD --list 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | grep -v -m1 -- -)
+          IFS=. read -r major minor patch <<<"${base#v}"
+          version=$(printf '%s.%s.%s-fork-%04d' "$major" "$minor" "$((patch + 1))" "$GITHUB_RUN_NUMBER")
+          echo "Building $version on $base"
+          echo "base=$base" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      # pnpm lists each package changed since a release and every package depending on it. The root
+      # package stands for files outside any package, and the mobile app config imports scripts/.
+      # The desktop base is the Latest release; each phone's base is its highest-run tag.
+      - id: changes
+        name: Find the builds to release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          shopt -s inherit_errexit
+          affects() {
+            local base=$1; shift
+            if [[ -z "$base" ]]; then echo true; return; fi
+            local listed
+            listed=$(npx --yes corepack pnpm --filter "...[$base]" --changed-files-ignore-pattern '**/*.md' ls --depth -1 --json)
+            jq --args 'any(.[].name; IN($ARGS.positional[]))' @t3tools/monorepo @t3tools/scripts "$@" <<<"$listed"
+          }
+          last_tag() {
+            git tag --list "$1-[0-9]*" | awk -F- '{ print $NF, $0 }' | sort -n | awk 'END { print $2 }'
+          }
+          host_base=$(gh release view -R "$GITHUB_REPOSITORY" --json tagName --jq .tagName)
+          mobile_base=$(last_tag ios)
+          android_base=$(last_tag android)
+          host=$(affects "$host_base" t3 @t3tools/web @t3tools/desktop)
+          mobile=$(affects "$mobile_base" @t3tools/mobile)
+          android=$(affects "$android_base" @t3tools/mobile)
+          echo "Desktop and CLI: $host since $host_base"
+          echo "iPhone: $mobile since ${mobile_base:-no release}; Android: $android since ${android_base:-no release}"
+          echo "host=$host" >> "$GITHUB_OUTPUT"
+          echo "mobile=$mobile" >> "$GITHUB_OUTPUT"
+          echo "android=$android" >> "$GITHUB_OUTPUT"
+
+      # Fork migrations collide with upstream's numbering when the fork moves to a new release.
+      - name: Refuse fork-only database migrations
+        env:
+          BASE: ${{ steps.version.outputs.base }}
+        run: |
+          set -euo pipefail
+          added=$(git diff --name-only --diff-filter=A "$BASE" HEAD -- apps/server/src/persistence/Migrations ':!*.test.ts')
+          if [[ -n "$added" ]]; then
+            printf 'Fork branches add database migrations; land them upstream first:\n%s\n' "$added" >&2
+            exit 1
+          fi
+
+  # No `vp check`: lint rules gate upstream PRs, not whether a build works.
+  quality:
+    name: Typecheck
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          sparse-checkout: |
+            /*
+            !/.repos/
+          sparse-checkout-cone-mode: false
+      - uses: ./.github/actions/setup-ci-deps
+      - run: vp run --filter @t3tools/desktop ensure:electron
+      - run: vp run typecheck
+
+  test:
+    name: Package tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          sparse-checkout: |
+            /*
+            !/.repos/
+          sparse-checkout-cone-mode: false
+      - uses: ./.github/actions/setup-ci-deps
+      - run: vp run --filter @t3tools/desktop ensure:electron
+      - run: sudo apt-get update && sudo apt-get install -y libsecret-1-dev pkg-config build-essential
+      - run: vp run --parallel --concurrency-limit 4 --filter '!t3' --filter '!@t3tools/monorepo' --filter '!@t3tools/web' test
+
+  test_web:
+    name: Web tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          sparse-checkout: |
+            /*
+            !/.repos/
+          sparse-checkout-cone-mode: false
+      - uses: ./.github/actions/setup-ci-deps
+      - run: node apps/web/node_modules/playwright/cli.js install --with-deps --only-shell chromium
+      - run: vp run --filter @t3tools/web test
+      - name: Boot the built web client
+        run: |
+          vp run --filter @t3tools/web build
+          node apps/web/scripts/verify-built-boot.ts
+
+  test_server:
+    name: Server tests ${{ matrix.shard }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4, 5, 6, 7, 8]
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          sparse-checkout: |
+            /*
+            !/.repos/
+          sparse-checkout-cone-mode: false
+      - uses: ./.github/actions/setup-ci-deps
+      - run: node apps/server/node_modules/playwright-core/cli.js install --with-deps --only-shell chromium
+      - run: vp run --filter t3 test --shard ${{ matrix.shard }}/${{ strategy.job-total }}
+
+  # T3 Connect's public values, baked into the bundle so fork builds use upstream's relay.
+  build_bundle:
+    name: Build JS bundle
+    needs: [preflight]
+    if: needs.preflight.outputs.host == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      T3CODE_CLERK_PUBLISHABLE_KEY: pk_live_Y2xlcmsudDMuY29kZXMk
+      T3CODE_CLERK_JWT_TEMPLATE: t3-relay
+      T3CODE_CLERK_CLI_OAUTH_CLIENT_ID: hzxSgY2cH10sDU2r
+      T3CODE_RELAY_URL: https://relay.t3.codes
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          sparse-checkout: |
+            /*
+            !/.repos/
+          sparse-checkout-cone-mode: false
+      - uses: ./.github/actions/setup-ci-deps
+        with:
+          install-args: --filter=t3... --filter=@t3tools/web... --filter=@t3tools/desktop... --filter=@t3tools/scripts...
+      - run: node scripts/update-release-package-versions.ts "${{ needs.preflight.outputs.version }}"
+      - run: sudo apt-get update && sudo apt-get install -y libsecret-1-dev pkg-config
+      - name: Build JS bundle
+        env:
+          T3CODE_TELEMETRY_CHANNEL: dev
+        run: vp run build:desktop
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: js-bundle
+          path: |
+            apps/server/dist
+            apps/desktop/dist-electron
+          if-no-files-found: error
+          retention-days: 1
+
+  desktop_linux_x64:
+    name: Linux x64
+    needs: [preflight, build_bundle]
+    uses: ./.github/workflows/release-desktop.yml
+    with:
+      version: ${{ needs.preflight.outputs.version }}
+      ref: ${{ github.sha }}
+      release_channel: stable
+      relay_client_tracing: false
+      clerk_publishable_key: pk_live_Y2xlcmsudDMuY29kZXMk
+      clerk_jwt_template: t3-relay
+      clerk_cli_oauth_client_id: hzxSgY2cH10sDU2r
+      relay_url: https://relay.t3.codes
+      label: Linux x64
+      runner: ubuntu-24.04
+      platform: linux
+      target: AppImage
+      arch: x64
+      rust_target: x86_64-unknown-linux-gnu
+      resource_key: linux-x64
+      cli_archive: true
+      launch_check: true
+
+  # The Mac and Windows machines run the desktop app, which bundles its own server, so neither
+  # needs its platform's CLI archive.
+  desktop_mac_arm64:
+    name: macOS arm64
+    needs: [preflight, build_bundle]
+    uses: ./.github/workflows/release-desktop.yml
+    with:
+      version: ${{ needs.preflight.outputs.version }}
+      ref: ${{ github.sha }}
+      release_channel: stable
+      relay_client_tracing: false
+      clerk_publishable_key: pk_live_Y2xlcmsudDMuY29kZXMk
+      clerk_jwt_template: t3-relay
+      clerk_cli_oauth_client_id: hzxSgY2cH10sDU2r
+      relay_url: https://relay.t3.codes
+      label: macOS arm64
+      runner: macos-15
+      platform: mac
+      target: dmg
+      arch: arm64
+      rust_target: aarch64-apple-darwin
+      resource_key: darwin-arm64
+      launch_check: true
+    secrets:
+      CSC_LINK: ${{ secrets.CSC_LINK }}
+      CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+      APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+      APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+      APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+
+  # Packaged on Linux, checked on Windows. Embeds the Linux CLI archive for the WSL backend.
+  desktop_win_x64:
+    name: Windows x64
+    needs: [preflight, build_bundle]
+    uses: ./.github/workflows/release-desktop.yml
+    with:
+      version: ${{ needs.preflight.outputs.version }}
+      ref: ${{ github.sha }}
+      release_channel: stable
+      relay_client_tracing: false
+      clerk_publishable_key: pk_live_Y2xlcmsudDMuY29kZXMk
+      clerk_jwt_template: t3-relay
+      clerk_cli_oauth_client_id: hzxSgY2cH10sDU2r
+      relay_url: https://relay.t3.codes
+      label: Windows x64
+      runner: ubuntu-24.04
+      verify_runner: windows-2025
+      platform: win
+      target: nsis
+      arch: x64
+      rust_target: x86_64-pc-windows-msvc
+      resource_key: win32-x64
+
+  ios_ipa:
+    name: iPhone
+    needs: [preflight]
+    if: needs.preflight.outputs.mobile == 'true'
+    uses: ./.github/workflows/fork-ios-ipa.yml
+    with:
+      version: ${{ needs.preflight.outputs.version }}
+    secrets: inherit
+
+  android_apk:
+    name: Android
+    needs: [preflight]
+    if: needs.preflight.outputs.android == 'true'
+    uses: ./.github/workflows/fork-android-apk.yml
+    with:
+      version: ${{ needs.preflight.outputs.version }}
+    secrets: inherit
+
+  release:
+    name: Publish release
+    needs: [preflight, quality, test, test_web, test_server, desktop_linux_x64, desktop_mac_arm64, desktop_win_x64]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          pattern: cli-*
+          merge-multiple: true
+          path: release-assets
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          pattern: desktop-*
+          merge-multiple: true
+          path: release-assets
+
+      # The build job suffixes the Windows feed with its arch; electron-updater reads latest.yml.
+      - name: Name the Windows update feed
+        run: mv release-assets/latest-win-x64.yml release-assets/latest.yml
+
+      # Installers verify archives against this file.
+      - name: Write CLI archive checksums
+        working-directory: release-assets
+        run: |
+          set -euo pipefail
+          sha256sum t3-*.tar.gz > SHA256SUMS
+          cat SHA256SUMS
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          VERSION: ${{ needs.preflight.outputs.version }}
+          BASE: ${{ needs.preflight.outputs.base }}
+        run: |
+          gh release create "v$VERSION" release-assets/* \
+            --target "$GITHUB_SHA" --title "T3 Code $VERSION" --latest \
+            --notes "Fork build of \`main\` at $GITHUB_SHA, on upstream $BASE."
+
+  release_ios:
+    name: Publish iPhone release
+    needs: [preflight, quality, test, test_web, test_server, ios_ipa]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: ios-ipa
+          path: release-ios
+
+      - name: Publish iPhone release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          VERSION: ${{ needs.preflight.outputs.version }}
+          BASE: ${{ needs.preflight.outputs.base }}
+        run: |
+          gh release create "ios-$VERSION" release-ios/* \
+            --target "$GITHUB_SHA" --title "T3 Code iPhone $VERSION" --latest=false \
+            --notes "Fork iPhone build of \`main\` at $GITHUB_SHA, on upstream $BASE."
+
+  release_android:
+    name: Publish Android release
+    needs: [preflight, quality, test, test_web, test_server, android_apk]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: android-apk
+          path: release-android
+
+      - name: Publish Android release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          VERSION: ${{ needs.preflight.outputs.version }}
+          BASE: ${{ needs.preflight.outputs.base }}
+        run: |
+          gh release create "android-$VERSION" release-android/* \
+            --target "$GITHUB_SHA" --title "T3 Code Android $VERSION" --latest=false \
+            --notes "Fork Android build of \`main\` at $GITHUB_SHA, on upstream $BASE."
