@@ -21,12 +21,14 @@ permissions:
 jobs:
   ipa:
     name: iPhone
-    # Build with the SDK of the phone's iOS: the same code built with Xcode 26's iOS 26.5 SDK
-    # never connects to a server on iOS 27.
-    runs-on: xcode-27
+    runs-on: macos-26
     timeout-minutes: 120
     env:
-      DEVELOPER_DIR: /Applications/Xcode_27.2.app/Contents/Developer
+      # T3 Connect's public values, as in fork-release.yml. Without them the app never loads its
+      # T3 Connect sign-in, so no environment connects.
+      T3CODE_CLERK_PUBLISHABLE_KEY: pk_live_Y2xlcmsudDMuY29kZXMk
+      T3CODE_CLERK_JWT_TEMPLATE: t3-relay
+      T3CODE_RELAY_URL: https://relay.t3.codes
       APP_VARIANT: production
       T3CODE_IOS_SIGNING: personal
       T3CODE_IOS_BUNDLE_ID: com.akelly.t3code
