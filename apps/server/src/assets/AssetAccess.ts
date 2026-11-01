@@ -21,6 +21,7 @@ import {
 } from "@t3tools/contracts";
 import {
   hostPreviewMimeTypeFromExtension,
+  isMarkdownPath,
   isWorkspaceAudioPreviewPath,
   isWorkspacePreviewEntryPath,
   isWorkspaceVideoPreviewPath,
@@ -122,6 +123,9 @@ const PREVIEW_ASSET_EXTENSIONS = new Set([
   ".ttf",
   ".woff",
   ".woff2",
+  // Markdown pages link to neighboring Markdown pages.
+  ".md",
+  ".markdown",
 ]);
 
 const isPreviewDependencyPath = (filePath: string, path: Path.Path) =>
@@ -580,7 +584,8 @@ const finalizeWorkspaceFileAsset = Effect.fn("AssetAccess.finalizeWorkspaceFileA
     )
       ? yield* readImageDimensionsFromHeader(canonicalFile)
       : null;
-    if (!/\.html?$/i.test(resolved.relativePath)) {
+    // The browser resolves a page's relative links against its URL, so the token covers its folder.
+    if (!/\.html?$/i.test(resolved.relativePath) && !isMarkdownPath(resolved.relativePath)) {
       return {
         claims: {
           version: 1 as const,
