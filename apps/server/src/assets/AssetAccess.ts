@@ -20,6 +20,7 @@ import {
 } from "@t3tools/contracts";
 import {
   hostPreviewMimeTypeFromExtension,
+  isMarkdownPath,
   isWorkspaceAudioPreviewPath,
   isWorkspacePreviewEntryPath,
   isWorkspaceVideoPreviewPath,
@@ -100,6 +101,9 @@ const PREVIEW_ASSET_EXTENSIONS = new Set([
   ".ttf",
   ".woff",
   ".woff2",
+  // Markdown pages link to neighboring Markdown pages.
+  ".md",
+  ".markdown",
 ]);
 
 const AssetClaimsSchema = Schema.Union([
@@ -507,21 +511,23 @@ const finalizeWorkspaceFileAsset = Effect.fn("AssetAccess.finalizeWorkspaceFileA
       ? yield* readImageDimensionsFromHeader(canonicalFile)
       : null;
     return {
-      claims: !/\.html?$/i.test(resolved.relativePath)
-        ? {
-            version: 1 as const,
-            kind: "workspace-file-exact" as const,
-            workspaceRoot: canonicalWorkspaceRoot,
-            relativePath: resolved.relativePath,
-            expiresAt: input.expiresAt,
-          }
-        : {
-            version: 1 as const,
-            kind: "workspace-file" as const,
-            workspaceRoot: canonicalWorkspaceRoot,
-            baseRelativePath: path.dirname(resolved.relativePath),
-            expiresAt: input.expiresAt,
-          },
+      // The browser resolves a page's relative links against its URL, so the token covers its folder.
+      claims:
+        /\.html?$/i.test(resolved.relativePath) || isMarkdownPath(resolved.relativePath)
+          ? {
+              version: 1 as const,
+              kind: "workspace-file" as const,
+              workspaceRoot: canonicalWorkspaceRoot,
+              baseRelativePath: path.dirname(resolved.relativePath),
+              expiresAt: input.expiresAt,
+            }
+          : {
+              version: 1 as const,
+              kind: "workspace-file-exact" as const,
+              workspaceRoot: canonicalWorkspaceRoot,
+              relativePath: resolved.relativePath,
+              expiresAt: input.expiresAt,
+            },
       fileName: path.basename(resolved.relativePath),
       imageDimensions,
       fileRevision: undefined,
