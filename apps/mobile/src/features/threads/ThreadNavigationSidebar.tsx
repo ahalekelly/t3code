@@ -567,7 +567,8 @@ function ThreadNavigationSidebarPane(
             snoozePresetMinute={item.snoozePresetMinute ?? ""}
             snoozeWakeLabelText={item.snoozeWakeLabelText}
             timeLabel={item.timeLabel}
-            project={item.item.inFolder ? null : (projectByKey.get(scopeKey) ?? null)}
+            project={projectByKey.get(scopeKey) ?? null}
+            inFolder={item.item.inFolder}
             providerInstance={resolveProviderInstance(thread)}
             providers={providersByEnvironmentId.get(thread.environmentId)}
             environmentLabel={

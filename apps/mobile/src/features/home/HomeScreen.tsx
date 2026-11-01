@@ -596,11 +596,8 @@ export function HomeScreen(props: HomeScreenProps) {
         snoozeWakeLabelText={item.snoozeWakeLabelText}
         timeLabel={item.timeLabel}
         showTrailingDivider={item.showTrailingDivider}
-        project={
-          item.item.inFolder
-            ? null
-            : (projectByKey.get(scopedProjectKey(thread.environmentId, thread.projectId)) ?? null)
-        }
+        project={projectByKey.get(scopedProjectKey(thread.environmentId, thread.projectId)) ?? null}
+        inFolder={item.item.inFolder}
         providerInstance={resolveProviderInstance(thread)}
         providers={providersByEnvironmentId.get(thread.environmentId)}
         environmentLabel={
