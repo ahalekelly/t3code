@@ -72,6 +72,8 @@ import {
   RelayLinkProofRequest,
 } from "./relay.ts";
 
+export const ENVIRONMENT_OTLP_TRACES_PATH = "/api/observability/v1/traces";
+
 const OptionalBearerHeaders = Schema.Struct({
   authorization: Schema.optionalKey(Schema.String),
   dpop: Schema.optionalKey(Schema.String),
@@ -815,6 +817,18 @@ class EnvironmentConnectHttpApi extends HttpApiGroup.make("connect")
     }),
   ) {}
 
+// The payload is opaque OTLP/JSON: the server decodes it itself. No auth
+// middleware: the handler authenticates with tracing disabled, so exporting
+// spans never produces new server spans.
+class EnvironmentObservabilityHttpApi extends HttpApiGroup.make("observability").add(
+  HttpApiEndpoint.post("traces", ENVIRONMENT_OTLP_TRACES_PATH, {
+    headers: OptionalBearerHeaders,
+    payload: Schema.Unknown,
+    success: HttpApiSchema.NoContent,
+    error: [EnvironmentAuthInvalidError, EnvironmentScopeRequiredError, EnvironmentInternalError],
+  }),
+) {}
+
 // Path tokens and optional body signatures authenticate webhooks; read raw bytes to verify signatures.
 const WebhookParams = Schema.Struct({
   hookId: TrimmedNonEmptyString,
@@ -843,4 +857,5 @@ export class EnvironmentHttpApi extends HttpApi.make("environment")
   .add(EnvironmentPullRequestsHttpApi)
   .add(EnvironmentProjectsHttpApi)
   .add(EnvironmentConnectHttpApi)
-  .add(EnvironmentWebhooksHttpApi) {}
+  .add(EnvironmentWebhooksHttpApi)
+  .add(EnvironmentObservabilityHttpApi) {}

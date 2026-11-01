@@ -1,4 +1,5 @@
 import { Connection } from "@t3tools/client-runtime/connection";
+import { connectionTraceExportLayer } from "@t3tools/client-runtime/observability/connection-traces";
 import { ShellSnapshotLoader } from "@t3tools/client-runtime/state/shell";
 import { PullRequestDiffLoader } from "@t3tools/client-runtime/state/pull-requests";
 import {
@@ -29,12 +30,16 @@ const layerSnapshotLoader = Layer.mergeAll(
 type ConnectionLayerSource =
   | typeof Connection.layer
   | typeof layerSnapshotLoader
+  | typeof connectionTraceExportLayer
   | typeof Runtime.layer
   | typeof ConnectionPlatform.layer
   | typeof BackgroundActivity.layerObserver
   | typeof BackgroundActivity.layerReporter;
 
-const layerProvidedClientConnection = layerSnapshotLoader.pipe(
+const layerProvidedClientConnection = Layer.merge(
+  layerSnapshotLoader,
+  connectionTraceExportLayer,
+).pipe(
   Layer.provideMerge(
     Connection.layerWithOptions({ usageLimitSources: true, usageLimitsCommand: true }),
   ),
