@@ -63,6 +63,7 @@ import { WorkspaceSidebarColumn } from "../layout/workspace/WorkspaceSidebarColu
 import {
   ThreadListV2PendingRow,
   ThreadListV2Row,
+  ThreadListV2ProjectFolderHeader,
   ThreadListV2SettledShelfHeader,
   ThreadListV2ShowMoreRow,
   ThreadListV2SnoozedShelfHeader,
@@ -248,6 +249,10 @@ function ThreadNavigationSidebarPane(props: ThreadNavigationSidebarProps) {
     toggleSettledShelf,
     toggleSnoozedShelf,
     toggleWorkingShelf,
+    projectFoldersEnabled,
+    activeReorderable,
+    collapsedProjectFolders,
+    toggleProjectFolder,
   } = useThreadListV2ShelfPreferences();
   const now = useThreadListNow(threads);
   const listEnvironments = useAtomValue(threadListEnvironmentsAtom);
@@ -290,6 +295,8 @@ function ThreadNavigationSidebarPane(props: ThreadNavigationSidebarProps) {
     workingShelfExpanded,
     snoozedShelfExpanded,
     settledShelfExpanded,
+    projectFolderScopes: projectFoldersEnabled ? projectScopes : null,
+    collapsedProjectFolders,
     selectedThreadKey,
   });
   const listItems: readonly SidebarListItem[] =
@@ -359,7 +366,7 @@ function ThreadNavigationSidebarPane(props: ThreadNavigationSidebarProps) {
     savedConnectionsById,
     listEnvironments,
     threadSearchMatchByKey,
-    workingShelfEnabled,
+    activeReorderable,
   };
   useThreadJumpShortcuts(listItems, handleSelectThread);
   const sidebarItemsAreEqual = (previous: SidebarListItem, item: SidebarListItem): boolean => {
@@ -422,7 +429,7 @@ function ThreadNavigationSidebarPane(props: ThreadNavigationSidebarProps) {
             snoozePresetMinute={item.snoozePresetMinute ?? ""}
             snoozeWakeLabelText={item.snoozeWakeLabelText}
             timeLabel={item.timeLabel}
-            project={projectByKey.get(scopeKey) ?? null}
+            project={item.item.inFolder ? null : (projectByKey.get(scopeKey) ?? null)}
             providerInstance={resolveProviderInstance(thread)}
             providers={providersByEnvironmentId.get(thread.environmentId)}
             environmentLabel={
@@ -467,7 +474,7 @@ function ThreadNavigationSidebarPane(props: ThreadNavigationSidebarProps) {
             reorderSupported={
               item.item.pinned
                 ? pinReorderEnvironmentIds.has(thread.environmentId)
-                : !workingShelfEnabled && activeReorderEnvironmentIds.has(thread.environmentId)
+                : activeReorderable && activeReorderEnvironmentIds.has(thread.environmentId)
             }
             canMoveUp={item.canMoveUp}
             canMoveDown={item.canMoveDown}
@@ -511,6 +518,16 @@ function ThreadNavigationSidebarPane(props: ThreadNavigationSidebarProps) {
             disabled={item.disabled}
             expanded={item.expanded}
             onToggle={toggleSettledShelf}
+            pane="sidebar"
+          />
+        );
+      case "v2-project-folder":
+        return (
+          <ThreadListV2ProjectFolderHeader
+            folder={item.folder}
+            hiddenCount={item.hiddenCount}
+            dot={item.dot}
+            onToggle={toggleProjectFolder}
             pane="sidebar"
           />
         );
