@@ -1,0 +1,38 @@
+import { requireNativeModule, type NativeModule } from "expo";
+import type { SpeechRequest } from "./speechSettings";
+
+export type NativeSpeechOptions = SpeechRequest & {
+  readonly title: string;
+};
+
+export type NativeSpeechState = {
+  readonly reading: string;
+  readonly block: number | null;
+  readonly paused: boolean;
+};
+
+export type SpeechCue = "sent" | "attention" | "error";
+
+declare class SpeechModule extends NativeModule<{
+  onSpeechState(state: NativeSpeechState): void;
+}> {
+  /** Resolves `true` when the reading played to the end, `false` when stopped. */
+  start(options: NativeSpeechOptions, reading: string): Promise<boolean>;
+  /** Replaces the blocks from index `from`. */
+  append(blocks: readonly string[], from: number): Promise<void>;
+  finish(): Promise<void>;
+  rewind(): Promise<void>;
+  nextBlock(): Promise<void>;
+  seekToBlock(block: number): Promise<void>;
+  pause(): Promise<void>;
+  resume(): Promise<void>;
+  setPace(pace: number): Promise<void>;
+  stop(): Promise<void>;
+  playCue(cue: SpeechCue): Promise<void>;
+  announce(text: string, cue: SpeechCue): Promise<void>;
+  beginBackgroundTask(name: string): Promise<number>;
+  endBackgroundTask(task: number): Promise<void>;
+}
+
+// Resolve on use: other platforms can import thread and voice-input controls.
+export const nativeSpeech = () => requireNativeModule<SpeechModule>("T3Speech");
