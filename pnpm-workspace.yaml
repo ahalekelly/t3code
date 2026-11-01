@@ -108,6 +108,7 @@ overrides:
   mdast-util-to-hast: 13.2.1
   alchemy: "catalog:"
   expo-audio: 58.0.11
+  "@expo/image-utils@^0.12": 0.12.6
   expo-network: 58.0.4
   "@clerk/expo-native-components": 0.4.4
   expo-sharing: 58.0.22
@@ -261,6 +262,8 @@ patchedDependencies:
   react-native-svg@15.16.1: patches/react-native-svg@15.16.1.patch
   # iOS: a feed following its end keeps the end through a size-only reflow in one pass.
   "@legendapp/list@3.7.2": patches/@legendapp__list@3.7.2.patch
+  # Atomic cache writes: expo-splash-screen reads and writes one cached image from two parallel passes.
+  "@expo/image-utils@0.12.6": patches/@expo__image-utils@0.12.6.patch
 
 # Unmet peers fail resolution, so a pin outside a dependency's peer range is
 # caught when the lockfile changes instead of scrolling past as a warning.
