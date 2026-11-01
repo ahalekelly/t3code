@@ -389,6 +389,7 @@ can break the preview, so save a copy if you need to keep it.
 ## Files outside the workspace
 
 Follow an agent's file link to read a report or other file outside the workspace.
+Absolute paths written as plain text, such as `/home/me/report.md`, are links too.
 These files open read-only. An HTML file outside the workspace cannot load scripts,
 styles, or images from neighboring files.
 
