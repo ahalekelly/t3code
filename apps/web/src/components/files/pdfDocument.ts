@@ -1,8 +1,10 @@
-import { getDocument, GlobalWorkerOptions } from "pdfjs-dist";
+import { getDocument, GlobalWorkerOptions, PDFWorker } from "pdfjs-dist";
 import workerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
 import fallbackUrl from "pdfjs-dist/wasm/openjpeg_nowasm_fallback.js?url";
 
 GlobalWorkerOptions.workerSrc = workerUrl;
+// One worker serves every document, so reloads skip worker startup.
+const worker = new PDFWorker();
 
 const standardFonts = import.meta.glob<string>(
   "../../../node_modules/pdfjs-dist/standard_fonts/*",
@@ -34,6 +36,7 @@ export class BinaryDataFactory {
 export function openPdf(bytes: ArrayBuffer) {
   return getDocument({
     data: new Uint8Array(bytes),
+    worker,
     useSystemFonts: true,
     useWorkerFetch: false,
     BinaryDataFactory,
