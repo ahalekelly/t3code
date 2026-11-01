@@ -52,7 +52,7 @@ function AppSettingsSection() {
   const version = Constants.expoConfig?.version ?? "0.0.0";
   const serverRelease = Constants.expoConfig?.extra?.serverRelease as string | undefined;
   const versionName = serverRelease ? `${version} (${serverRelease})` : version;
-  const buildCommit = Constants.expoConfig?.extra?.buildCommit as string | undefined;
+  const releaseVersion = Constants.expoConfig?.extra?.releaseVersion as string | undefined;
   const buildTime = Constants.expoConfig?.extra?.buildTime as string | undefined;
   const buildDateLabel = buildTime
     ? new Date(buildTime).toLocaleString(undefined, {
@@ -67,7 +67,7 @@ function AppSettingsSection() {
   // Match app.config.ts's production fallback to avoid mislabeling builds as development.
   const variant = (Constants.expoConfig?.extra?.appVariant as string | undefined) ?? "production";
   const variantLabel = variant === "production" ? "" : capitalize(variant);
-  const versionLabel = [versionName, buildCommit, variantLabel].filter(Boolean).join(" · ");
+  const versionLabel = [versionName, releaseVersion, variantLabel].filter(Boolean).join(" · ");
   const updateCheckAvailable = isAppUpdateCheckAvailable();
   const busy =
     updateState === "checking" || updateState === "downloading" || updateState === "restarting";
