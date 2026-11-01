@@ -162,6 +162,7 @@ describe("CodexAdapterV2 runtime policy", () => {
               nativeThreadId: "native-mode-switch",
               codexInput: [{ type: "text", text: "test" }],
               runtimePolicy: { runtimeMode: "full-access", interactionMode, cwd: null },
+              readConfiguredPermissions: Effect.die("unread"),
               modelSelection: {
                 instanceId: ProviderInstanceId.make("codex"),
                 model: "gpt-5.4",
@@ -190,6 +191,7 @@ describe("CodexAdapterV2 runtime policy", () => {
     Effect.gen(function* () {
       const build = (
         runtimeMode: "approval-required" | "auto-accept-edits" | "auto" | "full-access",
+        configuredPermissions: string | null = "custom_profile",
       ) =>
         CodexAdapterV2.buildCodexTurnStartParams({
           nativeThreadId: `native-${runtimeMode}`,
@@ -203,25 +205,31 @@ describe("CodexAdapterV2 runtime policy", () => {
             instanceId: ProviderInstanceId.make("codex"),
             model: "gpt-5.4",
           },
+          readConfiguredPermissions: Effect.succeed(configuredPermissions),
         });
 
       const approvalRequired = yield* build("approval-required");
       const autoAcceptEdits = yield* build("auto-accept-edits");
       const auto = yield* build("auto");
+      const autoWithoutProfile = yield* build("auto", null);
       const fullAccess = yield* build("full-access");
 
       assert.equal(approvalRequired.approvalPolicy, "untrusted");
       assert.equal(approvalRequired.approvalsReviewer, "user");
-      assert.equal(approvalRequired.sandboxPolicy?.type, "readOnly");
+      assert.equal(approvalRequired.permissions, ":read-only");
       assert.equal(autoAcceptEdits.approvalPolicy, "on-request");
       assert.equal(autoAcceptEdits.approvalsReviewer, "user");
-      assert.equal(autoAcceptEdits.sandboxPolicy?.type, "workspaceWrite");
+      assert.equal(autoAcceptEdits.permissions, "custom_profile");
       assert.equal(auto.approvalPolicy, "on-request");
       assert.equal(auto.approvalsReviewer, "auto_review");
-      assert.equal(auto.sandboxPolicy?.type, "workspaceWrite");
+      assert.equal(auto.permissions, "custom_profile");
+      assert.equal(autoWithoutProfile.permissions, ":workspace");
       assert.equal(fullAccess.approvalPolicy, "never");
       assert.equal(fullAccess.approvalsReviewer, "user");
-      assert.equal(fullAccess.sandboxPolicy?.type, "dangerFullAccess");
+      assert.equal(fullAccess.permissions, ":danger-full-access");
+      for (const params of [approvalRequired, autoAcceptEdits, auto, fullAccess]) {
+        assert.isUndefined(params.sandboxPolicy);
+      }
     }),
   );
 
@@ -235,6 +243,7 @@ describe("CodexAdapterV2 runtime policy", () => {
         codexInput: [{ type: "text", text: "what's on my list?" }],
         runtimePolicy: policy,
         modelSelection,
+        readConfiguredPermissions: Effect.die("unread"),
         appContext,
       });
       assert.deepEqual(alone.additionalContext, {
@@ -245,6 +254,7 @@ describe("CodexAdapterV2 runtime policy", () => {
         codexInput: [{ type: "text", text: "what's on my list?" }],
         runtimePolicy: policy,
         modelSelection,
+        readConfiguredPermissions: Effect.die("unread"),
         hasT3Mcp: true,
         appContext,
       });
@@ -2271,12 +2281,12 @@ describe("CodexAdapterV2 post-settle continuation", () => {
           "approval-required": {
             approvalPolicy: "untrusted",
             approvalsReviewer: "user",
-            sandboxPolicy: { type: "readOnly" },
+            permissions: ":read-only",
           },
           "full-access": {
             approvalPolicy: "never",
             approvalsReviewer: "user",
-            sandboxPolicy: { type: "dangerFullAccess" },
+            permissions: ":danger-full-access",
           },
         } as const;
         const turnModes = ["approval-required", "full-access", "approval-required"] as const;
@@ -2480,6 +2490,7 @@ describe("CodexAdapterV2 post-settle continuation", () => {
           codexInput: [{ type: "text", text: "work" }],
           runtimePolicy: CODEX_TEST_RUNTIME_POLICY,
           modelSelection: CODEX_TEST_MODEL_SELECTION,
+          readConfiguredPermissions: Effect.die("unread"),
           hasT3Mcp: true,
         });
         assert.include(
