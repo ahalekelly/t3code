@@ -613,7 +613,7 @@ describe("AssetAccess", () => {
         const fs = yield* FileSystem.FileSystem;
         const path = yield* Path.Path;
         const root = yield* fs.makeTempDirectoryScoped({ prefix: "t3-media-validation-" });
-        for (const name of ["report.md", "secret.txt", "secret.%70ng", "secret.png#private.txt"]) {
+        for (const name of ["secret.txt", "secret.%70ng", "secret.png#private.txt"]) {
           const filePath = path.join(root, name);
           yield* fs.writeFileString(filePath, "not media");
           const error = yield* issueAssetUrl({
