@@ -44,6 +44,8 @@ jobs:
       USE_CCACHE: "1"
       CCACHE_BINARY: /opt/homebrew/bin/ccache
       VERSION: ${{ inputs.version }}
+      # The app's About screen shows this release.
+      T3CODE_RELEASE_VERSION: ${{ inputs.version }}
     steps:
       # The app's About screen names the upstream release it builds on, from `git describe`.
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
