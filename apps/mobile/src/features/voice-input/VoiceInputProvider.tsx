@@ -6,6 +6,7 @@ import {
   type RecordingStatus,
 } from "expo-audio";
 import { File } from "expo-file-system";
+import * as Haptics from "expo-haptics";
 import { activateKeepAwakeAsync, deactivateKeepAwake } from "expo-keep-awake";
 import { useSyncExternalStore } from "react";
 import { AppState, Platform } from "react-native";
@@ -17,10 +18,22 @@ import {
   preferredMicrophoneInput,
   rememberMicrophones,
 } from "../../lib/microphonePriority";
+import { autoReadResponse } from "../../lib/autoReadResponse";
+import { nativeSpeech } from "../../lib/nativeSpeech";
+import { announce, playCue, responseSpeech } from "../../lib/responseSpeech";
+import { VOICE_API_PROVIDERS } from "../../lib/speechSettings";
+import type { CloudTranscriptionSource } from "../../lib/voiceTranscriptionSources";
 import { getLocalVoiceTranscriber } from "../../native/voiceTranscription";
 import { mobilePreferencesAtom, updateMobilePreferencesAtom } from "../../state/preferences";
+import { voiceInputSettingsAtom, type VoiceInputSettings } from "../../state/voiceSettings";
 import { getNativeShowcaseScene } from "../showcase/nativeShowcaseScene";
-import { voiceInputBlocksSubmission } from "@t3tools/client-runtime/voice-input";
+import {
+  VoiceTranscriptionError,
+  voiceInputBlocksSubmission,
+  type VoiceTranscriber,
+} from "@t3tools/client-runtime/voice-input";
+import { createCloudVoiceTranscriber } from "./cloudVoiceTranscriber";
+import { withDictationDisclaimer } from "./dictationDisclaimer";
 import { createLazyVoiceRecorder } from "./lazyVoiceRecorder";
 import { VOICE_WAVEFORM_SAMPLE_COUNT } from "./voiceInputMetering";
 import { VoiceInputSession } from "./voiceInputSession";
@@ -36,11 +49,28 @@ const { ios: IOS_RECORDING_OPTIONS, android: ANDROID_RECORDING_OPTIONS } =
 const VOICE_RECORDING_OPTIONS = {
   extension: RecordingPresets.HIGH_QUALITY.extension,
   sampleRate: RecordingPresets.HIGH_QUALITY.sampleRate,
-  numberOfChannels: RecordingPresets.HIGH_QUALITY.numberOfChannels,
-  bitRate: RecordingPresets.HIGH_QUALITY.bitRate,
+  // Mono AAC at 64 kbps keeps speech clear at under 10 MB for the full recording limit.
+  numberOfChannels: 1,
+  bitRate: 64_000,
   isMeteringEnabled: true,
   ...(Platform.OS === "ios" ? IOS_RECORDING_OPTIONS : ANDROID_RECORDING_OPTIONS),
 };
+
+/** Selecting a cloud source without its key is a setup mistake, not a reason to fall back. */
+function missingKeyTranscriber(source: CloudTranscriptionSource): VoiceTranscriber {
+  return {
+    prepare: async () => {
+      throw new VoiceTranscriptionError(
+        "unavailable",
+        `Add your ${VOICE_API_PROVIDERS[source].label} API key in Settings → Voice.`,
+      );
+    },
+  };
+}
+
+function readsRepliesAloud(settings: VoiceInputSettings): boolean {
+  return Platform.OS === "ios" && (!settings.loaded || settings.readRepliesAloud);
+}
 
 function keepScreenAwake(tag: string): () => void {
   const activation = activateKeepAwakeAsync(tag);
@@ -58,6 +88,8 @@ const voiceInputAtom = Atom.make((get) => {
   // Mounted so the recorder can read and remember microphones synchronously.
   get.mount(mobilePreferencesAtom);
   get.mount(updateMobilePreferencesAtom);
+  get.mount(voiceInputSettingsAtom);
+  let sendRequested = false;
   const audioLevels = makeMutable<ReadonlyArray<number>>(
     Array<number>(VOICE_WAVEFORM_SAMPLE_COUNT).fill(0),
   );
@@ -66,11 +98,12 @@ const voiceInputAtom = Atom.make((get) => {
   const recorder = createLazyVoiceRecorder({
     create: () => new AudioModule.AudioRecorder(VOICE_RECORDING_OPTIONS),
     onStatus: (status: RecordingStatus) => {
-      session.controller.handleRecorderStatus({
+      void session.controller.handleRecorderStatus({
         isFinished: status.isFinished,
         hasError: status.hasError || status.mediaServicesDidReset === true,
         error: status.error,
         url: status.url,
+        interrupted: status.interrupted === true,
       });
     },
     // Read when recording starts so preference changes do not re-render every composer.
@@ -91,12 +124,19 @@ const voiceInputAtom = Atom.make((get) => {
   });
   const session: VoiceInputSession = new VoiceInputSession({
     recorder,
-    getTranscriber: getLocalVoiceTranscriber,
+    getTranscriber: () => {
+      const { transcriptionSource, transcriptionKeys } = registry.get(voiceInputSettingsAtom);
+      if (transcriptionSource === "local") return getLocalVoiceTranscriber();
+      if (transcriptionKeys.length === 0) return missingKeyTranscriber(transcriptionSource);
+      return createCloudVoiceTranscriber(transcriptionSource, transcriptionKeys);
+    },
     requestPermission: async () => {
       const permission = await requestRecordingPermissionsAsync();
       return { granted: permission.granted, canAskAgain: permission.canAskAgain };
     },
     configureRecording: async () => {
+      autoReadResponse.cancelAll();
+      if (Platform.OS === "ios") await responseSpeech.stop();
       const token = acquireAudioSession("recording");
       audioToken = token;
       try {
@@ -112,6 +152,7 @@ const voiceInputAtom = Atom.make((get) => {
     },
     deleteRecording: (uri) => new File(uri).delete(),
     sampleRecording: () => {
+      if (AppState.currentState !== "active") return null;
       const status = recorder.getStatus();
       return status?.isRecording
         ? { durationMillis: status.durationMillis, metering: status.metering }
@@ -119,7 +160,42 @@ const voiceInputAtom = Atom.make((get) => {
     },
     publishAudioLevels: (levels) => audioLevels.set(levels),
     keepAwake: () => keepScreenAwake(`voice-input:${++keepAwakeSequence}`),
+    onRecordingInterrupted: () => {
+      // What was captured lands in the draft for review instead of being sent.
+      sendRequested = false;
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      playCue("error");
+    },
+    holdBackgroundTime: async () => {
+      const task = await nativeSpeech().beginBackgroundTask("Voice transcription");
+      return () => void nativeSpeech().endBackgroundTask(task);
+    },
   });
+  // Settling without a commit (cancel, empty transcript, failed transcription)
+  // must not leave a later manual finish armed.
+  const unsubscribeSettled = session.subscribe(() => {
+    const { phase, error } = session.getSnapshot().state;
+    if (phase !== "error" && phase !== "idle") return;
+    if (
+      phase === "error" &&
+      sendRequested &&
+      readsRepliesAloud(registry.get(voiceInputSettingsAtom))
+    ) {
+      announce(`The voice message was not sent. ${error ?? ""}`, "error");
+    }
+    sendRequested = false;
+  });
+  const stopAndSend = () => {
+    if (session.controller.currentState.phase !== "recording") return;
+    sendRequested = true;
+    return session.controller.stop();
+  };
+  const prepareCommit = (text: string) => {
+    const send = sendRequested;
+    sendRequested = false;
+    const readAloud = send && readsRepliesAloud(registry.get(voiceInputSettingsAtom));
+    return { text: withDictationDisclaimer(text, readAloud), send };
+  };
   // iOS reports `inactive` while its permission dialog is open. Only the real
   // background state cancels preparation; recorder status handles calls and
   // route interruptions during capture.
@@ -128,22 +204,32 @@ const voiceInputAtom = Atom.make((get) => {
   });
   get.addFinalizer(() => {
     appStateSubscription.remove();
+    unsubscribeSettled();
     session.dispose();
     recorder.release();
   });
-  return { session, audioLevels };
+  return { session, audioLevels, stopAndSend, prepareCommit };
 }).pipe(Atom.keepAlive, Atom.withLabel("mobile:voice-input"));
 
 export function useGlobalVoiceInput() {
-  const { session, audioLevels } = useAtomValue(voiceInputAtom);
+  const { session, audioLevels, stopAndSend, prepareCommit } = useAtomValue(voiceInputAtom);
+  const settings = useAtomValue(voiceInputSettingsAtom);
   const snapshot = useSyncExternalStore(session.subscribe, session.getSnapshot);
+  const transcriberAvailable =
+    settings.transcriptionSource === "local"
+      ? getLocalVoiceTranscriber() !== null
+      : settings.transcriptionKeys.length > 0;
   return {
     ...snapshot,
-    isAvailable: getLocalVoiceTranscriber() !== null || getNativeShowcaseScene() !== null,
+    isAvailable: transcriberAvailable || getNativeShowcaseScene() !== null,
+    readRepliesAloud: readsRepliesAloud(settings),
     audioLevels,
     isBusy: voiceInputBlocksSubmission(snapshot.state),
     session,
     stop: () => session.controller.stop(),
+    stopAndSend,
+    transcribeAgain: () => void session.controller.transcribeAgain(),
+    prepareCommit,
     cancel: () => session.controller.cancel(),
   };
 }
