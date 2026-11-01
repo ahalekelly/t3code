@@ -491,12 +491,8 @@ const config: ExpoConfig = {
   extra: {
     appVariant: APP_VARIANT,
     buildTime: isPersonalBuild ? new Date().toISOString() : undefined,
-    buildCommit: isPersonalBuild
-      ? NodeChildProcess.execFileSync("git", ["rev-parse", "--short=9", "HEAD"], {
-          cwd: __dirname,
-          encoding: "utf8",
-        }).trim()
-      : undefined,
+    // The fork release workflows set this to the release they publish, e.g. 0.1.7-akelly-0045.
+    releaseVersion: process.env.T3CODE_RELEASE_VERSION,
     serverRelease: isPersonalBuild
       ? NodeChildProcess.execFileSync(
           "git",
