@@ -397,3 +397,29 @@ export function sortProjectsByGroupOrder<
     rankByProject.get(`${project.environmentId}\0${project.id}`) ?? groups.length;
   return [...projects].sort((left, right) => rankOf(left) - rankOf(right));
 }
+
+/**
+ * Project folders for grouped thread lists. Folders follow `groups` order and threads keep
+ * their input order. A project with no threads gets a folder only when `keepEmpty` says so. A
+ * thread whose project is in no group has no folder and is left out.
+ */
+export function groupThreadsByProject<
+  TGroup extends { readonly memberProjectRefs: ReadonlyArray<ScopedProjectRef> },
+  TThread extends { readonly environmentId: EnvironmentId; readonly projectId: string },
+>(
+  groups: readonly TGroup[],
+  threads: readonly TThread[],
+  keepEmpty: (group: TGroup) => boolean,
+): Array<{ group: TGroup; threads: TThread[] }> {
+  const folders = groups.map((group) => ({ group, threads: [] as TThread[] }));
+  const folderByProject = new Map<string, (typeof folders)[number]>();
+  for (const folder of folders) {
+    for (const ref of folder.group.memberProjectRefs) {
+      folderByProject.set(`${ref.environmentId}:${ref.projectId}`, folder);
+    }
+  }
+  for (const thread of threads) {
+    folderByProject.get(`${thread.environmentId}:${thread.projectId}`)?.threads.push(thread);
+  }
+  return folders.filter((folder) => folder.threads.length > 0 || keepEmpty(folder.group));
+}
