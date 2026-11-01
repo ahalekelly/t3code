@@ -34,10 +34,10 @@ import {
   InvalidMacPasskeyPublishableKeyError,
   UnsupportedDesktopBuildArchitectureError,
   MacPasskeySigningConfigurationResolutionError,
-  MissingMacPasskeyProvisioningProfileError,
   packWindowsServerAsar,
   preflightWindowsDesktopBuild,
-  renderMacPasskeyEntitlements,
+  MissingMacPasskeyProvisioningProfileError,
+  renderMacEntitlements,
   resolveMacWebAuthnEntitlements,
   resolveMacPasskeySigningConfiguration,
   resolveMergedStageDependencies,
@@ -544,6 +544,25 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
         ),
       ),
     ),
+  );
+
+  it.effect(
+    "gives signed macOS builds entitlements, and a provisioning profile only when set",
+    () =>
+      Effect.gen(function* () {
+        const config = yield* createBuildConfig("mac", "dmg", "0.0.33", true, false, undefined, {
+          entitlementsPath: "/stage/entitlements.mac.plist",
+          provisioningProfilePath: undefined,
+        });
+        assert.include(config.mac, { entitlements: "/stage/entitlements.mac.plist" });
+        assert.notProperty(config.mac, "provisioningProfile");
+      }).pipe(
+        Effect.provide(
+          ConfigProvider.layer(
+            ConfigProvider.fromEnv({ env: { GITHUB_REPOSITORY: "pingdotgg/t3code" } }),
+          ),
+        ),
+      ),
   );
 
   // pnpm writes "set this to true or false" placeholders into allowBuilds when a
@@ -1404,9 +1423,10 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
       T3CODE_CLERK_PASSKEY_RP_DOMAINS:
         " Clerk.Example.com,example.clerk.accounts.dev,clerk.example.com ",
     });
-    const entitlements = renderMacPasskeyEntitlements(configuration, {
-      touchIdKeychainAccessGroup: undefined,
-      browserPasskeys: false,
+    assert.ok(configuration);
+    const entitlements = renderMacEntitlements({
+      configuration,
+      webAuthn: { touchIdKeychainAccessGroup: undefined, browserPasskeys: false },
     });
 
     assert.deepStrictEqual(configuration.rpDomains, [
@@ -1471,15 +1491,19 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
       },
     );
 
-    const entitlements = renderMacPasskeyEntitlements(
-      { ...configuration, rpDomains: ["clerk.example.com"], provisioningProfilePath: "" },
-      resolveMacWebAuthnEntitlements(
+    const entitlements = renderMacEntitlements({
+      configuration: {
+        ...configuration,
+        rpDomains: ["clerk.example.com"],
+        provisioningProfilePath: "",
+      },
+      webAuthn: resolveMacWebAuthnEntitlements(
         profile(
           `${teamWildcardGroups}<key>com.apple.developer.web-browser.public-key-credential</key><true/>`,
         ),
         configuration,
       ),
-    );
+    });
     assert.match(
       entitlements,
       /<key>keychain-access-groups<\/key>\s*<array>\s*<string>ABC1234567\.com\.t3tools\.t3code\.webauthn<\/string>\s*<\/array>/u,
@@ -1488,6 +1512,19 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
       entitlements,
       /<key>com\.apple\.developer\.web-browser\.public-key-credential<\/key>\s*<true\/>/u,
     );
+  });
+
+  it("signs macOS builds without passkeys when no team ID or provisioning profile is set", () => {
+    assert.isUndefined(
+      resolveMacPasskeySigningConfiguration({
+        T3CODE_CLERK_PASSKEY_RP_DOMAINS: "example.clerk.accounts.dev",
+      }),
+    );
+    const entitlements = renderMacEntitlements(undefined);
+    assert.include(entitlements, "<key>com.apple.security.cs.allow-jit</key>");
+    assert.include(entitlements, "<key>com.apple.security.device.camera</key>");
+    assert.notInclude(entitlements, "com.apple.application-identifier");
+    assert.notInclude(entitlements, "com.apple.developer.associated-domains");
   });
 
   it("rejects incomplete macOS passkey signing configuration", () => {
