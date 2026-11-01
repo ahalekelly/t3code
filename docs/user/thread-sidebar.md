@@ -19,6 +19,13 @@ machine, the thread starts on a connected one if any is connected.
 When you change a new thread's project, T3 Code stays in the current environment
 if that project exists there. Otherwise it selects an environment that has it.
 
+On iOS, customize your Lock Screen, replace a bottom-corner control with T3 Code’s
+**New Chat**, then tap it while editing to choose a project and environment, or
+**No project**, the default. **Dictate Chat** works the same way and opens the
+composer already listening. Open T3 once to load your projects. Hold a control to
+open an empty composer; existing drafts stay saved. Both controls are also
+available in Control Center.
+
 ### Start without a project
 
 A thread does not need a project. To start one without a project, click **or
