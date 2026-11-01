@@ -31,6 +31,10 @@ Providers enforce permissions differently. Some read-only actions can proceed in
 including OpenCode and Antigravity, fall back to asking. On Grok, commands its review blocks come
 to you for approval. On fx, prompts it still sends also come to you.
 
+On Codex, **Auto-accept edits** and **Auto** run under the permissions profile that
+`default_permissions` names in your Codex config, including its network and file access, or
+Codex's `:workspace` profile when none is set.
+
 Muse Code offers only **Supervised** and **Full access**. A Muse thread already set to another mode
 runs in **Supervised**.
 
