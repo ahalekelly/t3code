@@ -8,6 +8,7 @@ import {
   deriveLogicalProjectKeyFromSettings,
   pickableProjectGroups,
   derivePhysicalProjectKey,
+  groupThreadsByProject,
   resolveScratchProjectScopeKey,
   sortProjectsByGroupOrder,
   type ProjectGroupingSettings,
@@ -419,5 +420,52 @@ describe("sortProjectsByGroupOrder", () => {
       [{ memberProjectRefs: [ref("shared", remote)] }, { memberProjectRefs: [ref("shared")] }],
     );
     expect(sorted.map((entry) => entry.environmentId)).toEqual([remote, environmentId]);
+  });
+});
+
+describe("groupThreadsByProject", () => {
+  it("puts each thread in its project's folder and drops empty projects unless kept", () => {
+    const remote = EnvironmentId.make("environment-remote");
+    const t3code = ProjectId.make("t3code");
+    const t3codeRemote = ProjectId.make("t3code-remote");
+    const fleet = ProjectId.make("fleet");
+    const thread = (id: string, threadEnvironmentId: EnvironmentId, projectId: ProjectId) => ({
+      id,
+      environmentId: threadEnvironmentId,
+      projectId,
+    });
+    const groups = [
+      {
+        key: "t3code",
+        memberProjectRefs: [
+          { environmentId, projectId: t3code },
+          { environmentId: remote, projectId: t3codeRemote },
+        ],
+      },
+      { key: "fleet", memberProjectRefs: [{ environmentId, projectId: fleet }] },
+      { key: "notes", memberProjectRefs: [{ environmentId, projectId: ProjectId.make("notes") }] },
+    ];
+    const threads = [
+      thread("a", environmentId, t3code),
+      thread("orphan", environmentId, ProjectId.make("deleted")),
+      thread("b", remote, t3codeRemote),
+    ];
+    const summarize = (keepEmpty: (group: (typeof groups)[number]) => boolean) =>
+      groupThreadsByProject(groups, threads, keepEmpty).map((folder) => ({
+        key: folder.group.key,
+        threads: folder.threads.map((entry) => entry.id),
+      }));
+
+    expect(summarize(() => true)).toEqual([
+      { key: "t3code", threads: ["a", "b"] },
+      { key: "fleet", threads: [] },
+      { key: "notes", threads: [] },
+    ]);
+    expect(summarize(() => false)).toEqual([{ key: "t3code", threads: ["a", "b"] }]);
+    // A pinned project keeps its empty folder while other empty projects drop out.
+    expect(summarize((group) => group.key === "fleet")).toEqual([
+      { key: "t3code", threads: ["a", "b"] },
+      { key: "fleet", threads: [] },
+    ]);
   });
 });
