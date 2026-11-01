@@ -244,6 +244,7 @@ overrides:
   mdast-util-to-hast: 13.2.1
   alchemy: "catalog:"
   expo-audio: 58.0.9
+  "@expo/image-utils@^0.12": 0.12.5
   expo-network: 58.0.3
   "@clerk/expo-native-components": 0.4.0
   expo-sharing: 58.0.19
@@ -404,6 +405,8 @@ patchedDependencies:
   # Observe the owned host exit independently of descendants retaining its stdio.
   "@muse-code/sdk@1.4.6": patches/@muse-code__sdk@1.4.6.patch
   app-builder-lib@26.16.1: patches/app-builder-lib@26.16.1.patch
+  # Atomic cache writes: expo-splash-screen reads and writes one cached image from two parallel passes.
+  "@expo/image-utils@0.12.5": patches/@expo__image-utils@0.12.5.patch
 
 peerDependencyRules:
   allowAny:
