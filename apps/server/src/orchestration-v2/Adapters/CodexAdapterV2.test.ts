@@ -689,7 +689,7 @@ function codexReplayPreamble(input: {
           model: "gpt-5.4",
           approvalPolicy: "never",
           approvalsReviewer: "user",
-          sandboxPolicy: { type: "dangerFullAccess" },
+          permissions: ":danger-full-access",
           summary: "detailed",
           ...(input.effort === undefined ? {} : { effort: input.effort }),
           collaborationMode: {
@@ -2569,6 +2569,99 @@ describe("CodexAdapterV2 post-settle continuation", () => {
             text: "work",
           }),
         );
+        yield* harness.firstTerminal;
+        assert.equal(harness.terminalEvents()[0]?.status, "completed");
+      }).pipe(
+        Effect.provide(
+          Layer.mergeAll(
+            IdAllocator.layer,
+            McpProviderSessions.layer,
+            NodeServices.layer,
+            NodeCrypto.layer,
+          ),
+        ),
+      ),
+    ),
+  );
+
+  it.effect("runs Auto turns under the profile named by the Codex config for the turn's cwd", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const nativeThreadId = "auto-thread";
+        const nativeTurnId = "auto-turn";
+        const runtimePolicy = { ...CODEX_TEST_RUNTIME_POLICY, runtimeMode: "auto" } as const;
+        const transcript = makeCodexReplayTranscript({
+          scenario: "auto-configured-permissions",
+          entries: [
+            ...codexReplayPreamble({ nativeThreadId, nativeTurnId, prompt: "work" }).slice(0, 5),
+            {
+              type: "expect_outbound",
+              label: "config/read",
+              frame: {
+                id: 3,
+                method: "config/read",
+                params: { includeLayers: false, cwd: "/workspace" },
+              },
+            },
+            {
+              type: "emit_inbound",
+              label: "config/read",
+              frame: {
+                id: 3,
+                result: { config: { default_permissions: "custom_profile" }, origins: {} },
+              },
+            },
+            {
+              type: "expect_outbound",
+              label: "turn/start",
+              frame: {
+                id: 4,
+                method: "turn/start",
+                params: {
+                  threadId: nativeThreadId,
+                  input: [{ type: "text", text: "work" }],
+                  cwd: "/workspace",
+                  model: "gpt-5.4",
+                  approvalPolicy: "on-request",
+                  approvalsReviewer: "auto_review",
+                  permissions: "custom_profile",
+                  summary: "detailed",
+                  collaborationMode: { mode: "default", settings: { model: "gpt-5.4" } },
+                },
+              },
+            },
+            {
+              type: "emit_inbound",
+              label: "turn/start",
+              frame: {
+                id: 4,
+                result: { turn: makeCodexReplayTurn({ id: nativeTurnId, status: "inProgress" }) },
+              },
+            },
+            {
+              type: "emit_inbound",
+              label: "done",
+              frame: {
+                method: "turn/completed",
+                params: {
+                  threadId: nativeThreadId,
+                  turn: makeCodexReplayTurn({ id: nativeTurnId, status: "completed" }),
+                },
+              },
+            },
+          ],
+        });
+        const harness = yield* makeCodexReplayHarness(transcript);
+        yield* harness.runtime.startTurn({
+          ...makeCodexTestTurnInput({
+            threadId: harness.threadId,
+            providerThread: harness.providerThread,
+            now: yield* DateTime.now,
+            attemptId: RunAttemptId.make("auto-attempt"),
+            text: "work",
+          }),
+          runtimePolicy,
+        });
         yield* harness.firstTerminal;
         assert.equal(harness.terminalEvents()[0]?.status, "completed");
       }).pipe(
