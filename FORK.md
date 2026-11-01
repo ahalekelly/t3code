@@ -6,7 +6,7 @@
 
 Never commit to `main`; it is generated.
 
-- The manifest, `~/.agents/linux/t3-main.txt`, names an upstream tag and the origin branches merged onto it in order. `fork/*` branches are fork-only; the rest can become upstream PRs. `AGENTS.md` has the rules for branches and worktrees.
+- The manifest, `~/.agents/linux/t3-main.txt` on akelly-desktop, names an upstream tag and the origin branches merged onto it in order. Other machines' copies update only when their `~/.agents` syncs. `fork/*` branches are fork-only; the rest can become upstream PRs. `AGENTS.md` has the rules for branches and worktrees.
 - `~/.agents/linux/t3-fork-main.py`, run every 10 minutes by `t3-fork-main.timer` on akelly-desktop, rebuilds `main` when a branch or the manifest changes, checks it with a frozen-lockfile install and the mobile typecheck, and force-pushes it. Its docstring covers conflicts and the commands:
   - `ship [<branch> <parent>...]` rebuilds `main` now, adding a new branch to the manifest when given one.
   - `rebase <upstream tag>` moves every branch onto a new upstream release.
