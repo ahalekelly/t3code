@@ -37,7 +37,9 @@ While enabled, Active is sorted by most recent return (manual reordering is paus
 
 ### Group threads by project (beta)
 
-Enable **Settings → Labs → Boring sidebar (group by project)** on web/desktop (per device) to group active threads into collapsible project folders. Pinned threads stay above; Snoozed and Settled stay below. In this mode, the Working section and sidebar drag-reordering are disabled (dragging a thread onto the composer still works).
+Enable **Settings → Labs → Boring sidebar (group by project)** on web/desktop, or **Settings → General → Group by project** on iOS/Android (per device), to group active threads into collapsible project folders, newest message first. Pinned projects come first and archived ones last; a closed folder shows its thread count and a dot when one needs you. Pinned threads stay above; Snoozed and Settled stay below. In this mode, the Working section and reordering threads in the list are disabled.
+
+On web/desktop, a pinned or filtered project keeps its folder even with no active threads. Use a folder's pen button or right-click it to start a thread in that project. Dragging a thread onto the composer still works.
 
 ## Settle, snooze, and archive
 
