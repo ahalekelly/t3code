@@ -2,6 +2,7 @@ import * as HostProcess from "@t3tools/shared/HostProcess";
 import {
   CLI_RELEASE_BASE_URL_ENV,
   CLI_RELEASE_CHANNELS,
+  CLI_RELEASE_INDEX_PAGE_SIZE,
   cliReleaseIndexPageUrl,
   cliReleaseChannelOf,
   newestCliReleaseVersion,
@@ -44,12 +45,11 @@ export class CliUpdateError extends Schema.TaggedError<CliUpdateError>()("CliUpd
   }
 }
 
-const ReleaseIndex = Schema.Array(
-  Schema.Struct({
-    tag_name: Schema.String,
-    draft: Schema.optional(Schema.Boolean),
-  }),
-);
+const Release = Schema.Struct({
+  tag_name: Schema.String,
+  draft: Schema.optional(Schema.Boolean),
+});
+const ReleaseIndex = Schema.Array(Release);
 const decodeReleaseIndex = Schema.decodeUnknownEffect(Schema.fromJsonString(ReleaseIndex));
 
 const RELEASE_INDEX_TIMEOUT = Duration.seconds(30);
@@ -61,6 +61,7 @@ export const resolveNewestVersion = Effect.fn("cli.update.resolve_newest")(funct
   const httpClient = yield* HttpClient.HttpClient;
   const environment = yield* HostProcess.Environment;
   const githubToken = environment.GH_TOKEN?.trim() || environment.GITHUB_TOKEN?.trim() || undefined;
+  const releases: Array<typeof Release.Type> = [];
   for (let page = 1; page <= RELEASE_INDEX_MAX_PAGES; page += 1) {
     const request = HttpClientRequest.get(cliReleaseIndexPageUrl(page)).pipe(
       HttpClientRequest.setHeader("Accept", "application/vnd.github+json"),
@@ -78,15 +79,16 @@ export const resolveNewestVersion = Effect.fn("cli.update.resolve_newest")(funct
         orElse: () => Effect.fail(new CliUpdateError({ reason: "Timed out listing t3 releases." })),
       }),
     );
-    const releases = yield* decodeReleaseIndex(body).pipe(
+    const pageReleases = yield* decodeReleaseIndex(body).pipe(
       Effect.mapError(
         () => new CliUpdateError({ reason: "The t3 release index had an unexpected shape." }),
       ),
     );
-    const version = newestCliReleaseVersion(releases, channel);
-    if (version !== undefined) return version;
-    if (releases.length === 0) break;
+    releases.push(...pageReleases);
+    if (pageReleases.length < CLI_RELEASE_INDEX_PAGE_SIZE) break;
   }
+  const version = newestCliReleaseVersion(releases, channel);
+  if (version !== undefined) return version;
   return yield* new CliUpdateError({ reason: `No published ${channel} release was found.` });
 });
 
