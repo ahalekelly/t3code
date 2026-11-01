@@ -250,6 +250,7 @@ function useSettingsIndexSections(): SettingsListSection[] {
               page("SettingsMicrophone", "mic", "Microphone"),
             ]
           : []),
+        page("SettingsVoice", "mic", "Voice"),
       ],
     },
     {

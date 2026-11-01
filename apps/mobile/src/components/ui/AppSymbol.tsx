@@ -100,12 +100,17 @@ import IconPhoto from "@tabler/icons-react-native/IconPhoto";
 import IconPin from "@tabler/icons-react-native/IconPin";
 import IconPinnedOff from "@tabler/icons-react-native/IconPinnedOff";
 import IconPlayerPause from "@tabler/icons-react-native/IconPlayerPause";
+import IconPlayerPauseFilled from "@tabler/icons-react-native/IconPlayerPauseFilled";
 import IconPlayerPlay from "@tabler/icons-react-native/IconPlayerPlay";
+import IconPlayerPlayFilled from "@tabler/icons-react-native/IconPlayerPlayFilled";
+import IconPlayerTrackNextFilled from "@tabler/icons-react-native/IconPlayerTrackNextFilled";
 import IconPlayerStopFilled from "@tabler/icons-react-native/IconPlayerStopFilled";
 import IconPlus from "@tabler/icons-react-native/IconPlus";
 import IconQrcode from "@tabler/icons-react-native/IconQrcode";
 import IconRefresh from "@tabler/icons-react-native/IconRefresh";
+import IconRewindBackward10 from "@tabler/icons-react-native/IconRewindBackward10";
 import IconSearch from "@tabler/icons-react-native/IconSearch";
+import IconSelector from "@tabler/icons-react-native/IconSelector";
 import IconShare from "@tabler/icons-react-native/IconShare";
 import IconServer from "@tabler/icons-react-native/IconServer";
 import IconSettings from "@tabler/icons-react-native/IconSettings";
@@ -133,6 +138,7 @@ import IconUsers from "@tabler/icons-react-native/IconUsers";
 import IconWifi from "@tabler/icons-react-native/IconWifi";
 import IconWifiOff from "@tabler/icons-react-native/IconWifiOff";
 import IconWorld from "@tabler/icons-react-native/IconWorld";
+import IconVolume from "@tabler/icons-react-native/IconVolume";
 import IconX from "@tabler/icons-react-native/IconX";
 import type { AndroidSymbol, SFSymbol, SymbolViewProps } from "expo-symbols";
 import { withUniwind } from "uniwind";
@@ -194,6 +200,7 @@ const ANDROID_ICON_BY_SF_SYMBOL = {
   "chevron.left.forwardslash.chevron.right": IconCode,
   "chevron.right": IconChevronRight,
   "chevron.up": IconChevronUp,
+  "chevron.up.chevron.down": IconSelector,
   desktopcomputer: IconDeviceDesktop,
   doc: IconFileText,
   "doc.on.doc": IconCopy,
@@ -209,8 +216,10 @@ const ANDROID_ICON_BY_SF_SYMBOL = {
   folder: IconFolder,
   "folder.badge.plus": IconFolderPlus,
   "folder.fill": IconFolder,
+  "forward.end.fill": IconPlayerTrackNextFilled,
   gearshape: IconSettings,
   globe: IconWorld,
+  "gobackward.10": IconRewindBackward10,
   hammer: IconHammer,
   headphones: IconHeadphones,
   house: IconHome,
@@ -230,6 +239,7 @@ const ANDROID_ICON_BY_SF_SYMBOL = {
   magnifyingglass: IconSearch,
   mic: IconMicrophone,
   paintbrush: IconPalette,
+  "pause.fill": IconPlayerPauseFilled,
   pencil: IconPencil,
   "person.crop.circle": IconUserCircle,
   "person.2": IconUsers,
@@ -241,6 +251,7 @@ const ANDROID_ICON_BY_SF_SYMBOL = {
   pin: IconPin,
   "pin.slash": IconPinnedOff,
   play: IconPlayerPlay,
+  "play.fill": IconPlayerPlayFilled,
   pause: IconPlayerPause,
   plus: IconPlus,
   minus: IconMinus,
@@ -252,6 +263,7 @@ const ANDROID_ICON_BY_SF_SYMBOL = {
   "server.rack": IconServer,
   stethoscope: IconStethoscope,
   "sidebar.left": IconLayoutSidebar,
+  "speaker.wave.2": IconVolume,
   "sidebar.right": IconLayoutSidebarRight,
   "slider.horizontal.3": IconAdjustmentsHorizontal,
   "square.and.arrow.up": IconShare,
