@@ -243,6 +243,7 @@ const config: ExpoConfig = {
     fallbackToCacheTimeout: 0,
   },
   ios: {
+    deploymentTarget: "18.0",
     icon: variant.assets.iosIcon,
     supportsTablet: true,
     requireFullScreen: process.env.T3_SHOWCASE_CAPTURE_BUILD === "1",
@@ -413,7 +414,6 @@ const config: ExpoConfig = {
           ].join("\n"),
         },
         ios: {
-          deploymentTarget: "18.0",
           // AppCheckCore 11.3+ includes Swift and needs module maps for these Objective-C dependencies.
           extraPods: [
             { name: "GoogleUtilities", modular_headers: true },
@@ -425,8 +425,11 @@ const config: ExpoConfig = {
     "./plugins/withIosCocoaPodsUuidCache.cjs",
     // Compile out the unused pedometer to avoid an iOS motion purpose string.
     ["expo-sensors", { motionPermission: false }],
-    // Mods run in reverse order; expo-widgets must create and wipe the target before assets are added.
-    ...(!isIosPersonalTeamBuild ? ["./plugins/withWidgetLogoAsset.cjs", widgetsPlugin] : []),
+    // Mods run in reverse order; expo-widgets must create and wipe the target before assets and
+    // native sources are added.
+    ...(!isIosPersonalTeamBuild
+      ? ["./plugins/withWidgetLogoAsset.cjs", "./plugins/withNewChatControl.cjs", widgetsPlugin]
+      : []),
     "./plugins/withAndroidNetworkSecurityConfig.cjs",
     "./plugins/withAndroidGradleHeap.cjs",
     "./plugins/withAndroidInputBackground.cjs",
