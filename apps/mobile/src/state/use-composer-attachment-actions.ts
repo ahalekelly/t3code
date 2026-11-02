@@ -79,16 +79,14 @@ export function useComposerAttachmentActions(props: {
       })
         .then(async (result) => {
           // Every attachment has a placeholder; one the user removed is no longer pending.
+          // Append before any await so a removal can't land between the check and the append.
           const pending = appAtomRegistry.get(composerPendingMediaAtom)[key] ?? [];
           const kept = result.attachments.filter(({ id }) => pending.some((p) => p.id === id));
+          const rejected = await append(key, signal, kept, insertion);
           await releaseUnusedComposerAttachmentFiles(
             result.attachments.filter((attachment) => !kept.includes(attachment)),
           );
-          report(
-            "Could not attach photo or video",
-            result.error,
-            await append(key, signal, kept, insertion),
-          );
+          report("Could not attach photo or video", result.error, rejected);
         })
         .finally(() => removeComposerPendingMedia(key, placeholderIds));
     });
