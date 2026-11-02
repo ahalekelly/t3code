@@ -9,6 +9,7 @@ import {
   createPastedTextComposerAttachment,
   pickComposerFiles,
   pickComposerMedia,
+  type ComposerMediaSource,
   removePersistedComposerAttachmentFile,
   type DraftComposerAttachment,
 } from "../lib/composerImages";
@@ -62,7 +63,7 @@ export function useComposerAttachmentActions(props: {
     ];
     if (problems.length) Dialog.alert(title, problems.join("\n\n"));
   };
-  const onPickDraftMedia = async () => {
+  const onPickDraftMedia = async (source: ComposerMediaSource) => {
     const key = props.draftKey;
     if (!key || props.locked) return;
     const insertion = captureComposerDraftInsertion(key);
@@ -70,6 +71,7 @@ export function useComposerAttachmentActions(props: {
       let previewing = false;
       const attach = async () => {
         const result = await pickComposerMedia({
+          source,
           existingCount: countComposerDraftAttachmentsAfterSelection(key, insertion),
           maxVideoBytes: capabilities?.fileAttachments?.maxUploadBytes,
           onPicked: (placeholders) => {
