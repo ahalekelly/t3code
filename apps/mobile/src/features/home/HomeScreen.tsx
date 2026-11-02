@@ -5,6 +5,7 @@ import type { ThreadMoveDestination } from "../threads/threadOrder";
 import type { LegendListRef } from "@legendapp/list/react-native";
 import { AnimatedLegendList } from "@legendapp/list/reanimated";
 import { THREAD_SIDEBAR_ROW_LAYOUT } from "../threads/threadListAnimations";
+import { homeLaunchPaintedAtom, shellCachesLoadedAtom } from "../../state/shell";
 import {
   type EnvironmentProject,
   type EnvironmentThreadShell,
@@ -12,8 +13,8 @@ import {
 import { pickableProjectGroups } from "@t3tools/client-runtime/state/project-grouping";
 import { threadSearchMatchKey } from "@t3tools/client-runtime/state/thread-search";
 import { type EnvironmentId, type SidebarProjectGroupingMode } from "@t3tools/contracts";
-import { useAtomValue } from "@effect/atom-react";
-import { use, useEffect, useMemo, useRef, useState, type ComponentProps } from "react";
+import { useAtomSet, useAtomValue } from "@effect/atom-react";
+import { use, useEffect, useRef, useState, type ComponentProps } from "react";
 import {
   Platform,
   ScrollView,
@@ -52,7 +53,6 @@ import { requestThreadMessageJump } from "../threads/threadMessageJump";
 import { useThreadListSearchMatches } from "../threads/useThreadListSearchMatches";
 import { useThreadListV2 } from "../threads/useThreadListV2";
 import { useThreadListNow } from "../threads/use-thread-list-now";
-import { useSearchScrollRestoration } from "../workspace/useSearchScrollRestoration";
 import { useThreadJumpShortcuts } from "../keyboard/threadKeyboardShortcuts";
 import { usePendingThreadOrder } from "../../state/thread-order";
 import { threadListEnvironmentsAtom } from "../../state/presentation";
@@ -318,13 +318,14 @@ export function HomeScreen(props: HomeScreenProps) {
   const listRef = useRef<LegendListRef>(null);
   const searchMode = workspace?.state.tabs.threads.searchMode;
   const restoredOffset = workspace?.state.tabs.threads.scrollOffset;
-  useSearchScrollRestoration(searchMode, () => {
-    if (restoredOffset === undefined) return;
-    void listRef.current?.scrollToOffset({
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- restores the thread list's saved scroll offset through the list ref when search goes back to resting
+  useEffect(() => {
+    if (searchMode !== "resting" || restoredOffset === undefined) return;
+    listRef.current?.scrollToOffset({
       offset: restoredOffset - (Platform.OS === "ios" ? insets.top : 0),
       animated: false,
     });
-  });
+  }, [searchMode, insets.top, restoredOffset]);
   const swipeRowActivation = createSwipeRowActivation();
   const activateVisibleRows = (rows: ReadonlyArray<ThreadListV2ListItem>) => {
     const state = listRef.current?.getState();
@@ -362,16 +363,11 @@ export function HomeScreen(props: HomeScreenProps) {
     onScrollBeginDrag: handleScrollBeginDrag,
   });
 
-  const { projects, selectedEnvironmentId, projectGroupingMode } = props;
-  const projectScopes = useMemo(
-    () =>
-      buildHomeProjectScopes({
-        projects,
-        environmentId: selectedEnvironmentId,
-        projectGroupingMode,
-      }),
-    [projects, selectedEnvironmentId, projectGroupingMode],
-  );
+  const projectScopes = buildHomeProjectScopes({
+    projects: props.projects,
+    environmentId: props.selectedEnvironmentId,
+    projectGroupingMode: props.projectGroupingMode,
+  });
   const hasSearchQuery = props.searchQuery.trim().length > 0;
   const projectByKey = (() => {
     const map = new Map<string, EnvironmentProject>();
@@ -665,6 +661,17 @@ export function HomeScreen(props: HomeScreenProps) {
     catalogState: props.catalogState,
     projectCount: props.projects.length,
   });
+  // The launch screen hides once cached threads, or a final empty state, have
+  // painted, so a launch never flashes a connecting state the cache replaces.
+  const cachesLoaded = useAtomValue(shellCachesLoadedAtom);
+  const markLaunchPainted = useAtomSet(homeLaunchPaintedAtom);
+  const launchContentReady = cachesLoaded && (hasAnyThreads || !emptyState.loading);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- waits one animation frame so the launch screen hides only after this content has painted
+  useEffect(() => {
+    if (!launchContentReady) return;
+    const frame = requestAnimationFrame(() => markLaunchPainted(true));
+    return () => cancelAnimationFrame(frame);
+  }, [launchContentReady, markLaunchPainted]);
 
   if (!hasAnyThreads) {
     return (
@@ -826,8 +833,6 @@ export function HomeScreen(props: HomeScreenProps) {
               // the list in the same frame as the bar.
               contentInsetAdjustmentBehavior="automatic"
               contentInsetStartAdjustment={Platform.OS === "ios" ? insets.top : 0}
-              // RN scrollTo clamps against raw insets and ignores the automatic bar inset.
-              scrollToOverflowEnabled
               initialScrollOffset={
                 initialScrollOffset > 0
                   ? initialScrollOffset - (Platform.OS === "ios" ? insets.top : 0)
