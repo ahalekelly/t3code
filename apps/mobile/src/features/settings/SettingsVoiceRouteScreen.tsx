@@ -100,85 +100,75 @@ export function SettingsVoiceRouteScreen() {
             </Menu>
           </View>
         </SettingsSection>
-        {Platform.OS === "ios" ? (
-          <SettingsSection title="Read aloud">
-            <VoiceChoice
-              label="Model"
-              value={speech.model}
-              options={Object.entries(SPEECH_MODELS).map(([id, { label }]) => ({
-                id,
-                title: label,
-              }))}
-              onSelect={(id) => savePreferences({ responseSpeechModel: id as SpeechModel })}
-            />
-            <VoiceChoice
-              label="Voice"
-              value={speech.voice}
-              options={voice.voices.map(({ id, name }) => ({ id, title: name }))}
-              onSelect={(voice) => savePreferences({ responseSpeechVoice: voice })}
-            />
-            <VoiceChoice
-              label="Pace"
-              value={String(speech.pace)}
-              options={SPEECH_PACES.map((pace) => ({ id: String(pace), title: `${pace}×` }))}
-              onSelect={(pace) =>
-                savePreferences({ responseSpeechPace: Number(pace) as SpeechPace })
-              }
-            />
-            {model.instructions ? (
-              <View className="gap-2 p-4">
-                <Text className="text-lg text-foreground">Delivery</Text>
-                <TextInput
-                  accessibilityLabel="Reading instructions"
-                  multiline
-                  onBlur={commitInstructions}
-                  onChangeText={setInstructionsDraft}
-                  value={instructionsDraft ?? speech.instructions}
-                />
-              </View>
-            ) : null}
-            {voice.voicesError ? (
-              <Text className="px-4 text-sm text-foreground-muted">{voice.voicesError}</Text>
-            ) : null}
-            <Text className="px-4 pb-4 text-sm text-foreground-muted">
-              {model.instructions ? "Describe how the voice should sound. " : ""}
-              {model.voices === "account" ? "Voices come from your ElevenLabs account. " : ""}
-              Reading with {model.label} uses the {speechProvider.label} API key and costs about{" "}
-              {model.centsPerMinute} cents per minute of audio.
-            </Text>
-            <SettingsSwitchRow
-              icon="speaker.wave.2"
-              label="Read voice replies aloud"
-              subtitle="Read the reply after using voice auto-send, and announce approvals and questions."
-              value={preferences.readVoiceRepliesAloud ?? true}
-              onValueChange={(readVoiceRepliesAloud) => savePreferences({ readVoiceRepliesAloud })}
-            />
-            <SettingsSwitchRow
-              icon="text.bubble"
-              label="Read thinking updates"
-              subtitle="Include written progress messages during voice replies."
-              disabled={!(preferences.readVoiceRepliesAloud ?? true)}
-              value={preferences.readThinkingUpdatesAloud ?? false}
-              onValueChange={(readThinkingUpdatesAloud) =>
-                savePreferences({ readThinkingUpdatesAloud })
-              }
-            />
-          </SettingsSection>
-        ) : null}
+        <SettingsSection title="Read aloud">
+          <VoiceChoice
+            label="Model"
+            value={speech.model}
+            options={Object.entries(SPEECH_MODELS).map(([id, { label }]) => ({
+              id,
+              title: label,
+            }))}
+            onSelect={(id) => savePreferences({ responseSpeechModel: id as SpeechModel })}
+          />
+          <VoiceChoice
+            label="Voice"
+            value={speech.voice}
+            options={voice.voices.map(({ id, name }) => ({ id, title: name }))}
+            onSelect={(voice) => savePreferences({ responseSpeechVoice: voice })}
+          />
+          <VoiceChoice
+            label="Pace"
+            value={String(speech.pace)}
+            options={SPEECH_PACES.map((pace) => ({ id: String(pace), title: `${pace}×` }))}
+            onSelect={(pace) => savePreferences({ responseSpeechPace: Number(pace) as SpeechPace })}
+          />
+          {model.instructions ? (
+            <View className="gap-2 p-4">
+              <Text className="text-lg text-foreground">Delivery</Text>
+              <TextInput
+                accessibilityLabel="Reading instructions"
+                multiline
+                onBlur={commitInstructions}
+                onChangeText={setInstructionsDraft}
+                value={instructionsDraft ?? speech.instructions}
+              />
+            </View>
+          ) : null}
+          {voice.voicesError ? (
+            <Text className="px-4 text-sm text-foreground-muted">{voice.voicesError}</Text>
+          ) : null}
+          <Text className="px-4 pb-4 text-sm text-foreground-muted">
+            {model.instructions ? "Describe how the voice should sound. " : ""}
+            {model.voices === "account" ? "Voices come from your ElevenLabs account. " : ""}
+            Reading with {model.label} uses the {speechProvider.label} API key and costs about{" "}
+            {model.centsPerMinute} cents per minute of audio.
+          </Text>
+          <SettingsSwitchRow
+            icon="speaker.wave.2"
+            label="Read voice replies aloud"
+            subtitle="Read the reply after using voice auto-send, and announce approvals and questions."
+            value={preferences.readVoiceRepliesAloud ?? true}
+            onValueChange={(readVoiceRepliesAloud) => savePreferences({ readVoiceRepliesAloud })}
+          />
+          <SettingsSwitchRow
+            icon="text.bubble"
+            label="Read thinking updates"
+            subtitle="Include written progress messages during voice replies."
+            disabled={!(preferences.readVoiceRepliesAloud ?? true)}
+            value={preferences.readThinkingUpdatesAloud ?? false}
+            onValueChange={(readThinkingUpdatesAloud) =>
+              savePreferences({ readThinkingUpdatesAloud })
+            }
+          />
+        </SettingsSection>
         <SettingsSection title="API keys">
-          {(Object.keys(VOICE_API_KEYS) as VoiceApiKey[])
-            .filter(
-              (key) =>
-                Platform.OS === "ios" ||
-                VOICE_API_KEYS[key].provider in VOICE_TRANSCRIPTION_SOURCE_LABELS,
-            )
-            .map((key) => (
-              <ApiKeyField key={key} slot={key} />
-            ))}
+          {(Object.keys(VOICE_API_KEYS) as VoiceApiKey[]).map((key) => (
+            <ApiKeyField key={key} slot={key} />
+          ))}
         </SettingsSection>
         <Text className="px-2 text-sm leading-normal text-foreground-muted">
-          Keys stay in this device's keychain. Azure keys come from Speech resources in West US 2;
-          the free F0 key is used until its monthly quota runs out, then the S0 key until it
+          Keys stay in this device's secure storage. Azure keys come from Speech resources in West
+          US 2; the free F0 key is used until its monthly quota runs out, then the S0 key until it
           refills.
         </Text>
       </ScrollView>
