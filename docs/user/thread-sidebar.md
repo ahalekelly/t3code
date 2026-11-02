@@ -154,14 +154,17 @@ cannot drag or move threads within it. Your saved order returns when you turn it
 
 ### Group threads by project (beta)
 
-Turn on **Settings → Labs → Boring sidebar (group by project)** on web and desktop to put active
-threads in a folder for each project. Pinned projects come first. A project with no active
-threads has no folder unless it is pinned or you pick it in the project filter. An archived
-project's folder comes last and shows only while it has active threads. Click a folder to open or
-close it. A closed folder shows how many threads it holds, and a dot when one of them
-needs you. Use the pen button on a folder, or right-click it, to start a thread in that project.
-Pinned threads stay above the folders, and Snoozed and Settled stay below them. In this mode you
-cannot drag threads, and the Working section is off. Each device keeps its own choice.
+Turn on **Settings → Labs → Boring sidebar (group by project)** on web and desktop, or
+**Settings → General → Group by project** on iOS and Android, to put active threads in a folder
+for each project, newest message first. Pinned projects come first, and an archived project's
+folder comes last. Click or tap a folder to open or close it. A closed folder shows how many
+threads it holds, and a dot when one of them needs you. Pinned threads stay above the folders, and
+Snoozed and Settled stay below them. In this mode you cannot move threads, and the Working section
+is off. Each device keeps its own choice.
+
+On web and desktop, a pinned project, or one you pick in the project filter, keeps its folder even
+with no active threads. Use the pen button on a folder, or right-click it, to start a thread in
+that project.
 
 ## Settle finished work
 
