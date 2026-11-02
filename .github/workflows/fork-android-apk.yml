@@ -66,6 +66,8 @@ jobs:
         run: T3CODE_ANDROID_VERSION_CODE="$((10#${VERSION##*-}))" vp exec expo prebuild --clean --platform android --no-install
 
       # Android Studio's injected signing properties override the generated debug signing.
+      # R8 takes about 8 minutes, so this personal build skips it, and resource shrinking, which
+      # needs it. setup-gradle saves the build cache with Gradle's home for the next run.
       - name: Build the APK
         working-directory: apps/mobile/android
         env:
@@ -74,7 +76,8 @@ jobs:
         run: |
           set -euo pipefail
           printf '%s' "$ANDROID_KEYSTORE" | base64 --decode > "$RUNNER_TEMP/release.jks"
-          ./gradlew assembleRelease -PreactNativeArchitectures=arm64-v8a \
+          ./gradlew assembleRelease --build-cache --profile -PreactNativeArchitectures=arm64-v8a \
+            -Pandroid.enableMinifyInReleaseBuilds=false -Pandroid.enableShrinkResourcesInReleaseBuilds=false \
             -Pandroid.injected.signing.store.file="$RUNNER_TEMP/release.jks" \
             -Pandroid.injected.signing.store.password="$ANDROID_KEYSTORE_PASSWORD" \
             -Pandroid.injected.signing.key.alias=t3code \
@@ -87,3 +90,11 @@ jobs:
           name: android-apk
           path: release-android/*.apk
           if-no-files-found: error
+
+      # Per-task build times, for finding what still makes the build slow.
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        if: ${{ !cancelled() }}
+        with:
+          name: android-build-profile
+          path: apps/mobile/android/build/reports/profile/
+          retention-days: 14
