@@ -1,4 +1,4 @@
-import type { Paragraph, PhrasingContent, Root, RootContent } from "mdast";
+import type { Paragraph, Parent, PhrasingContent, Root, RootContent } from "mdast";
 import { remarkKeepWindowsPaths } from "./markdownWindowsPaths.ts";
 import { type PluggableList, type Processor, unified } from "unified";
 import remarkParse from "remark-parse";
@@ -14,7 +14,11 @@ import {
   CODEX_ARTIFACT_TEMPLATE_HAST_PROPERTIES,
   remarkCodexDirectives,
 } from "./codexMarkdownDirectives.ts";
-import { isWindowsDrivePathHref, normalizeMarkdownLinkDestination } from "./markdownLinks.ts";
+import {
+  bareFilePathMatches,
+  isWindowsDrivePathHref,
+  normalizeMarkdownLinkDestination,
+} from "./markdownLinks.ts";
 import { THREAD_LINK_PROTOCOL } from "./threadLinks.ts";
 
 type MarkdownImageHastNode = {
@@ -171,6 +175,7 @@ export const CHAT_MARKDOWN_REMARK_PLUGINS: PluggableList = [
   remarkCodexDirectives,
   remarkBreakAroundImageLines,
   remarkPreserveCodeMeta,
+  remarkLinkBareFilePaths,
   remarkNormalizeLinksAndTagInlineCode,
 ];
 
@@ -183,6 +188,7 @@ export const CHAT_MARKDOWN_REMARK_PLUGINS_WITH_BREAKS: PluggableList = [
   remarkBreakAroundImageLines,
   remarkBreaks,
   remarkPreserveCodeMeta,
+  remarkLinkBareFilePaths,
   remarkNormalizeLinksAndTagInlineCode,
 ];
 
@@ -346,6 +352,32 @@ function remarkPreserveCodeMeta() {
 
     visit(tree);
   };
+}
+
+function linkBareFilePaths(node: Parent) {
+  node.children = node.children.flatMap((child): RootContent[] => {
+    if (child.type === "link" || child.type === "linkReference") return [child];
+    if ("children" in child) {
+      linkBareFilePaths(child);
+      return [child];
+    }
+    if (child.type !== "text") return [child];
+    const parts: PhrasingContent[] = [];
+    let offset = 0;
+    for (const { index, path } of bareFilePathMatches(child.value)) {
+      if (index > offset) parts.push({ type: "text", value: child.value.slice(offset, index) });
+      parts.push({ type: "link", url: path, children: [{ type: "text", value: path }] });
+      offset = index + path.length;
+    }
+    if (offset === 0) return [child];
+    if (offset < child.value.length) parts.push({ type: "text", value: child.value.slice(offset) });
+    return parts;
+  });
+}
+
+/** Absolute file paths written as plain text become file links, like Markdown file links. */
+function remarkLinkBareFilePaths() {
+  return (tree: Root) => linkBareFilePaths(tree);
 }
 
 function remarkNormalizeLinksAndTagInlineCode() {
