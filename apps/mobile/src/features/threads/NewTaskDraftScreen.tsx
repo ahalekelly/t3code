@@ -42,7 +42,7 @@ import {
 } from "@t3tools/contracts";
 
 import { ComposerEditor, type ComposerEditorHandle } from "../../components/ComposerEditor";
-import { composerContextImportsAtom } from "../../state/use-composer-drafts";
+import { composerContextImportsAtom, composerDraftBusy } from "../../state/use-composer-drafts";
 import { abortComposerDraftOperations } from "../../state/composerDraftOperations";
 import { composerContextSendBlockReason } from "../../lib/composerContext";
 import { ComposerInlineControl } from "../../components/ComposerToolbar";
@@ -393,7 +393,7 @@ export function NewTaskDraftScreen(props: {
     shareImportPhase !== "failed" &&
     shareImportPhase !== "cancelling";
   const contextImports = useAtomValue(composerContextImportsAtom);
-  const isImportingContext = flow.draftKey ? contextImports[flow.draftKey] !== undefined : false;
+  const isImportingContext = flow.draftKey ? contextImports[flow.draftKey] === true : false;
   const isComposerInteractionLocked =
     isIncomingShareTransferPending || flow.submitting || isImportingContext;
   const { environments, selectedEnvironmentId, switchEnvironment, switchingToEnvironmentId } = flow;
@@ -628,7 +628,7 @@ export function NewTaskDraftScreen(props: {
       return null;
     }
     const draft = getComposerDraftSnapshot(draftKey);
-    if (appAtomRegistry.get(composerContextImportsAtom)[draftKey]) return null;
+    if (composerDraftBusy(draftKey)) return null;
     const modelSelection =
       resolveSelectableModelSelection(
         selectedEnvironmentServerConfig,

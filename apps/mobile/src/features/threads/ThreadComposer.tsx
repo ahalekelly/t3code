@@ -328,12 +328,16 @@ export const ThreadComposer = function ThreadComposer(props: ThreadComposerProps
     AuthOrchestrationOperateScope,
   );
   const uploadStates = useAtomValue(composerAttachmentUploadsAtom);
+  const pendingMedia = useAtomValue(composerPendingMediaAtom)[composerDraftKey];
+  // A finished attachment keeps its placeholder's id; skip the placeholder once it lands.
   const stripAttachments = [
     ...composerStripAttachments(
       draftAttachments,
       (attachment) => uploadStates[composerAttachmentUploadKey(props.environmentId, attachment.id)],
     ),
-    ...(useAtomValue(composerPendingMediaAtom)[composerDraftKey] ?? []),
+    ...(pendingMedia ?? []).filter(
+      (placeholder) => !draftAttachments.some(({ id }) => id === placeholder.id),
+    ),
   ];
   const attachmentsUploading =
     props.connectionState === "connected" &&
@@ -507,6 +511,7 @@ export const ThreadComposer = function ThreadComposer(props: ThreadComposerProps
     (props.canOperateThread || props.connectionState !== "connected") &&
     hasContent &&
     !contextImports[composerDraftKey] &&
+    pendingMedia === undefined &&
     !isSubmissionLocked &&
     sendBlockedReason === null &&
     !modelUnavailable;
