@@ -2,11 +2,14 @@ name: Fork iPhone build
 
 # Builds the production app as an ad hoc IPA for Adrian's iPhone, signed by his team. The build
 # number is the version's run number, so `xcrun devicectl device info apps` shows which release a
-# phone runs. fork-release.yml calls it when the app's code changes; dispatch it to try a branch.
+# phone runs. fork-mac-release.yml calls it when the app's code changes; dispatch it to try a branch.
 on:
   workflow_call:
     inputs:
       version:
+        type: string
+        required: true
+      ref:
         type: string
         required: true
   workflow_dispatch:
@@ -46,6 +49,7 @@ jobs:
       # The app's About screen names the upstream release it builds on, from `git describe`.
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
+          ref: ${{ inputs.ref }}
           fetch-depth: 0
           filter: blob:none
           sparse-checkout: |
