@@ -4,7 +4,6 @@ import { renderAssistantCitationsAsText } from "@t3tools/shared/assistantCitatio
 import { truncate } from "@t3tools/shared/String";
 import { activateKeepAwakeAsync, deactivateKeepAwake } from "expo-keep-awake";
 import { useEffect, useSyncExternalStore } from "react";
-import { Platform } from "react-native";
 
 import { autoReadResponse } from "../../lib/autoReadResponse";
 import { announce, responseSpeech } from "../../lib/responseSpeech";
@@ -32,7 +31,7 @@ export function useAutoReadResponse(
     () => responseSpeech.getSnapshot()?.response ?? null,
   );
 
-  const handsFree = Platform.OS === "ios" && focused && (pending !== null || speaking !== null);
+  const handsFree = focused && (pending !== null || speaking !== null);
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- holds the native keep-awake lock while this focused thread waits for or reads a reply
   useEffect(() => {
     if (!handsFree) return;
@@ -44,7 +43,7 @@ export function useAutoReadResponse(
 
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- feeds the native speech player the streamed text of the reply it reads, and starts the next reply or announcement
   useEffect(() => {
-    if (Platform.OS !== "ios" || !focused || !voice.loaded) return;
+    if (!focused || !voice.loaded) return;
     const messages = feed.flatMap((entry) => (entry.type === "message" ? [entry.message] : []));
     if (speaking) {
       if (speaking.scope !== scope) return;
