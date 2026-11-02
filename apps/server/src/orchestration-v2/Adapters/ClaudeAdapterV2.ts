@@ -1495,6 +1495,9 @@ export const layerQueryRunner: Layer.Layer<
                 : messages.findIndex((message) => message.uuid === resumeSessionAt) + 1;
             resumeSessionAt = claudeResumeSessionAt(messages.slice(0, boundary)) ?? resumeSessionAt;
           }
+          // Claude runs CLAUDE_ENV_FILE in each Bash command's shell, putting commands above the
+          // agent's OOM score. Tools inherit the variable, so a server they start would read this
+          // server's file; it replaces any inherited one.
           const queryOptions = {
             ...sdkOptions,
             ...(resumeSessionAt === undefined ? {} : { resumeSessionAt }),
@@ -1507,6 +1510,9 @@ export const layerQueryRunner: Layer.Layer<
                   }
                 : {}),
               [PortScanner.AGENT_THREAD_ENV]: input.threadId,
+              ...(agentScope.toolShellEnv === undefined
+                ? {}
+                : { CLAUDE_ENV_FILE: agentScope.toolShellEnv }),
             },
           };
           // The SDK can prepend a scope wrapper to native binaries; script entries run through node.
@@ -2185,8 +2191,7 @@ const CLAUDE_SEND_TO_USER_INSTRUCTIONS = `
 Text you write before a tool call may reach the user only as a one-line summary. When the user must read something in full before your turn ends, such as a draft, a code block, or what a question you're about to ask refers to, send it with \`send_to_user\`. Put everything else in your final reply.
 `;
 
-// Agents run with oom_score_adj 800, so the kernel's OOM killer picks the
-// biggest process in an agent's scope, often a tool rather than the agent.
+// Claude's Bash commands mostly run above its own OOM score, so the OOM killer takes them first.
 const claudeOomKillNotice = (kills: number) =>
   `The kernel's out-of-memory killer killed ${kills === 1 ? "a process" : `${kills} processes`} in this session since your last tool results. A command that failed with "Killed" or exit code 137 ran out of memory: rerun it with less memory, such as fewer parallel workers, a narrower test selection, or one browser at a time.`;
 
