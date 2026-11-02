@@ -541,7 +541,7 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
       const fixedFeed = yield* createBuildConfig(
         "mac",
         "dmg",
-        "0.0.33",
+        "0.0.33-akelly-0081",
         false,
         false,
         undefined,
@@ -559,7 +559,7 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
         ),
       );
       assert.deepStrictEqual(fixedFeed.publish, [
-        { provider: "generic", url: "https://feed.example/mac/" },
+        { provider: "generic", url: "https://feed.example/mac/", channel: "latest" },
       ]);
     }).pipe(
       Effect.provide(
