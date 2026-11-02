@@ -17,6 +17,8 @@ on:
 
 permissions:
   contents: read
+  # It deletes the ccache its new one replaces.
+  actions: write
 
 jobs:
   apk:
@@ -57,6 +59,13 @@ jobs:
           distribution: temurin
           java-version: "17"
       - uses: gradle/actions/setup-gradle@8da46b539cd8fe6ab27ca75128919a18d757604c # v6
+      - run: sudo apt-get install -y ccache
+      - id: ccache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: ${{ runner.temp }}/ccache
+          key: android-ccache-${{ github.run_id }}
+          restore-keys: android-ccache-
 
       - name: Generate the native project
         working-directory: apps/mobile
@@ -64,12 +73,22 @@ jobs:
 
       # Android Studio's injected signing properties override the generated debug signing.
       # R8 takes about 8 minutes, so this personal build skips it, and resource shrinking, which
-      # needs it. setup-gradle saves the build cache with Gradle's home for the next run.
+      # needs it. setup-gradle saves the build cache with Gradle's home for the next run, but
+      # Gradle caches no C++ compiles; ccache does. Without the sloppiness, ccache refuses every
+      # compile that uses a precompiled header.
       - name: Build the APK
         working-directory: apps/mobile/android
         env:
           ANDROID_KEYSTORE: ${{ secrets.ANDROID_KEYSTORE }}
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          CMAKE_C_COMPILER_LAUNCHER: ccache
+          CMAKE_CXX_COMPILER_LAUNCHER: ccache
+          CCACHE_DIR: ${{ runner.temp }}/ccache
+          CCACHE_MAXSIZE: 500M
+          CCACHE_COMPILERCHECK: content
+          CCACHE_BASEDIR: ${{ github.workspace }}
+          CCACHE_NOHASHDIR: "1"
+          CCACHE_SLOPPINESS: pch_defines,time_macros,include_file_mtime,include_file_ctime
         run: |
           set -euo pipefail
           printf '%s' "$ANDROID_KEYSTORE" | base64 --decode > "$RUNNER_TEMP/release.jks"
@@ -79,8 +98,20 @@ jobs:
             -Pandroid.injected.signing.store.password="$ANDROID_KEYSTORE_PASSWORD" \
             -Pandroid.injected.signing.key.alias=t3code \
             -Pandroid.injected.signing.key.password="$ANDROID_KEYSTORE_PASSWORD"
+          ccache --show-stats
           mkdir -p "$GITHUB_WORKSPACE/release-android"
           mv app/build/outputs/apk/release/app-release.apk "$GITHUB_WORKSPACE/release-android/T3-Code-$VERSION.apk"
+
+      - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: ${{ runner.temp }}/ccache
+          key: android-ccache-${{ github.run_id }}
+      - name: Delete the replaced ccache
+        if: github.ref == 'refs/heads/main' && steps.ccache.outputs.cache-matched-key != '' && steps.ccache.outputs.cache-hit != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          OLD_KEY: ${{ steps.ccache.outputs.cache-matched-key }}
+        run: gh cache delete "$OLD_KEY" -R "$GITHUB_REPOSITORY"
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
