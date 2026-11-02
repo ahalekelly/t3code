@@ -1670,7 +1670,7 @@ function ThreadDetailBody(
                     keyboardShouldPersistTaps="handled"
                     nestedScrollEnabled
                   >
-                    {Platform.OS === "ios" ? <SpeechPlaybackBar scope={selectedThreadKey} /> : null}
+                    <SpeechPlaybackBar scope={selectedThreadKey} />
                     {props.queuedRunEdit !== null ? (
                       <Animated.View
                         className="shrink-0"
