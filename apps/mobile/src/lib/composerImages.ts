@@ -504,7 +504,8 @@ export async function pickComposerMedia(input: {
         ? mimeType
         : null;
 
-    let image: { base64: string; mimeType: string; name: string; previewUri: string };
+    let image: { base64: string; mimeType: string; name: string };
+    let renderedUri: string | undefined;
     try {
       if (originalMimeType !== null) {
         const { File } = await import("expo-file-system");
@@ -514,24 +515,33 @@ export async function pickComposerMedia(input: {
           mimeType: originalMimeType,
           base64,
         });
+        renderedUri = fitted?.uri;
         image = {
           base64: fitted?.base64 ?? base64,
           mimeType: originalMimeType,
           name,
-          previewUri: fitted?.uri ?? asset.uri,
         };
       } else {
         const rendered = await renderPhoto(asset.uri);
+        renderedUri = rendered.uri;
         image = {
           base64: rendered.base64,
           mimeType: "image/jpeg",
           name: /\.jpe?g$/i.test(name) ? name : `${name.replace(/\.[^.]+$/, "")}.jpg`,
-          previewUri: rendered.uri,
         };
       }
     } catch {
       error = `Failed to read '${name}'.`;
       continue;
+    }
+    // The bytes now live in the data URL, and the preview uses the picker copy.
+    if (renderedUri !== undefined) {
+      try {
+        const { File } = await import("expo-file-system");
+        new File(renderedUri).delete();
+      } catch (cause) {
+        console.warn("[composer-images] could not remove rendered photo", cause);
+      }
     }
 
     const sizeBytes = estimateBase64ByteSize(image.base64);
@@ -547,7 +557,8 @@ export async function pickComposerMedia(input: {
       mimeType: image.mimeType,
       sizeBytes,
       dataUrl: `data:${image.mimeType};base64,${image.base64}`,
-      previewUri: image.previewUri,
+      // The picker copy is already on screen as the placeholder; reusing it avoids a reload flash.
+      previewUri: asset.uri,
     });
   }
 
