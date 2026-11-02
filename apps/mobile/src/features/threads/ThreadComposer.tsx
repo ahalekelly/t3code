@@ -85,6 +85,7 @@ import { ComposerActionButton, ComposerToolbarRow } from "../../components/Compo
 import { ComposerModelControl } from "../../components/ComposerModelControl";
 import {
   composerStripAttachments,
+  type ComposerMediaSource,
   type DraftComposerFileAttachment,
 } from "../../lib/composerImages";
 import { buildModelOptions, isModelSelectionUnavailable } from "../../lib/modelOptions";
@@ -238,7 +239,7 @@ export interface ThreadComposerProps {
   readonly hidden: boolean;
   readonly editorRef?: RefObject<ComposerEditorHandle | null>;
   readonly onChangeDraftMessage: (value: string) => void;
-  readonly onPickDraftMedia: () => Promise<void>;
+  readonly onPickDraftMedia: (source: ComposerMediaSource) => Promise<void>;
   readonly onPickDraftFiles: () => Promise<void>;
   readonly onNativePasteImages: (uris: ReadonlyArray<string>) => Promise<void>;
   readonly onNativePasteText: (paste: ComposerTextPaste) => Promise<void>;
