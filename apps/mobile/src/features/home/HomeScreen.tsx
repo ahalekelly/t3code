@@ -5,6 +5,7 @@ import type { ThreadMoveDestination } from "../threads/threadOrder";
 import type { LegendListRef } from "@legendapp/list/react-native";
 import { AnimatedLegendList } from "@legendapp/list/reanimated";
 import { THREAD_SIDEBAR_ROW_LAYOUT } from "../threads/threadListAnimations";
+import { homeLaunchPaintedAtom, shellCachesLoadedAtom } from "../../state/shell";
 import {
   type EnvironmentProject,
   type EnvironmentThreadShell,
@@ -12,7 +13,7 @@ import {
 import { pickableProjectGroups } from "@t3tools/client-runtime/state/project-grouping";
 import { threadSearchMatchKey } from "@t3tools/client-runtime/state/thread-search";
 import { type EnvironmentId, type SidebarProjectGroupingMode } from "@t3tools/contracts";
-import { useAtomValue } from "@effect/atom-react";
+import { useAtomSet, useAtomValue } from "@effect/atom-react";
 import { use, useEffect, useRef, useState, type ComponentProps } from "react";
 import {
   Platform,
@@ -660,6 +661,17 @@ export function HomeScreen(props: HomeScreenProps) {
     catalogState: props.catalogState,
     projectCount: props.projects.length,
   });
+  // The launch screen hides once cached threads, or a final empty state, have
+  // painted, so a launch never flashes a connecting state the cache replaces.
+  const cachesLoaded = useAtomValue(shellCachesLoadedAtom);
+  const markLaunchPainted = useAtomSet(homeLaunchPaintedAtom);
+  const launchContentReady = cachesLoaded && (hasAnyThreads || !emptyState.loading);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- waits one animation frame so the launch screen hides only after this content has painted
+  useEffect(() => {
+    if (!launchContentReady) return;
+    const frame = requestAnimationFrame(() => markLaunchPainted(true));
+    return () => cancelAnimationFrame(frame);
+  }, [launchContentReady, markLaunchPainted]);
 
   if (!hasAnyThreads) {
     return (
