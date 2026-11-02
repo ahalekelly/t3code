@@ -1450,7 +1450,16 @@ export function appendComposerDraftAttachments(
   let duplicates: ReadonlyArray<DraftComposerAttachment> = [];
   updateComposerDrafts((current) => {
     const existing = normalizeDraft(current[draftKey]);
-    const seen = [...existing.attachments];
+    // A file chip replaces the selection, so the selection's attachments are not repeats.
+    const replacesSelection =
+      options?.appendReference === true &&
+      incoming.some((attachment) => attachment.type !== "image");
+    const seen = [
+      ...(replacesSelection
+        ? draftWithoutInsertionSelection(draftKey, existing, options?.insertion)
+        : existing
+      ).attachments,
+    ];
     const attachments = options?.restore
       ? incoming
       : incoming.filter((attachment) => {
