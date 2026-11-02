@@ -7,6 +7,7 @@ import {
   agentScopeCommand,
   type AgentScopeShape,
   type AgentSystemdScope,
+  TOOL_SHELL_ENV,
 } from "@t3tools/shared/AgentScope";
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import { resolveCommandPath } from "@t3tools/shared/shell";
@@ -63,7 +64,7 @@ function parseCgroupCounter(text: string, key: string): number | undefined {
 // systemd's default 90 s stop timeout would outlast our leftover-agent wait.
 // Delegation lets rootless containers (Podman, kind) manage their own cgroups.
 const SCOPE_OPTIONS = ["--property=TimeoutStopSec=10s", "--property=Delegate=yes", "--collect"];
-// The kernel kills the biggest agent process, often a tool, which the agent can outlive.
+// An OOM kill in the scope usually takes a tool, which the agent can outlive.
 const OOM_POLICY = "--property=OOMPolicy=continue";
 
 export const make = Effect.gen(function* () {
@@ -76,6 +77,16 @@ export const make = Effect.gen(function* () {
   const hostEnvironment = yield* HostProcess.Environment;
   const { stateDir } = yield* ServerConfig.ServerConfig;
   const ownedSlice = ownedAgentSlice(stateDir);
+  // Agents a previous server left may be reading it, so replace it whole.
+  const toolShellEnv = path.join(stateDir, "agent-scope", "tool-shell-env.sh");
+  const staged = `${toolShellEnv}.${NodeCrypto.randomUUID()}`;
+  yield* fileSystem
+    .makeDirectory(path.dirname(toolShellEnv), { recursive: true })
+    .pipe(
+      Effect.andThen(fileSystem.writeFileString(staged, TOOL_SHELL_ENV)),
+      Effect.andThen(fileSystem.rename(staged, toolShellEnv)),
+      Effect.orDie,
+    );
 
   const resolve = (command: string, env: NodeJS.ProcessEnv) =>
     resolveCommandPath(command, { env }).pipe(
@@ -304,6 +315,7 @@ export const make = Effect.gen(function* () {
     stop,
     kill,
     clear,
+    toolShellEnv,
   } satisfies AgentScopeShape;
 });
 
