@@ -20,6 +20,7 @@ import {
   captureComposerDraftInsertion,
   countComposerDraftAttachmentsAfterSelection,
   getComposerDraftSnapshot,
+  setComposerPendingPhotos,
   type ComposerDraftInsertion,
 } from "./use-composer-drafts";
 import { startComposerDraftOperation } from "./composerDraftOperations";
@@ -72,15 +73,25 @@ export function useComposerAttachmentActions(props: {
     if (!key || props.locked) return;
     const insertion = captureComposerDraftInsertion(key);
     await withDraftOperation(key, async (signal) => {
-      const result = await pickComposerMedia({
-        existingCount: countComposerDraftAttachmentsAfterSelection(key, insertion),
-        maxVideoBytes: capabilities?.fileAttachments?.maxUploadBytes,
+      let previewing = false;
+      const attach = async () => {
+        const result = await pickComposerMedia({
+          existingCount: countComposerDraftAttachmentsAfterSelection(key, insertion),
+          maxVideoBytes: capabilities?.fileAttachments?.maxUploadBytes,
+          onPickedImages: (uris) => {
+            previewing = uris.length > 0;
+            setComposerPendingPhotos(key, uris);
+          },
+        });
+        report(
+          m(msg("Could not attach photo or video")),
+          result.error,
+          await append(key, signal, result.attachments, insertion),
+        );
+      };
+      await attach().finally(() => {
+        if (previewing) setComposerPendingPhotos(key, []);
       });
-      report(
-        m(msg("Could not attach photo or video")),
-        result.error,
-        await append(key, signal, result.attachments, insertion),
-      );
     });
   };
   const onPickDraftFiles = async () => {
