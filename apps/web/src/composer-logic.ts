@@ -1,14 +1,6 @@
 import type { ClientSettings } from "@t3tools/contracts/settings";
-import type {
-  AssistantCitation,
-  EnvironmentId,
-  ResolvedKeybindingsConfig,
-} from "@t3tools/contracts";
+import type { EnvironmentId, ResolvedKeybindingsConfig } from "@t3tools/contracts";
 import type { ComposerPathSearchTarget } from "@t3tools/client-runtime/state/threads";
-import {
-  serializeAssistantCitation,
-  withAssistantCitationComment,
-} from "@t3tools/shared/assistantCitations";
 import { isCurrencyAmountQuery, isPathWord } from "@t3tools/shared/composerTrigger";
 import {
   splitPromptIntoComposerSegments,
@@ -40,10 +32,6 @@ export function isPathSuggestionCurrent(
     searchTarget.cwd === cwd &&
     searchTarget.query === trigger.query.trim()
   );
-}
-
-export function formatAssistantCitationForComposer(citation: AssistantCitation, comment = "") {
-  return `${serializeAssistantCitation(withAssistantCitationComment(citation, comment))} `;
 }
 
 export function composerRequiresModifier(
