@@ -613,7 +613,7 @@ describe("AssetAccess", () => {
         const fs = yield* FileSystem.FileSystem;
         const path = yield* Path.Path;
         const root = yield* fs.makeTempDirectoryScoped({ prefix: "t3-media-validation-" });
-        for (const name of ["report.md", "secret.txt", "secret.%70ng", "secret.png#private.txt"]) {
+        for (const name of ["secret.txt", "secret.%70ng", "secret.png#private.txt"]) {
           const filePath = path.join(root, name);
           yield* fs.writeFileString(filePath, "not media");
           const error = yield* issueAssetUrl({
@@ -1031,6 +1031,46 @@ describe("AssetAccess", () => {
           expect(yield* resolveAsset(suffix.slice(0, suffix.indexOf("/")), siblingName)).toBeNull();
         }
       }
+    }).pipe(Effect.provide(layerTest)),
+  );
+
+  it.effect("issues Markdown URLs that resolve the images and pages the document links to", () =>
+    Effect.gen(function* () {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const root = yield* fileSystem.makeTempDirectoryScoped({ prefix: "t3-asset-markdown-" });
+      yield* fileSystem.makeDirectory(path.join(root, "docs", "manuals"), { recursive: true });
+      const docPath = path.join(root, "docs", "guide.md");
+      const imagePath = path.join(root, "docs", "manuals", "jumpers.jpg");
+      const siblingPath = path.join(root, "docs", "module.md");
+      yield* fileSystem.writeFileString(
+        docPath,
+        "![Jumpers](manuals/jumpers.jpg) and the [module](module.md)",
+      );
+      yield* fileSystem.writeFileString(imagePath, "jpeg bytes");
+      yield* fileSystem.writeFileString(siblingPath, "# Module");
+      yield* fileSystem.writeFileString(path.join(root, "README.md"), "# Root");
+
+      const result = yield* issueAssetUrl({
+        resource: { _tag: "workspace-file", threadId: ThreadId.make("thread-1"), path: docPath },
+        workspaceRoot: root,
+      });
+      const suffix = result.relativeUrl.slice(`${ASSET_ROUTE_PREFIX}/`.length);
+      const token = suffix.slice(0, suffix.indexOf("/"));
+
+      expect(yield* resolveAsset(token, "guide.md")).toEqual({
+        kind: "file",
+        path: yield* fileSystem.realPath(docPath),
+      });
+      expect(yield* resolveAsset(token, "manuals/jumpers.jpg")).toEqual({
+        kind: "file",
+        path: yield* fileSystem.realPath(imagePath),
+      });
+      expect(yield* resolveAsset(token, "module.md")).toEqual({
+        kind: "file",
+        path: yield* fileSystem.realPath(siblingPath),
+      });
+      expect(yield* resolveAsset(token, "../README.md")).toBeNull();
     }).pipe(Effect.provide(layerTest)),
   );
 
