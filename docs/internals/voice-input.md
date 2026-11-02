@@ -5,7 +5,7 @@ temporary client input, and only normal message submission sends the resulting
 text. Mobile defaults to on-device transcription; any client that sends audio off
 the device needs a grant for one environment. Mobile can instead upload recordings
 straight to OpenAI's GPT Transcribe or Microsoft's MAI-Transcribe-2 with the user's
-own key, which lives only in the device keychain; no environment is involved.
+own key, which lives only in the device's secure storage; no environment is involved.
 
 The [shared controller](../../packages/client-runtime/src/voice-input/controller.ts)
 owns the operation while the client supplies capture and transcription. Preparation
