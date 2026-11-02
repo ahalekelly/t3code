@@ -1,8 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
-import {
-  PROVIDER_SEND_TURN_MAX_ATTACHMENTS,
-  PROVIDER_SEND_TURN_MAX_IMAGE_BYTES,
-} from "@t3tools/contracts";
+import { PROVIDER_SEND_TURN_MAX_IMAGE_BYTES } from "@t3tools/contracts";
 
 const files = new Map<string, { base64: string; deleted: boolean; text?: string }>();
 
@@ -109,10 +106,7 @@ describe("native pasted image cleanup", () => {
       "file:///private/var/mobile/Containers/Data/Application/app/tmp/t3-composer-paste/id.png";
     files.set(uri, { base64: "aGVsbG8=", deleted: false });
 
-    const attachments = await convertPastedImagesToAttachments({
-      uris: [uri],
-      existingCount: 0,
-    });
+    const attachments = await convertPastedImagesToAttachments({ uris: [uri] });
 
     expect(attachments).toEqual([
       expect.objectContaining({
@@ -123,23 +117,20 @@ describe("native pasted image cleanup", () => {
     expect(files.get(uri)?.deleted).toBe(true);
   });
 
-  it("deletes rejected and overflow owned files without deleting user-owned files", async () => {
+  it("deletes accepted and rejected owned files without deleting user-owned files", async () => {
     const rejected =
       "file:///private/var/mobile/Containers/Data/Application/app/tmp/t3-composer-paste/bad.png";
-    const overflow =
-      "file:///private/var/mobile/Containers/Data/Application/app/tmp/t3-composer-paste/overflow.png";
+    const accepted =
+      "file:///private/var/mobile/Containers/Data/Application/app/tmp/t3-composer-paste/accepted.png";
     const userOwned = "file:///private/var/mobile/photos/library.png";
     files.set(rejected, { base64: "", deleted: false });
-    files.set(overflow, { base64: "aGVsbG8=", deleted: false });
+    files.set(accepted, { base64: "aGVsbG8=", deleted: false });
     files.set(userOwned, { base64: "aGVsbG8=", deleted: false });
 
-    await convertPastedImagesToAttachments({
-      uris: [rejected, overflow, userOwned],
-      existingCount: PROVIDER_SEND_TURN_MAX_ATTACHMENTS - 1,
-    });
+    await convertPastedImagesToAttachments({ uris: [rejected, accepted, userOwned] });
 
     expect(files.get(rejected)?.deleted).toBe(true);
-    expect(files.get(overflow)?.deleted).toBe(true);
+    expect(files.get(accepted)?.deleted).toBe(true);
     expect(files.get(userOwned)?.deleted).toBe(false);
   });
 });
