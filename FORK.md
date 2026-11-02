@@ -6,10 +6,10 @@
 
 Never commit to `main`; it is generated.
 
-- The manifest, `~/.agents/linux/t3-main.txt` on akelly-desktop, names an upstream tag and the origin branches merged onto it in order. Other machines' copies update only when their `~/.agents` syncs. `fork/*` branches are fork-only; the rest can become upstream PRs. `AGENTS.md` has the rules for branches and worktrees.
-- `~/.agents/linux/t3-fork-main.py`, run every 10 minutes by `t3-fork-main.timer` on akelly-desktop, rebuilds `main` when a branch or the manifest changes, checks it with a frozen-lockfile install and the mobile typecheck, and force-pushes it after the manifest's upstream tag, which the workflows read from this repository. Its docstring covers conflicts and the commands:
+- The manifest, `~/.agents/linux/t3-main.txt` on akelly-desktop, names an upstream tag, usually a nightly, and the origin branches merged onto it in order. Other machines' copies update only when their `~/.agents` syncs. `fork/*` branches are fork-only; the rest can become upstream PRs. `AGENTS.md` has the rules for branches and worktrees.
+- `~/.agents/linux/t3-fork-main.py`, run every 10 minutes by `t3-fork-main.timer` on akelly-desktop, rebuilds `main` when a branch or the manifest changes, and moves the manifest onto each newer upstream nightly that `main` rebuilds on cleanly. It checks each rebuild with a frozen-lockfile install and the mobile typecheck, and force-pushes it after the manifest's upstream tag, which the workflows read from this repository. Its docstring covers conflicts and the commands:
   - `ship [<branch> <parent>...]` rebuilds `main` now, adding a new branch to the manifest when given one.
-  - `rebase <upstream tag>` moves every branch onto a new upstream release.
+  - `rebase <upstream tag>` restacks every branch onto an upstream tag and drops the ones upstream merged.
 - Work in your own worktree (`git -C ~/Git/t3code worktree add ...`), never in `~/Git/t3code`, which the timer owns.
 - Install with `pnpm_config_minimum_release_age=1440 npx corepack pnpm install`. akelly-desktop has no global `vp`, so put the worktree's `node_modules/.bin` on `PATH`.
 
@@ -25,7 +25,7 @@ The iPhone IPA is built for Adrian's iPhone alone, as `com.akelly.t3code` under 
 
 The Android APK is built for Adrian's Pixel as `com.akelly.t3code`, arm64 only, with the run number as its version code, and signed with the `ANDROID_KEYSTORE` key, whose only other copy is `~/.android-signing` on akelly-desktop; a different key cannot update the installed app. Obtainium on the Pixel installs each Android release, picking them out by the title "T3 Code Android".
 
-Roll a machine back with `t3 update <version> --allow-downgrade`. For an upstream version, set `T3CODE_RELEASE_BASE_URL=https://github.com/pingdotgg/t3code/releases/download`.
+Roll a machine back with `t3 update <version> --allow-downgrade`, only to an older fork release. Fork builds carry the database migrations of the nightly they build on, which an upstream release can lack.
 
 ## Dev workflow
 
