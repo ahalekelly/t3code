@@ -294,6 +294,10 @@ jobs:
     needs: [preflight]
     if: needs.preflight.outputs.mobile == 'true'
     uses: ./.github/workflows/fork-ios-ipa.yml
+    # It deletes the compilation cache its new one replaces.
+    permissions:
+      contents: read
+      actions: write
     with:
       version: ${{ needs.preflight.outputs.version }}
     secrets: inherit
