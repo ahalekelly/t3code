@@ -54,7 +54,6 @@ const CODEX_TEXT_GENERATION_ARGS = [
       "tool_suggest",
       "view_image",
     ].map((feature) => `features.${feature}=false`),
-    'web_search="disabled"',
     "skills.include_instructions=false",
     "include_apps_instructions=false",
     "include_collaboration_mode_instructions=false",
@@ -320,8 +319,10 @@ export const makeCodexTextGeneration = Effect.fn("makeCodexTextGeneration")(func
           ...(mcpServersOff ? ["--config", mcpServersOff] : []),
           "--config",
           `model_instructions_file=${yield* encodeJsonForOperation(operation, instructionsPath)}`,
-          // Like Claude's title cwd: titles skip project docs, other text follows their conventions.
-          ...(operation === "generateThreadTitle" ? ["--config", "project_doc_max_bytes=0"] : []),
+          // Titles skip project docs, like Claude's title cwd, but may need the web to read a linked
+          // subject. Other text works from local input and follows project conventions.
+          "--config",
+          operation === "generateThreadTitle" ? "project_doc_max_bytes=0" : 'web_search="disabled"',
           "--ephemeral",
           "--skip-git-repo-check",
           "-s",
