@@ -457,9 +457,13 @@ export const ThreadComposer = function ThreadComposer(props: ThreadComposerProps
     draftMessage.trim().length > 0 ||
     draftAttachments.length > 0 ||
     (queuedEdit?.existingAttachments.length ?? 0) > 0;
+  const pendingMedia = useAtomValue(composerPendingMediaAtom)[composerDraftKey];
+  // A finished attachment keeps its placeholder's id; skip the placeholder once it lands.
   const stripAttachments = [
     ...composerStripAttachments(draftAttachments),
-    ...(useAtomValue(composerPendingMediaAtom)[composerDraftKey] ?? []),
+    ...(pendingMedia ?? []).filter(
+      (placeholder) => !draftAttachments.some(({ id }) => id === placeholder.id),
+    ),
   ];
   const showStopAction = !hasContent && props.canStopThread && queuedEdit === null;
   const onResumeQueue = props.onResumeQueue;
@@ -623,6 +627,7 @@ export const ThreadComposer = function ThreadComposer(props: ThreadComposerProps
     (props.canOperateThread || props.connectionState !== "connected") &&
     hasContent &&
     !contextImports[composerDraftKey] &&
+    pendingMedia === undefined &&
     !isSubmissionLocked &&
     sendBlockedReason === null &&
     !modelUnavailable;
