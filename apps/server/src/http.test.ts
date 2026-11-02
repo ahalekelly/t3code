@@ -789,6 +789,9 @@ describe("assetResponseHeaders", () => {
       "Content-Type": "text/html; charset=utf-8",
       "Content-Security-Policy": "sandbox allow-scripts allow-forms allow-popups allow-downloads",
     });
+    expect(assetResponseHeaders("/reports/notes.MD")).toMatchObject({
+      "Content-Type": "text/plain; charset=utf-8",
+    });
   });
 
   it("downloads uploaded documents without executing their content", () => {
