@@ -16,30 +16,10 @@ import { ChildProcess, ChildProcessSpawner } from "effect/process";
 import * as ServerConfig from "../config.ts";
 import { makeCodexAppServerSpawnCommand } from "../orchestration-v2/Adapters/CodexAdapterV2.ts";
 import * as ProcessRunner from "../processRunner.ts";
-import { classifyScope, make, ownedAgentSlice, type ScopeState } from "./agentScope.ts";
-
-const running: ScopeState = {
-  loadState: "loaded",
-  activeState: "active",
-  result: "success",
-  oomKills: 0,
-  populated: true,
-};
-
-describe("classifyScope", () => {
-  it("reports an OOM kill only once systemd records it", () => {
-    expect(classifyScope({ ...running, activeState: "failed", result: "oom-kill" })).toBe(
-      "oom-killed",
-    );
-    expect(classifyScope({ ...running, oomKills: 1 })).toBe("stopping");
-    expect(classifyScope({ ...running, populated: false })).toBe("stopping");
-    expect(classifyScope({ ...running, activeState: "deactivating" })).toBe("stopping");
-  });
-});
+import { make, ownedAgentSlice } from "./agentScope.ts";
 
 interface FakeUnit {
   activeState: string;
-  result: string;
   controlGroup?: string;
 }
 
@@ -90,14 +70,12 @@ const withFakeSystemd = <A, E>(
               code: ChildProcessSpawner.ExitCode(5),
             };
           }
-          if (verb === "reset-failed") units.delete(unit);
           if (verb !== "show") return output("");
           const state = units.get(unit);
           return output(
             state === undefined
-              ? "LoadState=not-found\nActiveState=inactive\nResult=success\n"
-              : `LoadState=loaded\nActiveState=${state.activeState}\nResult=${state.result}\n` +
-                  `ControlGroup=${state.controlGroup ?? ""}\n`,
+              ? "ActiveState=inactive\n"
+              : `ActiveState=${state.activeState}\nControlGroup=${state.controlGroup ?? ""}\n`,
           );
         }),
     });
@@ -133,8 +111,8 @@ const unitOf = (launch: { readonly args: ReadonlyArray<string> }) =>
 const sliceOf = (launch: { readonly args: ReadonlyArray<string> }) =>
   launch.args.find((arg) => arg.startsWith("--slice="))?.slice("--slice=".length) ?? "";
 
-/** An active scope as systemd and the kernel report it, with the agent itself gone. */
-const exitedAgent = (
+/** An active scope as systemd and the kernel report it. */
+const activeScope = (
   units: Map<string, FakeUnit>,
   cgroupRoot: string,
   unit: string,
@@ -147,13 +125,15 @@ const exitedAgent = (
     `populated ${populated ? 1 : 0}\nfrozen 0\n`,
   );
   // An undefined count leaves memory.events unreadable.
-  if (oomKills !== undefined) {
+  const memoryEvents = NodePath.join(cgroupRoot, controlGroup, "memory.events");
+  if (oomKills === undefined) NodeFS.rmSync(memoryEvents, { force: true });
+  else {
     NodeFS.writeFileSync(
-      NodePath.join(cgroupRoot, controlGroup, "memory.events"),
+      memoryEvents,
       `low 0\nhigh 0\nmax 0\noom ${oomKills}\noom_kill ${oomKills}\noom_group_kill 0\n`,
     );
   }
-  units.set(unit, { activeState: "active", result: "success", controlGroup });
+  units.set(unit, { activeState: "active", controlGroup });
 };
 
 const stopsOf = (calls: ReadonlyArray<ReadonlyArray<string>>) =>
@@ -169,50 +149,42 @@ const launchCodex = (scope: Effect.Success<typeof make>, threadId: string) =>
   );
 
 describe("AgentScope service", () => {
-  it.effect("labels a thread from its newest scope until its next session clears it", () =>
-    withFakeSystemd(({ scope, units }) =>
+  it.effect("tells an agent once about each OOM kill in its own scope, never in a shared one", () =>
+    withFakeSystemd(({ scope, units, cgroupRoot }) =>
       Effect.gen(function* () {
-        const first = yield* scope.wrap({ command: "agent", args: [], name: "t", threadId: "a" });
-        units.set(unitOf(first), { activeState: "failed", result: "oom-kill" });
-        const second = yield* scope.wrap({ command: "agent", args: [], name: "t", threadId: "a" });
-        units.set(unitOf(second), { activeState: "active", result: "success" });
-        expect(yield* scope.oomKilled("a")).toBe(false);
+        const agent = yield* scope.wrap({ command: "agent", args: [], name: "t", threadId: "a" });
+        expect(agent.args).toContain("--property=OOMPolicy=continue");
+        expect(agent.args).toContain("--collect");
+        const unit = unitOf(agent);
+        activeScope(units, cgroupRoot, unit, { populated: true, oomKills: 0 });
+        expect(yield* scope.takeOomKills(unit)).toBe(0);
+        activeScope(units, cgroupRoot, unit, { populated: true, oomKills: 1 });
+        expect(yield* scope.takeOomKills(unit)).toBe(1);
+        expect(yield* scope.takeOomKills(unit)).toBe(0);
+        activeScope(units, cgroupRoot, unit, { populated: true, oomKills: undefined });
+        expect(yield* scope.takeOomKills(unit)).toBe(0);
+        activeScope(units, cgroupRoot, unit, { populated: true, oomKills: 3 });
+        expect(yield* scope.takeOomKills(unit)).toBe(2);
 
-        units.set(unitOf(second), { activeState: "failed", result: "oom-kill" });
-        expect(yield* scope.oomKilled("a")).toBe(true);
-        units.delete(unitOf(second));
-        expect(yield* scope.oomKilled("a")).toBe(true);
-
-        yield* scope.clear("a");
-        expect(yield* scope.oomKilled("a")).toBe(false);
+        const codex = yield* launchCodex(scope, "a");
+        expect(codex.args).toContain("--property=OOMPolicy=continue");
+        expect(codex.args).toContain("--property=TimeoutStopSec=10s");
+        activeScope(units, cgroupRoot, unitOf(codex), { populated: true, oomKills: 1 });
+        expect(yield* scope.takeOomKills(unitOf(codex))).toBe(0);
       }),
     ),
   );
 
-  it.effect(
-    "keeps shared Codex scopes running without attributing their OOM to the launch thread",
-    () =>
-      withFakeSystemd(({ scope, units, calls }) =>
+  it.effect("launches scopes without OOMPolicy on a manager older than systemd 253", () =>
+    withFakeSystemd(
+      ({ scope }) =>
         Effect.gen(function* () {
           const agent = yield* scope.wrap({ command: "agent", args: [], name: "t", threadId: "a" });
-          expect(agent.args).toContain("--property=OOMPolicy=stop");
-          units.set(unitOf(agent), { activeState: "failed", result: "oom-kill" });
-          expect(yield* scope.oomKilled("a")).toBe(true);
-
-          const codex = yield* launchCodex(scope, "a");
-          expect(codex.args).toContain("--property=OOMPolicy=continue");
-          expect(codex.args).not.toContain("--property=OOMPolicy=stop");
-          expect(codex.args).toContain("--property=TimeoutStopSec=10s");
-          expect(codex.args).toContain("--collect");
-          units.set(unitOf(codex), { activeState: "active", result: "success" });
-          expect(yield* scope.oomKilled("a")).toBe(false);
-          units.set(unitOf(codex), { activeState: "failed", result: "oom-kill" });
-          expect(yield* scope.oomKilled("a")).toBe(false);
-          expect(
-            calls.filter(([, verb, unit]) => verb === "show" && unit === unitOf(codex)),
-          ).toEqual([]);
+          expect(agent.unit).toBeDefined();
+          expect(agent.args.some((arg) => arg.startsWith("--property=OOMPolicy="))).toBe(false);
         }),
-      ),
+      { oomPolicy: false },
+    ),
   );
 
   it.effect.each([{ oomPolicy: true }, { oomPolicy: false }])(
@@ -227,9 +199,9 @@ describe("AgentScope service", () => {
               name: "t",
               threadId: "a",
             });
-            exitedAgent(units, cgroupRoot, unitOf(agent), { populated: true, oomKills: 0 });
+            activeScope(units, cgroupRoot, unitOf(agent), { populated: true, oomKills: 0 });
             const codex = yield* launchCodex(scope, "b");
-            exitedAgent(units, cgroupRoot, unitOf(codex), { populated: true, oomKills: 0 });
+            activeScope(units, cgroupRoot, unitOf(codex), { populated: true, oomKills: 0 });
 
             expect(yield* scope.kill("a")).toBe(true);
             expect(
@@ -243,20 +215,6 @@ describe("AgentScope service", () => {
           }),
         { oomPolicy },
       ),
-  );
-
-  it.effect("keeps a running scope while hundreds of other threads launch", () =>
-    withFakeSystemd(({ scope, units }) =>
-      Effect.gen(function* () {
-        const live = yield* scope.wrap({ command: "agent", args: [], name: "t", threadId: "live" });
-        units.set(unitOf(live), { activeState: "active", result: "success" });
-        for (let index = 0; index < 600; index++) {
-          yield* scope.wrap({ command: "agent", args: [], name: "t", threadId: `other-${index}` });
-        }
-        units.set(unitOf(live), { activeState: "failed", result: "oom-kill" });
-        expect(yield* scope.oomKilled("live")).toBe(true);
-      }),
-    ),
   );
 
   it.effect("delegates every agent scope so rootless containers can manage their cgroups", () =>
@@ -308,7 +266,7 @@ describe("AgentScope service", () => {
   it.effect("stops agents a killed server left before the first launch", () =>
     withFakeSystemd(({ scope, units, calls, stateDir }) =>
       Effect.gen(function* () {
-        units.set(ownedAgentSlice(stateDir), { activeState: "active", result: "success" });
+        units.set(ownedAgentSlice(stateDir), { activeState: "active" });
         const agent = yield* scope.wrap({ command: "agent", args: [], name: "t", threadId: "a" });
         const stops = calls.filter(([, verb]) => verb === "stop");
         expect(stops).toEqual([["--user", "stop", ownedAgentSlice(stateDir)]]);
@@ -336,9 +294,9 @@ describe("AgentScope service", () => {
         yield* scope.stop("session-2.scope");
         expect(calls.some((args) => args.includes("session-2.scope"))).toBe(false);
         yield* scope.stop(unit);
-        exitedAgent(units, cgroupRoot, unit, { populated: false, oomKills: 0 });
+        activeScope(units, cgroupRoot, unit, { populated: false, oomKills: 0 });
         yield* scope.stop(unit);
-        exitedAgent(units, cgroupRoot, unit, { populated: true, oomKills: 0 });
+        activeScope(units, cgroupRoot, unit, { populated: true, oomKills: 0 });
         units.get(unit)!.activeState = "deactivating";
         yield* scope.stop(unit);
         expect(stopsOf(calls)).toEqual([]);
@@ -346,47 +304,25 @@ describe("AgentScope service", () => {
         units.get(unit)!.activeState = "active";
         yield* scope.stop(unit);
         expect(stopsOf(calls)).toEqual([["--user", "stop", "--no-block", unit]]);
-        expect(yield* scope.oomKilled("a")).toBe(false);
       }),
     ),
   );
 
-  it.effect.each([true, false])(
-    "cleans up an OOM exit without losing its diagnosis (OOMPolicy=%s)",
-    (oomPolicy) =>
-      withFakeSystemd(
-        ({ scope, units, calls, cgroupRoot }) =>
-          Effect.gen(function* () {
-            const agent = yield* scope.wrap({
-              command: "agent",
-              args: [],
-              name: "t",
-              threadId: "a",
-            });
-            const unit = unitOf(agent);
-            exitedAgent(units, cgroupRoot, unit, { populated: true, oomKills: undefined });
-            yield* scope.stop(unit);
-            expect(stopsOf(calls)).toEqual(
-              oomPolicy ? [] : [["--user", "stop", "--no-block", unit]],
-            );
-
-            // The kernel records the kill before systemd records the OOM result.
-            exitedAgent(units, cgroupRoot, unit, { populated: true, oomKills: 1 });
-            yield* scope.stop(unit);
-            expect(stopsOf(calls)).toHaveLength(oomPolicy ? 0 : 2);
-
-            if (oomPolicy) {
-              units.set(unit, { activeState: "failed", result: "oom-kill" });
-              expect(yield* scope.oomKilled("a")).toBe(true);
-              units.delete(unit);
-              expect(yield* scope.oomKilled("a")).toBe(true);
-            }
-          }),
-        { oomPolicy },
-      ),
+  it.effect("reaps a tool's leftovers after its agent exits, then forgets the scope", () =>
+    withFakeSystemd(({ scope, units, calls, cgroupRoot }) =>
+      Effect.gen(function* () {
+        const agent = yield* scope.wrap({ command: "agent", args: [], name: "t", threadId: "a" });
+        const unit = unitOf(agent);
+        activeScope(units, cgroupRoot, unit, { populated: true, oomKills: 1 });
+        yield* scope.stop(unit);
+        expect(stopsOf(calls)).toEqual([["--user", "stop", "--no-block", unit]]);
+        expect(yield* scope.takeOomKills(unit)).toBe(0);
+        expect(yield* scope.kill("a")).toBe(false);
+      }),
+    ),
   );
 
-  it.effect("reports failed daemon cleanup without failing session teardown", () => {
+  it.effect("reports failed daemon cleanup and leaves the scope to Force stop", () => {
     const warnings: Array<unknown> = [];
     const logger = Logger.make(({ message }) => {
       warnings.push(message);
@@ -395,9 +331,10 @@ describe("AgentScope service", () => {
       ({ scope, units, cgroupRoot }) =>
         Effect.gen(function* () {
           const agent = yield* scope.wrap({ command: "agent", args: [], name: "t", threadId: "a" });
-          exitedAgent(units, cgroupRoot, unitOf(agent), { populated: true, oomKills: 0 });
+          activeScope(units, cgroupRoot, unitOf(agent), { populated: true, oomKills: 0 });
           yield* scope.stop(unitOf(agent));
           expect(warnings.flat()).toContain("Could not stop an exited agent's scope");
+          expect(yield* scope.kill("a")).toBe(true);
         }).pipe(Effect.provide(Logger.layer([logger], { mergeWithExisting: false }))),
       { stopFails: true },
     );
