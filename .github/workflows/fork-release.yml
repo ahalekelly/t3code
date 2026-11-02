@@ -56,8 +56,10 @@ jobs:
           echo "base=$base" >> "$GITHUB_OUTPUT"
           echo "version=$version" >> "$GITHUB_OUTPUT"
 
-      # pnpm lists each package changed since a release and every package depending on it. The root
-      # package stands for files outside any package, and the mobile app config imports scripts/.
+      # Each file changed since a release maps to its innermost package, and pnpm adds every package
+      # depending on those. The root package stands for files outside any package, and the mobile
+      # app config imports scripts/. Not pnpm's `[<ref>]` filter: main is rebuilt on every push, so
+      # a release is never its ancestor, and that filter diffs from their merge-base instead.
       # The desktop base is the Latest release; each phone's base is its highest-run tag.
       - id: changes
         name: Find the builds to release
@@ -66,11 +68,16 @@ jobs:
         run: |
           set -euo pipefail
           shopt -s inherit_errexit
+          packages=$(npx --yes corepack pnpm ls -r --depth -1 --json | jq --arg root "$PWD/" 'map({name, dir: (.path + "/" | ltrimstr($root))})')
           affects() {
             local base=$1; shift
             if [[ -z "$base" ]]; then echo true; return; fi
-            local listed
-            listed=$(npx --yes corepack pnpm --filter "...[$base]" --changed-files-ignore-pattern '**/*.md' ls --depth -1 --json)
+            local changed listed
+            changed=$(git diff --name-only --no-renames "$base" HEAD -- ':!*.md' | jq -Rnr --argjson packages "$packages" \
+              '[inputs as $file | $packages | map(select(.dir as $dir | $file | startswith($dir))) | max_by(.dir | length).name] | unique[] | "--filter=...\(.)"')
+            if [[ -z "$changed" ]]; then echo false; return; fi
+            mapfile -t changed <<<"$changed"
+            listed=$(npx --yes corepack pnpm "${changed[@]}" ls --depth -1 --json)
             jq --args 'any(.[].name; IN($ARGS.positional[]))' @t3tools/monorepo @t3tools/scripts "$@" <<<"$listed"
           }
           last_tag() {
