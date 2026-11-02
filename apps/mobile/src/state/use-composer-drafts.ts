@@ -78,15 +78,30 @@ const COMPOSER_DRAFTS_DIRECTORY = "composer-drafts";
 const COMPOSER_DRAFTS_FILE = "drafts.json";
 const PERSIST_DEBOUNCE_MS = 200;
 
-export const composerContextImportsAtom = Atom.make<Record<string, boolean>>({}).pipe(
+// Counts imports per draft; sending waits until a draft has none in progress.
+export const composerContextImportsAtom = Atom.make<Record<string, number>>({}).pipe(
   Atom.keepAlive,
 );
 
 export function setComposerContextImporting(draftKey: string, importing: boolean): void {
   const next = { ...appAtomRegistry.get(composerContextImportsAtom) };
-  if (importing) next[draftKey] = true;
+  const count = (next[draftKey] ?? 0) + (importing ? 1 : -1);
+  if (count > 0) next[draftKey] = count;
   else delete next[draftKey];
   appAtomRegistry.set(composerContextImportsAtom, next);
+}
+
+/** Picker copies of photos still being processed, shown in the strip until their attachments land. */
+export const composerPendingPhotosAtom = Atom.make<Record<string, ReadonlyArray<string>>>({}).pipe(
+  Atom.keepAlive,
+);
+
+export function setComposerPendingPhotos(draftKey: string, uris: ReadonlyArray<string>): void {
+  const next = { ...appAtomRegistry.get(composerPendingPhotosAtom) };
+  if (uris.length > 0) next[draftKey] = uris;
+  else delete next[draftKey];
+  appAtomRegistry.set(composerPendingPhotosAtom, next);
+  setComposerContextImporting(draftKey, uris.length > 0);
 }
 
 interface ComposerDraftSelection {

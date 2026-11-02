@@ -85,7 +85,7 @@ export function ComposerEditor({
   const linkedEnvironments = useLinkedEnvironments(environmentId ?? null);
   const models = useModelMentions(environmentId ?? draft.project?.environmentId, props.value);
   const contextImports = useAtomValue(composerContextImportsAtom);
-  const importing = draftKey ? contextImports[draftKey] === true : false;
+  const importing = draftKey ? contextImports[draftKey] !== undefined : false;
   const pasteContext = async (
     clipboard: Parameters<NonNullable<NativeComposerEditorProps["onPasteContext"]>>[0],
   ) => {
