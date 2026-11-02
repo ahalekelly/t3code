@@ -12,7 +12,7 @@ import { repointLauncher, resolveLauncherPath, resolveNewestVersion } from "./up
 
 afterEach(() => vi.restoreAllMocks());
 
-it.effect("authenticates each release page until the requested channel is found", () =>
+it.effect("authenticates every release page and picks the highest version on the channel", () =>
   Effect.gen(function* () {
     const pages: string[] = [];
     const httpClient = HttpClient.make((request) => {
@@ -23,14 +23,23 @@ it.effect("authenticates each release page until the requested channel is found"
       assert.equal(request.headers.authorization, "Bearer gh-token");
       const page = url.searchParams.get("page") ?? "";
       pages.push(page);
-      const tag_name = page === "1" ? "v1.2.4-preview.20260101.1" : "v1.2.3";
-      return Effect.succeed(HttpClientResponse.fromWeb(request, Response.json([{ tag_name }])));
+      // GitHub lists v1.2.9 before v1.2.10 and pushes the newest stable release to the second page.
+      const releases =
+        page === "1"
+          ? [
+              { tag_name: "v1.2.9" },
+              ...Array.from({ length: 99 }, (_, i) => ({
+                tag_name: `v1.2.4-nightly.20260101.${i}`,
+              })),
+            ]
+          : [{ tag_name: "v1.2.4-preview.20260101.1" }, { tag_name: "v1.2.10" }];
+      return Effect.succeed(HttpClientResponse.fromWeb(request, Response.json(releases)));
     });
     const version = yield* resolveNewestVersion("stable").pipe(
       Effect.provideService(HostProcess.Environment, { GH_TOKEN: "gh-token" }),
       Effect.provideService(HttpClient.HttpClient, httpClient),
     );
-    assert.equal(version, "1.2.3");
+    assert.equal(version, "1.2.10");
     assert.deepStrictEqual(pages, ["1", "2"]);
   }),
 );
