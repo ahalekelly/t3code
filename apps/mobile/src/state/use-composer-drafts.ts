@@ -77,15 +77,13 @@ const COMPOSER_DRAFTS_DIRECTORY = "composer-drafts";
 const COMPOSER_DRAFTS_FILE = "drafts.json";
 const PERSIST_DEBOUNCE_MS = 200;
 
-// Counts imports per draft; sending waits until a draft has none in progress.
-export const composerContextImportsAtom = Atom.make<Record<string, number>>({}).pipe(
+export const composerContextImportsAtom = Atom.make<Record<string, boolean>>({}).pipe(
   Atom.keepAlive,
 );
 
 export function setComposerContextImporting(draftKey: string, importing: boolean): void {
   const next = { ...appAtomRegistry.get(composerContextImportsAtom) };
-  const count = (next[draftKey] ?? 0) + (importing ? 1 : -1);
-  if (count > 0) next[draftKey] = count;
+  if (importing) next[draftKey] = true;
   else delete next[draftKey];
   appAtomRegistry.set(composerContextImportsAtom, next);
 }
@@ -103,6 +101,14 @@ export function setComposerPendingMedia(
   if (placeholders.length > 0) next[draftKey] = placeholders;
   else delete next[draftKey];
   appAtomRegistry.set(composerPendingMediaAtom, next);
+}
+
+/** A draft can't be sent while context is importing or picked media is still processing. */
+export function composerDraftBusy(draftKey: string): boolean {
+  return (
+    appAtomRegistry.get(composerContextImportsAtom)[draftKey] === true ||
+    appAtomRegistry.get(composerPendingMediaAtom)[draftKey] !== undefined
+  );
 }
 
 interface ComposerDraftSelection {
