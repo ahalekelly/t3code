@@ -91,17 +91,19 @@ export function setComposerContextImporting(draftKey: string, importing: boolean
   appAtomRegistry.set(composerContextImportsAtom, next);
 }
 
-/** Picker copies of photos still being processed, shown in the strip until their attachments land. */
-export const composerPendingPhotosAtom = Atom.make<Record<string, ReadonlyArray<string>>>({}).pipe(
-  Atom.keepAlive,
-);
+/** Placeholders for picked media still being processed, shown in the strip until their attachments land. */
+export const composerPendingMediaAtom = Atom.make<
+  Record<string, ReadonlyArray<DraftComposerAttachment>>
+>({}).pipe(Atom.keepAlive);
 
-export function setComposerPendingPhotos(draftKey: string, uris: ReadonlyArray<string>): void {
-  const next = { ...appAtomRegistry.get(composerPendingPhotosAtom) };
-  if (uris.length > 0) next[draftKey] = uris;
+export function setComposerPendingMedia(
+  draftKey: string,
+  placeholders: ReadonlyArray<DraftComposerAttachment>,
+): void {
+  const next = { ...appAtomRegistry.get(composerPendingMediaAtom) };
+  if (placeholders.length > 0) next[draftKey] = placeholders;
   else delete next[draftKey];
-  appAtomRegistry.set(composerPendingPhotosAtom, next);
-  setComposerContextImporting(draftKey, uris.length > 0);
+  appAtomRegistry.set(composerPendingMediaAtom, next);
 }
 
 interface ComposerDraftSelection {
@@ -1486,6 +1488,12 @@ export function replaceComposerDraftAttachments(
 }
 
 export function removeComposerDraftAttachment(draftKey: string, imageId: string): void {
+  setComposerPendingMedia(
+    draftKey,
+    (appAtomRegistry.get(composerPendingMediaAtom)[draftKey] ?? []).filter(
+      (placeholder) => placeholder.id !== imageId,
+    ),
+  );
   const previousAttachments = getComposerDraftSnapshot(draftKey).attachments;
   updateComposerDrafts((current) => {
     const existing = normalizeDraft(current[draftKey]);
