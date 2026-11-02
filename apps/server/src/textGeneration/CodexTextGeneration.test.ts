@@ -336,6 +336,7 @@ it.layer(layerCodexTextGenerationTest)("CodexTextGeneration", (it) => {
       {
         output: JSON.stringify({ subject: "Update project", body: "" }),
         managedRuntime: true,
+        requireArgs: ['--config web_search="disabled"'],
         forbidArgs: ['service_tier="priority"', "--config project_doc_max_bytes=0"],
       },
       (textGeneration) =>
@@ -419,6 +420,7 @@ it.layer(layerCodexTextGenerationTest)("CodexTextGeneration", (it) => {
           "--config features.hooks=false",
           "--config project_doc_max_bytes=0",
         ],
+        forbidArgs: ['--config web_search="disabled"'],
       },
       (textGeneration) =>
         Effect.gen(function* () {
