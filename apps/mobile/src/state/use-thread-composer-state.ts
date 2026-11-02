@@ -408,7 +408,9 @@ export function useThreadComposerState(input: {
     const threadKey = scopedThreadKey(thread.environmentId, thread.id);
     const edit = getQueuedRunEdit(threadKey);
     if (edit === null) return;
-    const draft = getComposerDraftSnapshot(queuedEditDraftKey(threadKey, edit.runId));
+    const editDraftKey = queuedEditDraftKey(threadKey, edit.runId);
+    if (composerDraftBusy(editDraftKey)) return;
+    const draft = getComposerDraftSnapshot(editDraftKey);
     const text = draft.text.trim();
     if (
       text.length === 0 &&
