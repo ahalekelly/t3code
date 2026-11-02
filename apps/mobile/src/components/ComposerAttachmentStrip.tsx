@@ -149,7 +149,7 @@ function ComposerImageAttachment(
                 ? { kind: "image", attachment, name: attachment.name, sourceIdentifier }
                 : {
                     kind: "image",
-                    uri: attachment.dataUrl ?? attachment.previewUri,
+                    uri: attachment.previewUri,
                     name: attachment.name,
                     sourceIdentifier,
                   },
