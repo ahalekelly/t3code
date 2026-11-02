@@ -17,9 +17,13 @@ import {
   captureComposerDraftInsertion,
   countComposerDraftAttachmentsAfterSelection,
   getComposerDraftSnapshot,
-  setComposerPendingPhotos,
+  composerPendingMediaAtom,
+  releaseUnusedComposerAttachmentFiles,
+  setComposerContextImporting,
+  setComposerPendingMedia,
   type ComposerDraftInsertion,
 } from "./use-composer-drafts";
+import { appAtomRegistry } from "./atom-registry";
 import { startComposerDraftOperation } from "./composerDraftOperations";
 
 export function useComposerAttachmentActions(props: {
@@ -69,19 +73,35 @@ export function useComposerAttachmentActions(props: {
         const result = await pickComposerMedia({
           existingCount: countComposerDraftAttachmentsAfterSelection(key, insertion),
           maxVideoBytes: capabilities?.fileAttachments?.maxUploadBytes,
-          onPickedImages: (uris) => {
-            previewing = uris.length > 0;
-            setComposerPendingPhotos(key, uris);
+          onPicked: (placeholders) => {
+            if (placeholders.length === 0) return;
+            previewing = true;
+            setComposerContextImporting(key, true);
+            setComposerPendingMedia(key, placeholders);
           },
         });
+        const kept = new Set(
+          (appAtomRegistry.get(composerPendingMediaAtom)[key] ?? []).map(({ id }) => id),
+        );
+        const removed = previewing
+          ? result.attachments.filter((attachment) => !kept.has(attachment.id))
+          : [];
+        await releaseUnusedComposerAttachmentFiles(removed);
         report(
           "Could not attach photo or video",
           result.error,
-          await append(key, signal, result.attachments, insertion),
+          await append(
+            key,
+            signal,
+            result.attachments.filter((attachment) => !removed.includes(attachment)),
+            insertion,
+          ),
         );
       };
       await attach().finally(() => {
-        if (previewing) setComposerPendingPhotos(key, []);
+        if (!previewing) return;
+        setComposerPendingMedia(key, []);
+        setComposerContextImporting(key, false);
       });
     });
   };
