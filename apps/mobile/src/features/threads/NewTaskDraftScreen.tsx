@@ -348,7 +348,7 @@ export function NewTaskDraftScreen(props: {
     shareImportPhase !== "failed" &&
     shareImportPhase !== "cancelling";
   const contextImports = useAtomValue(composerContextImportsAtom);
-  const isImportingContext = flow.draftKey ? contextImports[flow.draftKey] === true : false;
+  const isImportingContext = flow.draftKey ? contextImports[flow.draftKey] !== undefined : false;
   const isComposerInteractionLocked =
     isIncomingShareTransferPending || flow.submitting || isImportingContext;
   const { environments, selectedEnvironmentId, switchEnvironment, switchingToEnvironmentId } = flow;

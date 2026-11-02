@@ -17,8 +17,13 @@ import {
   captureComposerDraftInsertion,
   countComposerDraftAttachmentsAfterSelection,
   getComposerDraftSnapshot,
+  composerPendingMediaAtom,
+  releaseUnusedComposerAttachmentFiles,
+  setComposerContextImporting,
+  setComposerPendingMedia,
   type ComposerDraftInsertion,
 } from "./use-composer-drafts";
+import { appAtomRegistry } from "./atom-registry";
 import { startComposerDraftOperation } from "./composerDraftOperations";
 
 export function useComposerAttachmentActions(props: {
@@ -63,15 +68,41 @@ export function useComposerAttachmentActions(props: {
     if (!key || props.locked) return;
     const insertion = captureComposerDraftInsertion(key);
     await withDraftOperation(key, async (signal) => {
-      const result = await pickComposerMedia({
-        existingCount: countComposerDraftAttachmentsAfterSelection(key, insertion),
-        maxVideoBytes: capabilities?.fileAttachments?.maxUploadBytes,
+      let previewing = false;
+      const attach = async () => {
+        const result = await pickComposerMedia({
+          existingCount: countComposerDraftAttachmentsAfterSelection(key, insertion),
+          maxVideoBytes: capabilities?.fileAttachments?.maxUploadBytes,
+          onPicked: (placeholders) => {
+            if (placeholders.length === 0) return;
+            previewing = true;
+            setComposerContextImporting(key, true);
+            setComposerPendingMedia(key, placeholders);
+          },
+        });
+        const kept = new Set(
+          (appAtomRegistry.get(composerPendingMediaAtom)[key] ?? []).map(({ id }) => id),
+        );
+        const removed = previewing
+          ? result.attachments.filter((attachment) => !kept.has(attachment.id))
+          : [];
+        await releaseUnusedComposerAttachmentFiles(removed);
+        report(
+          "Could not attach photo or video",
+          result.error,
+          await append(
+            key,
+            signal,
+            result.attachments.filter((attachment) => !removed.includes(attachment)),
+            insertion,
+          ),
+        );
+      };
+      await attach().finally(() => {
+        if (!previewing) return;
+        setComposerPendingMedia(key, []);
+        setComposerContextImporting(key, false);
       });
-      report(
-        "Could not attach photo or video",
-        result.error,
-        await append(key, signal, result.attachments, insertion),
-      );
     });
   };
   const onPickDraftFiles = async () => {
