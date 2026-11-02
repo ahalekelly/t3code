@@ -127,14 +127,7 @@ interface HeldWake {
 
 const watchKey = ({ thread, watch }: WatchTarget) => `${thread.id} ${watch.startedAt}`;
 
-type WatchEndReason =
-  | "merged"
-  | "closed"
-  | "unreadable"
-  | "comment-limit"
-  | "settled"
-  | "subagent"
-  | "stopped";
+type WatchEndReason = "merged" | "closed" | "unreadable" | "comment-limit" | "subagent" | "stopped";
 
 interface WatchLife {
   readonly threadId: string;
@@ -569,11 +562,7 @@ export const make = Effect.gen(function* () {
 
   // A merged snapshot still gets one read, so the wake can name the merge commit.
   const endsWithoutRead = ({ thread }: WatchTarget): WatchEndReason | undefined =>
-    thread.settledOverride === "settled" || thread.settledAt !== null
-      ? "settled"
-      : thread.lineage.relationshipToParent === "subagent"
-        ? "subagent"
-        : undefined;
+    thread.lineage.relationshipToParent === "subagent" ? "subagent" : undefined;
 
   const eachTarget = <E>(
     group: WatchGroup,
