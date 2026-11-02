@@ -19,7 +19,6 @@ import {
   getComposerDraftSnapshot,
   composerPendingMediaAtom,
   releaseUnusedComposerAttachmentFiles,
-  setComposerContextImporting,
   setComposerPendingMedia,
   type ComposerDraftInsertion,
 } from "./use-composer-drafts";
@@ -76,7 +75,6 @@ export function useComposerAttachmentActions(props: {
           onPicked: (placeholders) => {
             if (placeholders.length === 0) return;
             previewing = true;
-            setComposerContextImporting(key, true);
             setComposerPendingMedia(key, placeholders);
           },
         });
@@ -99,9 +97,7 @@ export function useComposerAttachmentActions(props: {
         );
       };
       await attach().finally(() => {
-        if (!previewing) return;
-        setComposerPendingMedia(key, []);
-        setComposerContextImporting(key, false);
+        if (previewing) setComposerPendingMedia(key, []);
       });
     });
   };
