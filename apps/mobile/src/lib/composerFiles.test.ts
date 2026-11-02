@@ -6,6 +6,8 @@ const mocks = vi.hoisted(() => ({
   documentUri: "file:///documents",
   pickFile: vi.fn(),
   pickMedia: vi.fn(),
+  takePhoto: vi.fn(),
+  requestCamera: vi.fn(),
   copy: vi.fn(),
   delete: vi.fn(),
   open: vi.fn(),
@@ -80,7 +82,11 @@ vi.mock("expo-file-system", () => {
   };
 });
 
-vi.mock("expo-image-picker", () => ({ launchImageLibraryAsync: mocks.pickMedia }));
+vi.mock("expo-image-picker", () => ({
+  launchImageLibraryAsync: mocks.pickMedia,
+  launchCameraAsync: mocks.takePhoto,
+  requestCameraPermissionsAsync: mocks.requestCamera,
+}));
 vi.mock("expo-document-picker", () => ({ getDocumentAsync: mocks.pickFile }));
 vi.mock("expo-image-manipulator", () => ({
   SaveFormat: { JPEG: "jpeg", PNG: "png", WEBP: "webp" },
@@ -362,7 +368,11 @@ describe("composer file attachments", () => {
         uri.endsWith("clip.mov") ? video.fileSize : 3,
       );
 
-      const result = await pickComposerMedia({ existingCount: 0, maxVideoBytes: 50 * 1024 * 1024 });
+      const result = await pickComposerMedia({
+        source: "library",
+        existingCount: 0,
+        maxVideoBytes: 50 * 1024 * 1024,
+      });
 
       expect(mocks.pickMedia).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -391,10 +401,22 @@ describe("composer file attachments", () => {
       expect(mocks.delete).not.toHaveBeenCalled();
     });
 
+    it("does not open the camera without camera permission", async () => {
+      mocks.requestCamera.mockResolvedValue({ granted: false });
+
+      const result = await pickComposerMedia({ source: "camera", existingCount: 0 });
+
+      expect(result).toEqual({
+        attachments: [],
+        error: "Allow camera access in Settings to take photos.",
+      });
+      expect(mocks.takePhoto).not.toHaveBeenCalled();
+    });
+
     it("does not persist videos when the destination lacks file support", async () => {
       mocks.pickMedia.mockResolvedValue({ canceled: false, assets: [video, image] });
 
-      const result = await pickComposerMedia({ existingCount: 0 });
+      const result = await pickComposerMedia({ source: "library", existingCount: 0 });
 
       expect(result.attachments).toEqual([expect.objectContaining({ type: "image" })]);
       expect(result.error).toBe("Video attachments are unavailable here.");
@@ -407,7 +429,11 @@ describe("composer file attachments", () => {
         assets: [{ ...video, fileName: null, mimeType: undefined, fileSize: undefined }],
       });
 
-      const result = await pickComposerMedia({ existingCount: 0, maxVideoBytes: 1024 });
+      const result = await pickComposerMedia({
+        source: "library",
+        existingCount: 0,
+        maxVideoBytes: 1024,
+      });
 
       expect(result.error).toBeNull();
       expect(result.attachments).toEqual([
@@ -451,7 +477,11 @@ describe("composer file attachments", () => {
         });
         mocks.size.mockImplementation((uri: string) => (uri.endsWith("clip.mov") ? stored : 3));
 
-        const result = await pickComposerMedia({ existingCount: 0, maxVideoBytes: limit });
+        const result = await pickComposerMedia({
+          source: "library",
+          existingCount: 0,
+          maxVideoBytes: limit,
+        });
 
         expect(result).toEqual({
           attachments: [expect.objectContaining({ type: "image" })],
@@ -469,6 +499,7 @@ describe("composer file attachments", () => {
       mocks.pickMedia.mockResolvedValue({ canceled: false, assets: [image, video] });
 
       const result = await pickComposerMedia({
+        source: "library",
         existingCount: 99,
         maxVideoBytes: 50 * 1024 * 1024,
       });
@@ -482,7 +513,9 @@ describe("composer file attachments", () => {
     it("reports a native video retrieval error and ends the foreground handoff", async () => {
       mocks.pickMedia.mockRejectedValue(new Error("Could not download video from iCloud."));
 
-      await expect(pickComposerMedia({ existingCount: 0, maxVideoBytes: 1024 })).resolves.toEqual({
+      await expect(
+        pickComposerMedia({ source: "library", existingCount: 0, maxVideoBytes: 1024 }),
+      ).resolves.toEqual({
         attachments: [],
         error: "Could not download video from iCloud.",
       });
