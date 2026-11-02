@@ -3,6 +3,7 @@ import { unified, type Processor } from "unified";
 import remarkParse from "remark-parse";
 import remarkGfm from "remark-gfm";
 import { remarkKeepWindowsProsePaths } from "@t3tools/shared/markdownWindowsPaths";
+import { bareFilePathMatches } from "@t3tools/shared/markdownLinks";
 import { isWindowsAbsolutePath } from "@t3tools/shared/path";
 
 const parser = unified().use(remarkParse).use(remarkGfm).use(remarkKeepWindowsProsePaths);
@@ -297,8 +298,8 @@ function transformNativeMarkdown(
   tableBreaks: boolean,
 ): string {
   const breakTables = tableBreaks && mayHaveTableUnderText(markdown);
-  let linkFiles = false;
-  if (fileLink) {
+  let linkFiles = fileLink !== undefined && bareFilePathMatches(markdown).length > 0;
+  if (fileLink && !linkFiles) {
     for (const [, code] of markdown.matchAll(INLINE_CODE_SPAN)) {
       if (fileLink.test(code!.trim())) {
         linkFiles = true;
@@ -329,6 +330,23 @@ function transformNativeMarkdown(
         edits.push(edit);
         fileEdits.push(edit);
         if (node.value.includes("|")) rewritesPipe = true;
+      }
+    } else if (linkFiles && node.type === "text") {
+      const start = node.position?.start.offset;
+      const end = node.position?.end.offset;
+      if (start === undefined || end === undefined) return;
+      // Match the source, since escapes and container prefixes shift the parsed value.
+      const parsed = new Set(bareFilePathMatches(node.value).map(({ path }) => path));
+      for (const { index, path } of bareFilePathMatches(markdown.slice(start, end))) {
+        if (!parsed.has(path)) continue;
+        const escaped = path.replace(/[\\[\]&]/g, "\\$&");
+        const edit = {
+          start: start + index,
+          end: start + index + path.length,
+          content: `[${escaped}](<${escaped}>)`,
+        };
+        edits.push(edit);
+        fileEdits.push(edit);
       }
     } else if (node.type !== "link" && node.type !== "linkReference" && "children" in node)
       node.children.forEach((child, index) => {
