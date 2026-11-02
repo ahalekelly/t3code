@@ -10,7 +10,12 @@ public class T3SpeechModule: Module {
     // after `start` reach the session it created. Events carry the caller's
     // `reading` id, so a late event from a replaced reading can be told apart.
     AsyncFunction("start") { (options: SpeechOptionsRecord, reading: String, promise: Promise) in
-      let settings = try options.validated()
+      let settings: SpeechSettings
+      do { settings = try options.validated() } catch {
+        // Text sent for this reading must not reach the one it replaces.
+        MainActor.assumeIsolated { SpeechPlayer.shared.end() }
+        throw error
+      }
       let task = MainActor.assumeIsolated {
         SpeechPlayer.shared.start(settings) { [weak self] state in
           self?.sendEvent("onSpeechState", [

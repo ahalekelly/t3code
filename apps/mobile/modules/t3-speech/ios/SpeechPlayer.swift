@@ -60,6 +60,15 @@ final class SpeechPlayer {
     current.task.cancel()
     _ = await current.task.result
   }
+
+  /// Cancels the current reading without waiting for it to release its audio.
+  func end() {
+    guard let current else { return }
+    self.current = nil
+    current.session.cancel()
+    current.task.cancel()
+    RemoteControls.detach()
+  }
 }
 
 @MainActor
