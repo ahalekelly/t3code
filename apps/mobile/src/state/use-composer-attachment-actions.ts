@@ -18,7 +18,7 @@ import {
   countComposerDraftAttachmentsAfterSelection,
   getComposerDraftSnapshot,
   composerPendingMediaAtom,
-  releaseUnusedComposerAttachmentFiles,
+  scheduleUnusedComposerAttachmentCleanup,
   addComposerPendingMedia,
   removeComposerPendingMedia,
   type ComposerDraftInsertion,
@@ -70,7 +70,9 @@ export function useComposerAttachmentActions(props: {
     await withDraftOperation(key, async (signal) => {
       let placeholderIds: ReadonlyArray<string> = [];
       await pickComposerMedia({
-        existingCount: countComposerDraftAttachmentsAfterSelection(key, insertion),
+        existingCount:
+          countComposerDraftAttachmentsAfterSelection(key, insertion) +
+          (appAtomRegistry.get(composerPendingMediaAtom)[key]?.length ?? 0),
         maxVideoBytes: capabilities?.fileAttachments?.maxUploadBytes,
         onPicked: (placeholders) => {
           placeholderIds = placeholders.map(({ id }) => id);
@@ -79,14 +81,17 @@ export function useComposerAttachmentActions(props: {
       })
         .then(async (result) => {
           // Every attachment has a placeholder; one the user removed is no longer pending.
-          // Append before any await so a removal can't land between the check and the append.
+          // append writes the draft before its first await, so no removal lands in between.
           const pending = appAtomRegistry.get(composerPendingMediaAtom)[key] ?? [];
           const kept = result.attachments.filter(({ id }) => pending.some((p) => p.id === id));
-          const rejected = await append(key, signal, kept, insertion);
-          await releaseUnusedComposerAttachmentFiles(
+          scheduleUnusedComposerAttachmentCleanup(
             result.attachments.filter((attachment) => !kept.includes(attachment)),
           );
-          report("Could not attach photo or video", result.error, rejected);
+          report(
+            "Could not attach photo or video",
+            result.error,
+            await append(key, signal, kept, insertion),
+          );
         })
         .finally(() => removeComposerPendingMedia(key, placeholderIds));
     });
