@@ -69,7 +69,7 @@ function missingKeyTranscriber(source: CloudTranscriptionSource): VoiceTranscrib
 }
 
 function readsRepliesAloud(settings: VoiceInputSettings): boolean {
-  return Platform.OS === "ios" && (!settings.loaded || settings.readRepliesAloud);
+  return !settings.loaded || settings.readRepliesAloud;
 }
 
 function keepScreenAwake(tag: string): () => void {
@@ -136,7 +136,7 @@ const voiceInputAtom = Atom.make((get) => {
     },
     configureRecording: async () => {
       autoReadResponse.cancelAll();
-      if (Platform.OS === "ios") await responseSpeech.stop();
+      await responseSpeech.stop();
       const token = acquireAudioSession("recording");
       audioToken = token;
       try {

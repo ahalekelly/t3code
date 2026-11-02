@@ -2254,7 +2254,7 @@ function renderFeedEntry(
               sourceTitle={props.threadTitle}
             />
           ) : null}
-          {Platform.OS === "ios" && renderedText.trim().length > 0 ? (
+          {renderedText.trim().length > 0 ? (
             <ReadResponseButton
               scope={scopedThreadKey(props.environmentId, props.threadId)}
               messageId={message.id}

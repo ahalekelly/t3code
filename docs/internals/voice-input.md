@@ -5,7 +5,7 @@ temporary client input, and only normal message submission sends the resulting
 text. Settings → Voice picks the transcription source on mobile: the device's
 own model on supported iOS devices, or OpenAI's GPT Transcribe or Microsoft's
 MAI-Transcribe-2, which the phone uploads the recording to directly. Provider keys
-live only in the device keychain, and the T3 environment is not involved either way.
+live only in the device's secure storage, and the T3 environment is not involved either way.
 
 The [shared controller](../../packages/client-runtime/src/voice-input/controller.ts)
 owns the operation while the client supplies capture and transcription. Preparation
