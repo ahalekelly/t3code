@@ -7,7 +7,7 @@
 Never commit to `main`; it is generated.
 
 - The manifest, `~/.agents/linux/t3-main.txt` on akelly-desktop, names an upstream tag, usually a nightly, and the origin branches merged onto it in order. Other machines' copies update only when their `~/.agents` syncs. `fork/*` branches are fork-only; the rest can become upstream PRs. `AGENTS.md` has the rules for branches and worktrees.
-- `~/.agents/linux/t3-fork-main.py`, run every 10 minutes by `t3-fork-main.timer` on akelly-desktop, rebuilds `main` when a branch or the manifest changes, and moves the manifest onto each newer upstream nightly that `main` rebuilds on cleanly. It checks each rebuild with a frozen-lockfile install and the mobile typecheck, and force-pushes it after the manifest's upstream tag, which the workflows read from this repository. Its docstring covers conflicts and the commands:
+- `~/.agents/linux/t3-fork-main.py`, run every 10 minutes by `t3-fork-main.timer` on akelly-desktop, rebuilds `main` when a branch or the manifest changes, and moves the manifest onto the newest upstream nightly when `main` rebuilds on it cleanly, once a night and on every rebuild. It checks each rebuild with a frozen-lockfile install and the mobile typecheck, and force-pushes it after the manifest's upstream tag, which the workflows read from this repository. Its docstring covers conflicts and the commands:
   - `ship [<branch> <parent>...]` rebuilds `main` now, adding a new branch to the manifest when given one.
   - `rebase <upstream tag>` restacks every branch onto an upstream tag and drops the ones upstream merged.
 - Work in your own worktree (`git -C ~/Git/t3code worktree add ...`), never in `~/Git/t3code`, which the timer owns.
