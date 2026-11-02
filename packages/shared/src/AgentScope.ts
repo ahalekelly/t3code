@@ -10,16 +10,17 @@ export interface AgentScopeShape {
     readonly env?: NodeJS.ProcessEnv | undefined;
     /** Terminals may survive restarts; agents must remain eligible for orphan cleanup. */
     readonly survivesRestart?: boolean | undefined;
-    /**
-     * Keep a shared process running after a tool OOM when supported.
-     * Falls back to ordinary scope behavior on older systemd.
-     */
+    /** The process serves other threads too, so the thread does not own its scope. */
     readonly shared?: boolean | undefined;
   }) => Effect.Effect<AgentScopeCommand>;
-  readonly oomKilled: (threadId: string) => Effect.Effect<boolean>;
+  /**
+   * Counts the kernel OOM kills in a thread's own scope since the last call,
+   * so its agent can be told why a command died. Shared scopes count none.
+   */
+  readonly takeOomKills: (unit: string) => Effect.Effect<number>;
   /**
    * Reaps processes left after the owning agent exits, including setsid
-   * descendants outside its process group. Preserves systemd OOM diagnosis.
+   * descendants outside its process group.
    */
   readonly stop: (unit: string) => Effect.Effect<void>;
   /**
@@ -46,7 +47,7 @@ export interface AgentScopeCommand {
 export const AgentScope = Context.Reference<AgentScopeShape>("@t3tools/shared/AgentScope", {
   defaultValue: () => ({
     wrap: ({ command, args }) => Effect.succeed({ command, args }),
-    oomKilled: () => Effect.succeed(false),
+    takeOomKills: () => Effect.succeed(0),
     stop: () => Effect.void,
     kill: () => Effect.succeed(false),
     clear: () => Effect.void,
