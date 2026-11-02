@@ -151,7 +151,7 @@ describe("isAutoSettlementCandidate", () => {
         NOW_MS,
       ),
     ).toBe(true);
-    // A pull request watch whose checks finished holds nothing, yet still keeps the thread.
+    // Settling keeps watches, so a watch whose checks finished does not hold the thread.
     expect(
       ThreadSettlementService.isAutoSettlementCandidate(
         shell({
@@ -161,7 +161,7 @@ describe("isAutoSettlementCandidate", () => {
         }),
         NOW_MS,
       ),
-    ).toBe(false);
+    ).toBe(true);
   });
 
   it("never settles, or keeps snoozed, a thread whose guest is waiting on the owner", () => {
