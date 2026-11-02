@@ -2813,7 +2813,13 @@ export const createBuildConfig = Effect.fn("createBuildConfig")(function* (
   // Missing publish config infers a GitHub feed from tokens; staging has no repository, so manifest generation would crash.
   buildConfig.publish = null;
   if (!isDesktopPreviewVersion(version)) {
-    const publishConfig = yield* resolveGitHubPublishConfig(updateChannel);
+    // A workflow input left unset arrives as an empty string.
+    const updateUrl = yield* Config.String("T3CODE_DESKTOP_UPDATE_URL").pipe(
+      Config.withDefault(""),
+    );
+    const publishConfig = updateUrl
+      ? { provider: "generic" as const, url: updateUrl }
+      : yield* resolveGitHubPublishConfig(updateChannel);
     if (publishConfig) {
       buildConfig.publish = [publishConfig];
     } else if (mockUpdates) {

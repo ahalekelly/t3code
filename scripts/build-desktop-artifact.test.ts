@@ -496,7 +496,7 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
     }),
   );
 
-  it.effect("omits update feeds for pull request preview builds", () =>
+  it.effect("gives release builds an update feed and pull request previews none", () =>
     Effect.gen(function* () {
       const preview = yield* createBuildConfig(
         "mac",
@@ -536,6 +536,30 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
           repo: "t3code",
           releaseType: "release",
         },
+      ]);
+
+      const fixedFeed = yield* createBuildConfig(
+        "mac",
+        "dmg",
+        "0.0.33",
+        false,
+        false,
+        undefined,
+        undefined,
+      ).pipe(
+        Effect.provide(
+          ConfigProvider.layer(
+            ConfigProvider.fromEnv({
+              env: {
+                GITHUB_REPOSITORY: "pingdotgg/t3code",
+                T3CODE_DESKTOP_UPDATE_URL: "https://feed.example/mac/",
+              },
+            }),
+          ),
+        ),
+      );
+      assert.deepStrictEqual(fixedFeed.publish, [
+        { provider: "generic", url: "https://feed.example/mac/" },
       ]);
     }).pipe(
       Effect.provide(
