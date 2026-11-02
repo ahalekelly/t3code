@@ -1636,6 +1636,7 @@ export const layerQueryRunner: Layer.Layer<
     const providerProcesses = yield* ProviderProcesses.ProviderProcesses;
     const platform = yield* HostProcess.Platform;
     const runFork = Effect.runForkWith(yield* Effect.context<never>());
+    const runPromise = Effect.runPromiseWith(yield* Effect.context<never>());
     const hostEnvironment = yield* HostProcess.Environment;
     const portDiscovery = yield* PortScanner.PortDiscovery;
     const processRunner = yield* ProcessRunner.make();
@@ -1750,7 +1751,8 @@ export const layerQueryRunner: Layer.Layer<
               threadId: input.threadId,
               env: queryOptions.env,
             });
-      const options =
+      const unit = launch?.unit;
+      const launchOptions =
         launch === undefined || launch.args.length === 0
           ? queryOptions
           : {
@@ -1758,7 +1760,31 @@ export const layerQueryRunner: Layer.Layer<
               pathToClaudeCodeExecutable: launch.command,
               executableArgs: [...launch.args, ...(queryOptions.executableArgs ?? [])],
             };
-      const unit = launch?.unit;
+      // Subagents share the scope, so whichever agent's tools return next hears of a kill.
+      const oomKillNotice: HookCallback = async () => {
+        if (unit === undefined) return {};
+        const kills = await runPromise(agentScope.takeOomKills(unit));
+        if (kills === 0) return {};
+        return {
+          hookSpecificOutput: {
+            hookEventName: "PostToolBatch",
+            additionalContext: claudeOomKillNotice(kills),
+          },
+        };
+      };
+      const options =
+        unit === undefined
+          ? launchOptions
+          : {
+              ...launchOptions,
+              hooks: {
+                ...launchOptions.hooks,
+                PostToolBatch: [
+                  ...(launchOptions.hooks?.PostToolBatch ?? []),
+                  { hooks: [oomKillNotice] },
+                ],
+              },
+            };
       const stopScope = unit === undefined ? undefined : () => void runFork(agentScope.stop(unit));
       // Only a CLI that fails before its first message explains itself on
       // stderr. The known root refusal becomes a curated failure; any other
@@ -2510,6 +2536,11 @@ const CLAUDE_SEND_TO_USER_INSTRUCTIONS = `
 
 Text you write before a tool call may reach the user only as a one-line summary. When the user must read something in full before your turn ends, such as a draft, a code block, or what a question you're about to ask refers to, send it with \`send_to_user\`. Put everything else in your final reply.
 `;
+
+// Agents run with oom_score_adj 800, so the kernel's OOM killer picks the
+// biggest process in an agent's scope, often a tool rather than the agent.
+const claudeOomKillNotice = (kills: number) =>
+  `The kernel's out-of-memory killer killed ${kills === 1 ? "a process" : `${kills} processes`} in this session since your last tool results. A command that failed with "Killed" or exit code 137 ran out of memory: rerun it with less memory, such as fewer parallel workers, a narrower test selection, or one browser at a time.`;
 
 // Native subagents start from their task, not this session's system prompt.
 const subagentDeviceInstructions: HookCallback = () =>
