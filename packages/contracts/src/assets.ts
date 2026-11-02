@@ -191,7 +191,7 @@ export class AssetPreviewTypeValidationError extends Schema.TaggedError<AssetPre
 ) {
   override get message(): string {
     return this.resource._tag === "media-file" || this.resource._tag === "draft-workspace-file"
-      ? "Only images, videos, audio, HTML, and PDF files can be previewed."
+      ? "Only images, videos, audio, HTML, PDF, and Markdown files can be previewed."
       : "Only browser documents and images can be previewed.";
   }
 }
