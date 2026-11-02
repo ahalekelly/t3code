@@ -232,12 +232,10 @@ export function shellHasPendingUserInput(thread: OrchestrationV2ThreadShell): bo
 // server suppresses the roster while an interruptible activity run exists, so a
 // remaining roster is stronger than checkpoint-oriented waiting.
 function shellRuntime(thread: OrchestrationV2ThreadShell): ThreadRuntimeSummary | null {
+  if (thread.latestRunId === null && thread.activeProviderThreadId === null) return null;
   const parkAtIdle =
     backgroundWorkHoldsCompletion(thread.pendingBackgroundTasks ?? []) &&
     thread.status !== "failed";
-  if (thread.latestRunId === null && thread.activeProviderThreadId === null && !parkAtIdle) {
-    return null;
-  }
   const status = parkAtIdle ? "idle" : (thread.activityRunStatus ?? thread.status);
   return {
     status,
