@@ -114,6 +114,8 @@ describe("workspace file previews", () => {
     expect(hostPreviewMimeTypeFromExtension(".m4a")).toBe("audio/mp4");
     expect(hostPreviewMimeTypeFromExtension(".weba")).toBe("audio/webm");
     expect(hostPreviewMimeTypeFromExtension(".mp4")).toBe("video/mp4");
+    expect(hostPreviewMimeTypeFromExtension(".MD")).toBe("text/markdown");
+    expect(isWorkspacePreviewEntryPath("docs/notes.markdown")).toBe(true);
     expect(hostPreviewMimeTypeFromExtension(".txt")).toBeNull();
     expect(hostPreviewMimeTypeFromExtension(".constructor")).toBeNull();
     expect(hostPreviewMimeTypeFromExtension(".toString")).toBeNull();

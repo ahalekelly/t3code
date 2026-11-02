@@ -5,6 +5,7 @@ import {
   ENVIRONMENT_OTLP_TRACES_PATH,
   EnvironmentHttpApi,
 } from "@t3tools/contracts";
+import { isMarkdownPath } from "@t3tools/shared/filePreview";
 import { isDevProxiedPath } from "@t3tools/shared/devProxy";
 import { injectMcpAppCookieBootstrap, injectMcpAppThemeBootstrap } from "@t3tools/shared/mcpApp";
 import { decodeOtlpTraceRecords } from "@t3tools/shared/observability";
@@ -128,7 +129,10 @@ export function assetResponseHeaders(
                 "Content-Type": "text/html; charset=utf-8",
                 "Content-Security-Policy": HTML_CONTENT_SECURITY_POLICY,
               }
-            : {}),
+            : // Browsers download `text/markdown`; Markdown viewer extensions read text/plain.
+              isMarkdownPath(lowerPath)
+              ? { "Content-Type": "text/plain; charset=utf-8" }
+              : {}),
     ...(!options?.download && lowerPath.endsWith(".svg")
       ? { "Content-Security-Policy": SVG_CONTENT_SECURITY_POLICY }
       : {}),
