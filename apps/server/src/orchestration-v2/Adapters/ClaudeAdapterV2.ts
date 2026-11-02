@@ -953,6 +953,7 @@ export const layerQueryRunner: Layer.Layer<
     const agentScope = yield* AgentScope;
     const platform = yield* HostProcess.Platform;
     const runFork = Effect.runForkWith(yield* Effect.context<never>());
+    const runPromise = Effect.runPromiseWith(yield* Effect.context<never>());
     const hostEnvironment = yield* HostProcess.Environment;
     const portDiscovery = yield* PortScanner.PortDiscovery;
 
@@ -980,11 +981,17 @@ export const layerQueryRunner: Layer.Layer<
           // Send MCP credentials over stdin to keep them out of SDK argv and inherited command environments.
           const { mcpServers, ...sdkOptions } = input.options;
           // Jobs the agent starts inherit the thread, so port discovery can attribute their servers.
+          // Claude runs CLAUDE_ENV_FILE in each Bash command's shell, putting commands above the
+          // agent's OOM score. Tools inherit the variable, so a server they start would read this
+          // server's file; it replaces any inherited one.
           const queryOptions = {
             ...sdkOptions,
             env: {
               ...(sdkOptions.env ?? hostEnvironment),
               [PortScanner.AGENT_THREAD_ENV]: input.threadId,
+              ...(agentScope.toolShellEnv === undefined
+                ? {}
+                : { CLAUDE_ENV_FILE: agentScope.toolShellEnv }),
             },
           };
           // The SDK can prepend a scope wrapper to native binaries; script entries run through node.
@@ -1000,7 +1007,8 @@ export const layerQueryRunner: Layer.Layer<
                   threadId: input.threadId,
                   env: queryOptions.env,
                 });
-          const options =
+          const unit = launch?.unit;
+          const launchOptions =
             launch === undefined || launch.args.length === 0
               ? queryOptions
               : {
@@ -1008,7 +1016,31 @@ export const layerQueryRunner: Layer.Layer<
                   pathToClaudeCodeExecutable: launch.command,
                   executableArgs: [...launch.args, ...(queryOptions.executableArgs ?? [])],
                 };
-          const unit = launch?.unit;
+          // Subagents share the scope, so whichever agent's tools return next hears of a kill.
+          const oomKillNotice: HookCallback = async () => {
+            if (unit === undefined) return {};
+            const kills = await runPromise(agentScope.takeOomKills(unit));
+            if (kills === 0) return {};
+            return {
+              hookSpecificOutput: {
+                hookEventName: "PostToolBatch",
+                additionalContext: claudeOomKillNotice(kills),
+              },
+            };
+          };
+          const options =
+            unit === undefined
+              ? launchOptions
+              : {
+                  ...launchOptions,
+                  hooks: {
+                    ...launchOptions.hooks,
+                    PostToolBatch: [
+                      ...(launchOptions.hooks?.PostToolBatch ?? []),
+                      { hooks: [oomKillNotice] },
+                    ],
+                  },
+                };
           const stopScope =
             unit === undefined ? undefined : () => void runFork(agentScope.stop(unit));
           const spawnProcess =
@@ -1455,6 +1487,10 @@ const CLAUDE_BACKGROUND_WAIT_INSTRUCTIONS = `
 
 To wait for a background command or Monitor you started (tests, a build), call \`t3_background_wait\` with its task ID before you end your turn. Do not mark work you leave running, or PRs. T3 MCP tools are deferred: load one with ToolSearch before you call it.
 `;
+
+// Claude's Bash commands mostly run above its own OOM score, so the OOM killer takes them first.
+const claudeOomKillNotice = (kills: number) =>
+  `The kernel's out-of-memory killer killed ${kills === 1 ? "a process" : `${kills} processes`} in this session since your last tool results. A command that failed with "Killed" or exit code 137 ran out of memory: rerun it with less memory, such as fewer parallel workers, a narrower test selection, or one browser at a time.`;
 
 // Native subagents start from their task, not this session's system prompt.
 const subagentDeviceInstructions: HookCallback = () =>
