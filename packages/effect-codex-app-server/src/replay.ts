@@ -213,6 +213,9 @@ function normalizeReplayFrame(value: unknown): unknown {
     ) {
       delete params.sandboxPolicy;
     }
+    if (params.permissions === ":danger-full-access") {
+      delete params.permissions;
+    }
     if (typeof params.collaborationMode === "object" && params.collaborationMode !== null) {
       const collaborationMode = {
         ...(params.collaborationMode as Record<string, unknown>),
