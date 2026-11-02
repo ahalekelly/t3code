@@ -953,6 +953,7 @@ export const layerQueryRunner: Layer.Layer<
     const agentScope = yield* AgentScope;
     const platform = yield* HostProcess.Platform;
     const runFork = Effect.runForkWith(yield* Effect.context<never>());
+    const runPromise = Effect.runPromiseWith(yield* Effect.context<never>());
     const hostEnvironment = yield* HostProcess.Environment;
     const portDiscovery = yield* PortScanner.PortDiscovery;
 
@@ -1000,7 +1001,8 @@ export const layerQueryRunner: Layer.Layer<
                   threadId: input.threadId,
                   env: queryOptions.env,
                 });
-          const options =
+          const unit = launch?.unit;
+          const launchOptions =
             launch === undefined || launch.args.length === 0
               ? queryOptions
               : {
@@ -1008,7 +1010,31 @@ export const layerQueryRunner: Layer.Layer<
                   pathToClaudeCodeExecutable: launch.command,
                   executableArgs: [...launch.args, ...(queryOptions.executableArgs ?? [])],
                 };
-          const unit = launch?.unit;
+          // Subagents share the scope, so whichever agent's tools return next hears of a kill.
+          const oomKillNotice: HookCallback = async () => {
+            if (unit === undefined) return {};
+            const kills = await runPromise(agentScope.takeOomKills(unit));
+            if (kills === 0) return {};
+            return {
+              hookSpecificOutput: {
+                hookEventName: "PostToolBatch",
+                additionalContext: claudeOomKillNotice(kills),
+              },
+            };
+          };
+          const options =
+            unit === undefined
+              ? launchOptions
+              : {
+                  ...launchOptions,
+                  hooks: {
+                    ...launchOptions.hooks,
+                    PostToolBatch: [
+                      ...(launchOptions.hooks?.PostToolBatch ?? []),
+                      { hooks: [oomKillNotice] },
+                    ],
+                  },
+                };
           const stopScope =
             unit === undefined ? undefined : () => void runFork(agentScope.stop(unit));
           const spawnProcess =
@@ -1455,6 +1481,11 @@ const CLAUDE_BACKGROUND_WAIT_INSTRUCTIONS = `
 
 To wait for a background command or Monitor you started (tests, a build), call \`t3_background_wait\` with its task ID before you end your turn. Do not mark work you leave running, or PRs. T3 MCP tools are deferred: load one with ToolSearch before you call it.
 `;
+
+// Agents run with oom_score_adj 800, so the kernel's OOM killer picks the
+// biggest process in an agent's scope, often a tool rather than the agent.
+const claudeOomKillNotice = (kills: number) =>
+  `The kernel's out-of-memory killer killed ${kills === 1 ? "a process" : `${kills} processes`} in this session since your last tool results. A command that failed with "Killed" or exit code 137 ran out of memory: rerun it with less memory, such as fewer parallel workers, a narrower test selection, or one browser at a time.`;
 
 // Native subagents start from their task, not this session's system prompt.
 const subagentDeviceInstructions: HookCallback = () =>
