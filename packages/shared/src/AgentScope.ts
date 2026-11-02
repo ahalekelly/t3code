@@ -35,6 +35,12 @@ export interface AgentScopeShape {
    * it, even when the next session runs without one (Cursor, OpenCode).
    */
   readonly clear: (threadId: string) => Effect.Effect<void>;
+  /**
+   * A shell script that moves the shell sourcing it to the tool OOM score.
+   * Providers that can run it ahead of each command, such as Claude Code's
+   * CLAUDE_ENV_FILE, put their tools above the agent.
+   */
+  readonly toolShellEnv: string | undefined;
 }
 
 export interface AgentScopeCommand {
@@ -51,6 +57,7 @@ export const AgentScope = Context.Reference<AgentScopeShape>("@t3tools/shared/Ag
     stop: () => Effect.void,
     kill: () => Effect.succeed(false),
     clear: () => Effect.void,
+    toolShellEnv: undefined,
   }),
 });
 
@@ -59,9 +66,15 @@ export const AgentScopeThreadId = Context.Reference<string | undefined>(
   { defaultValue: () => undefined },
 );
 
-export const AGENT_OOM_SCORE_ADJ = 800;
+// Above the server and other user processes, so an OOM kill takes agents and
+// their tools first, and tools that source TOOL_SHELL_ENV before their agent.
+export const AGENT_OOM_SCORE_ADJ = 500;
+export const TOOL_OOM_SCORE_ADJ = 800;
 
 export const RAISE_OOM_SCORE_LINE = `{ echo ${AGENT_OOM_SCORE_ADJ} >/proc/self/oom_score_adj; } 2>/dev/null`;
+
+// Only raises: Claude Code's sandbox already puts its commands at 1000.
+export const TOOL_SHELL_ENV = `{ read -r T3_OOM_SCORE </proc/self/oom_score_adj; [ "$T3_OOM_SCORE" -ge ${TOOL_OOM_SCORE_ADJ} ] || echo ${TOOL_OOM_SCORE_ADJ} >/proc/self/oom_score_adj; unset T3_OOM_SCORE; } 2>/dev/null\n`;
 
 const LAUNCH_SCRIPT = [RAISE_OOM_SCORE_LINE, 'exec "$@"'].join("\n");
 
