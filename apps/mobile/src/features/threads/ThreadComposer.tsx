@@ -46,7 +46,7 @@ import {
   getComposerDraftSnapshot,
   setComposerDraftText,
   composerContextImportsAtom,
-  composerPendingPhotosAtom,
+  composerPendingMediaAtom,
   countComposerDraftAttachmentsAfterSelection,
   useComposerDraft,
   useComposerDraftResetGeneration,
@@ -327,20 +327,12 @@ export const ThreadComposer = function ThreadComposer(props: ThreadComposerProps
     AuthOrchestrationOperateScope,
   );
   const uploadStates = useAtomValue(composerAttachmentUploadsAtom);
-  const pendingPhotos = useAtomValue(composerPendingPhotosAtom)[composerDraftKey] ?? [];
   const stripAttachments = [
     ...composerStripAttachments(
       draftAttachments,
       (attachment) => uploadStates[composerAttachmentUploadKey(props.environmentId, attachment.id)],
     ),
-    ...pendingPhotos.map((uri) => ({
-      id: uri,
-      type: "image" as const,
-      name: gt("Photo"),
-      mimeType: "image/jpeg",
-      sizeBytes: 0,
-      previewUri: uri,
-    })),
+    ...(useAtomValue(composerPendingMediaAtom)[composerDraftKey] ?? []),
   ];
   const attachmentsUploading =
     props.connectionState === "connected" &&
