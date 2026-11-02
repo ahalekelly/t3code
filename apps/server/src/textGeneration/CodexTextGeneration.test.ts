@@ -49,8 +49,8 @@ interface FakeCodexInput {
   requireServiceTier?: string;
   requireReasoningEffort?: string;
   forbidReasoningEffort?: boolean;
-  requireArg?: string;
-  forbidArg?: string;
+  requireArgs?: ReadonlyArray<string>;
+  forbidArgs?: ReadonlyArray<string>;
   stdinMustContain?: string;
   stdinMustNotContain?: string;
   mcpServers?: ReadonlyArray<{ name: string; enabled: boolean }> | number;
@@ -62,8 +62,8 @@ function makeFakeCodexBinary(dir: string, input: FakeCodexInput) {
     requireServiceTier: input.requireServiceTier ?? null,
     requireReasoningEffort: input.requireReasoningEffort ?? null,
     forbidReasoningEffort: input.forbidReasoningEffort ?? false,
-    requireArg: input.requireArg ?? null,
-    forbidArg: input.forbidArg ?? null,
+    requireArgs: input.requireArgs ?? [],
+    forbidArgs: input.forbidArgs ?? [],
     stdinMustContain: input.stdinMustContain ?? null,
     stdinMustNotContain: input.stdinMustNotContain ?? null,
     mcpServers: input.mcpServers ?? [],
@@ -121,11 +121,11 @@ function makeFakeCodexBinary(dir: string, input: FakeCodexInput) {
         '  process.stderr.write(message + "\\n");',
         "  process.exit(code);",
         "}",
-        "if (check.requireArg !== null && !originalArgs.includes(` ${check.requireArg} `)) {",
-        '  fail("missing arg: " + check.requireArg, 8);',
+        "for (const arg of check.requireArgs) {",
+        '  if (!originalArgs.includes(` ${arg} `)) fail("missing arg: " + arg, 8);',
         "}",
-        "if (check.forbidArg !== null && originalArgs.includes(` ${check.forbidArg} `)) {",
-        '  fail("forbidden arg: " + check.forbidArg, 9);',
+        "for (const arg of check.forbidArgs) {",
+        '  if (originalArgs.includes(` ${arg} `)) fail("forbidden arg: " + arg, 9);',
         "}",
         'if (check.requireImage && !seenImage) fail("missing --image input", 2);',
         "if (",
@@ -231,8 +231,8 @@ it.layer(layerCodexTextGenerationTest)("CodexTextGeneration", (it) => {
         {
           output: JSON.stringify({ title: "Bedrock title" }),
           models: ["openai.gpt-5.6-luna"],
-          requireArg: "--model openai.gpt-5.6-luna",
-          forbidArg: "--model gpt-5.6-luna",
+          requireArgs: ["--model openai.gpt-5.6-luna"],
+          forbidArgs: ["--model gpt-5.6-luna"],
         },
         (textGeneration) =>
           Effect.gen(function* () {
@@ -251,7 +251,7 @@ it.layer(layerCodexTextGenerationTest)("CodexTextGeneration", (it) => {
       {
         output: JSON.stringify({ subject: "Update project", body: "" }),
         managedRuntime: true,
-        forbidArg: 'service_tier="priority"',
+        forbidArgs: ['service_tier="priority"', "--config project_doc_max_bytes=0"],
       },
       (textGeneration) =>
         textGeneration.generateCommitMessage({
@@ -266,7 +266,7 @@ it.layer(layerCodexTextGenerationTest)("CodexTextGeneration", (it) => {
     ),
   );
 
-  it.effect("generates titles with the user's MCP servers and plugins off", () =>
+  it.effect("generates titles with the user's MCP servers, plugins, and project docs off", () =>
     withFakeCodexEnv(
       {
         output: JSON.stringify({ title: "Remove default shapes" }),
@@ -275,8 +275,11 @@ it.layer(layerCodexTextGenerationTest)("CodexTextGeneration", (it) => {
           { name: "my.server", enabled: true },
           { name: "already-off", enabled: false },
         ],
-        requireArg:
-          '--config features.plugins=false --config features.apps=false --config mcp_servers={"augmenter"={enabled=false},"my.server"={enabled=false}}',
+        requireArgs: [
+          "--config features.plugins=false --config features.apps=false",
+          '--config mcp_servers={"augmenter"={enabled=false},"my.server"={enabled=false}}',
+          "--config project_doc_max_bytes=0",
+        ],
       },
       (textGeneration) =>
         Effect.gen(function* () {
@@ -295,8 +298,11 @@ it.layer(layerCodexTextGenerationTest)("CodexTextGeneration", (it) => {
       {
         output: JSON.stringify({ branch: "remove-default-shapes" }),
         mcpServers: 2,
-        requireArg: "--config features.plugins=false --config features.apps=false --ephemeral",
-        forbidArg: "mcp_servers=",
+        requireArgs: [
+          "--config features.plugins=false --config features.apps=false",
+          "--ephemeral",
+        ],
+        forbidArgs: ["mcp_servers="],
       },
       (textGeneration) =>
         Effect.gen(function* () {
@@ -310,13 +316,15 @@ it.layer(layerCodexTextGenerationTest)("CodexTextGeneration", (it) => {
     ),
   );
 
-  it.effect("keeps plugins and apps off over launch args that turn them on", () =>
+  it.effect("keeps its feature overrides after launch args that turn them on", () =>
     withFakeCodexEnv(
       {
         output: JSON.stringify({ title: "Remove default shapes" }),
-        launchArgs: "--config features.plugins=true --config features.apps=true",
-        requireArg:
-          "--config features.plugins=true --config features.apps=true --config features.plugins=false --config features.apps=false --ephemeral",
+        launchArgs: "--config features.plugins=true --config features.hooks=true",
+        requireArgs: [
+          "--config features.hooks=true --config features.plugins=false",
+          "--config features.hooks=false",
+        ],
       },
       (textGeneration) =>
         Effect.gen(function* () {
@@ -338,8 +346,8 @@ it.layer(layerCodexTextGenerationTest)("CodexTextGeneration", (it) => {
           body: "",
         }),
         launchArgs: "--strict-config --listen off",
-        requireArg: "--strict-config",
-        forbidArg: "--listen",
+        requireArgs: ["--strict-config"],
+        forbidArgs: ["--listen"],
       },
       (textGeneration) =>
         textGeneration.generateCommitMessage({

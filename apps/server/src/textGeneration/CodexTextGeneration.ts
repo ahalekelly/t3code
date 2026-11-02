@@ -30,13 +30,38 @@ import * as HostProcess from "@t3tools/shared/HostProcess";
 
 const CODEX_TIMEOUT_MS = 180_000;
 const CODEX_MCP_LIST_TIMEOUT_MS = 10_000;
+const configArgs = (settings: ReadonlyArray<string>) =>
+  settings.flatMap((setting) => ["--config", setting]);
 // Plugins/apps add MCP servers; use trailing config overrides because --disable loses to user -c flags.
-const CODEX_NO_PLUGIN_ARGS = [
-  "--config",
-  "features.plugins=false",
-  "--config",
-  "features.apps=false",
-] as const;
+const CODEX_NO_PLUGIN_ARGS = configArgs(["features.plugins=false", "features.apps=false"]);
+// Codex's agent tools, skills list, mode blocks, and user hooks add ~10k input tokens to each call.
+const CODEX_TEXT_GENERATION_ARGS = [
+  ...CODEX_NO_PLUGIN_ARGS,
+  ...configArgs([
+    ...[
+      "browser_use",
+      "computer_use",
+      "default_mode_request_user_input",
+      "goals",
+      "hooks",
+      "image_generation",
+      "in_app_browser",
+      "memories",
+      "multi_agent",
+      "request_permissions_tool",
+      "skill_search",
+      "sleep_tool",
+      "tool_suggest",
+      "view_image",
+    ].map((feature) => `features.${feature}=false`),
+    'web_search="disabled"',
+    "skills.include_instructions=false",
+    "include_apps_instructions=false",
+    "include_collaboration_mode_instructions=false",
+  ]),
+];
+const CODEX_TEXT_GENERATION_INSTRUCTIONS =
+  "You generate text for T3 Code. Do what the user message asks and reply only with JSON matching the required output schema. When asked to investigate the working directory, read it with shell commands and change nothing.";
 const CodexMcpServers = Schema.fromJsonString(
   Schema.Array(Schema.Struct({ name: Schema.String, enabled: Schema.Boolean })),
 );
@@ -232,6 +257,15 @@ export const makeCodexTextGeneration = Effect.fn("makeCodexTextGeneration")(func
     const outputPath = yield* writeTempFile(operation, "codex-output", "").pipe(
       Effect.onError(() => removeTempFileDir(schemaPath)),
     );
+    const instructionsPath = yield* writeTempFile(
+      operation,
+      "codex-instructions",
+      CODEX_TEXT_GENERATION_INSTRUCTIONS,
+    ).pipe(
+      Effect.onError(() =>
+        Effect.all([removeTempFileDir(schemaPath), removeTempFileDir(outputPath)]),
+      ),
+    );
 
     const runCodexCommand = Effect.fn("runCodexJson.runCodexCommand")(function* () {
       const resolved = resolveRuntime
@@ -281,9 +315,13 @@ export const makeCodexTextGeneration = Effect.fn("makeCodexTextGeneration")(func
         [
           "exec",
           ...execLaunchArgs,
+          ...CODEX_TEXT_GENERATION_ARGS,
           // A user's MCP server could act on the text-generation prompt.
-          ...CODEX_NO_PLUGIN_ARGS,
           ...(mcpServersOff ? ["--config", mcpServersOff] : []),
+          "--config",
+          `model_instructions_file=${yield* encodeJsonForOperation(operation, instructionsPath)}`,
+          // Like Claude's title cwd: titles skip project docs, other text follows their conventions.
+          ...(operation === "generateThreadTitle" ? ["--config", "project_doc_max_bytes=0"] : []),
           "--ephemeral",
           "--skip-git-repo-check",
           "-s",
@@ -347,9 +385,10 @@ export const makeCodexTextGeneration = Effect.fn("makeCodexTextGeneration")(func
       }
     });
 
-    const cleanup = Effect.all([removeTempFileDir(schemaPath), removeTempFileDir(outputPath)], {
+    const cleanup = Effect.forEach([schemaPath, outputPath, instructionsPath], removeTempFileDir, {
       concurrency: "unbounded",
-    }).pipe(Effect.asVoid);
+      discard: true,
+    });
 
     return yield* Effect.gen(function* () {
       yield* runCodexCommand().pipe(
