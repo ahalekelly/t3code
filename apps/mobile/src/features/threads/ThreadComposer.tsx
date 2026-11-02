@@ -306,9 +306,11 @@ export const ThreadComposer = function ThreadComposer(props: ThreadComposerProps
     context: draftContext,
   } = useComposerDraft(composerDraftKey);
   const queuedEdit = props.queuedEdit ?? null;
+  const pendingMedia = useAtomValue(composerPendingMediaAtom)[composerDraftKey];
   const hasContent =
     draftMessage.trim().length > 0 ||
     draftAttachments.length > 0 ||
+    pendingMedia !== undefined ||
     (queuedEdit?.existingAttachments.length ?? 0) > 0;
   const showStopAction = !hasContent && props.canStopThread && queuedEdit === null;
   const onResumeQueue = props.onResumeQueue;
@@ -327,7 +329,6 @@ export const ThreadComposer = function ThreadComposer(props: ThreadComposerProps
     AuthOrchestrationOperateScope,
   );
   const uploadStates = useAtomValue(composerAttachmentUploadsAtom);
-  const pendingMedia = useAtomValue(composerPendingMediaAtom)[composerDraftKey];
   // A finished attachment keeps its placeholder's id; skip the placeholder once it lands.
   const stripAttachments = [
     ...composerStripAttachments(
@@ -526,7 +527,7 @@ export const ThreadComposer = function ThreadComposer(props: ThreadComposerProps
       (current) =>
         current ?? {
           ...source,
-          gallery: filePreviewGallery(source, composerImageGallery(draftAttachments)),
+          gallery: filePreviewGallery(source, composerImageGallery(stripAttachments)),
         },
     );
   };
