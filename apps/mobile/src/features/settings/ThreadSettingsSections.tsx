@@ -169,26 +169,34 @@ export function AutoSettleSettingsRows(props: {
   );
 }
 
-export function WorkingSectionSettings() {
+export function SidebarSettings() {
   const savePreferences = useAtomSet(updateMobilePreferencesAtom);
   const preferences = useAtomValue(mobilePreferencesAtom);
-  const workingShelfEnabled =
-    AsyncResult.isSuccess(preferences) && preferences.value.workingShelfEnabled !== false;
+  const loaded = AsyncResult.isSuccess(preferences);
+  const projectFoldersEnabled = loaded && preferences.value.projectFoldersEnabled === true;
+  const workingShelfEnabled = loaded && preferences.value.workingShelfEnabled !== false;
 
   return (
     <View className="gap-3">
       <SettingsSection title="Sidebar">
         <SettingsSwitchRow
+          icon="folder"
+          label="Group by project"
+          value={projectFoldersEnabled}
+          onValueChange={(value) => savePreferences({ projectFoldersEnabled: value })}
+        />
+        <SettingsSwitchRow
           icon="bolt.circle"
           label="Working section"
-          value={workingShelfEnabled}
+          value={workingShelfEnabled && !projectFoldersEnabled}
+          disabled={projectFoldersEnabled}
           onValueChange={(value) => savePreferences({ workingShelfEnabled: value })}
         />
       </SettingsSection>
       <Text className="px-2 text-sm text-foreground-muted">
-        Fold working and monitoring threads into a Working section. They return to the top of the
-        list when they need you. While this is on, active threads are ordered by time and cannot be
-        moved.
+        {projectFoldersEnabled
+          ? "Active threads sit in a folder per project, newest message first. Tap a folder to close it."
+          : "Fold working and monitoring threads into a Working section. They return to the top of the list when they need you. While this is on, active threads are ordered by time and cannot be moved."}
       </Text>
     </View>
   );
