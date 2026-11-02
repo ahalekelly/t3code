@@ -377,6 +377,8 @@ export async function pickComposerImages(input: { readonly existingCount: number
 export async function pickComposerMedia(input: {
   readonly existingCount: number;
   readonly maxVideoBytes?: number;
+  /** Receives the picker's local copies before processing, so they can be previewed at once. */
+  readonly onPickedImages?: (uris: ReadonlyArray<string>) => void;
 }): Promise<{
   readonly attachments: ReadonlyArray<DraftComposerAttachment>;
   readonly error: string | null;
@@ -427,6 +429,11 @@ export async function pickComposerMedia(input: {
       error: null,
     };
   }
+  input.onPickedImages?.(
+    result.assets
+      .filter((asset) => asset.type === "image" || asset.mimeType?.startsWith("image/"))
+      .map((asset) => asset.uri),
+  );
 
   const attachments: DraftComposerAttachment[] = [];
   let error: string | null = null;
