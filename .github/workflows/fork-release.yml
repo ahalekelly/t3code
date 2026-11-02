@@ -317,6 +317,10 @@ jobs:
     needs: [preflight]
     if: needs.preflight.outputs.android == 'true'
     uses: ./.github/workflows/fork-android-apk.yml
+    # It deletes the ccache its new one replaces.
+    permissions:
+      contents: read
+      actions: write
     with:
       version: ${{ needs.preflight.outputs.version }}
     secrets: inherit
