@@ -159,6 +159,7 @@ describe("CodexAdapterV2 runtime policy", () => {
               nativeThreadId: "native-mode-switch",
               codexInput: [{ type: "text", text: "test" }],
               runtimePolicy: { runtimeMode: "full-access", interactionMode, cwd: null },
+              readConfiguredPermissions: Effect.die("unread"),
               modelSelection: {
                 instanceId: ProviderInstanceId.make("codex"),
                 model: "gpt-5.4",
@@ -187,6 +188,7 @@ describe("CodexAdapterV2 runtime policy", () => {
     Effect.gen(function* () {
       const build = (
         runtimeMode: "approval-required" | "auto-accept-edits" | "auto" | "full-access",
+        configuredPermissions: string | null = "custom_profile",
       ) =>
         CodexAdapterV2.buildCodexTurnStartParams({
           nativeThreadId: `native-${runtimeMode}`,
@@ -200,25 +202,31 @@ describe("CodexAdapterV2 runtime policy", () => {
             instanceId: ProviderInstanceId.make("codex"),
             model: "gpt-5.4",
           },
+          readConfiguredPermissions: Effect.succeed(configuredPermissions),
         });
 
       const approvalRequired = yield* build("approval-required");
       const autoAcceptEdits = yield* build("auto-accept-edits");
       const auto = yield* build("auto");
+      const autoWithoutProfile = yield* build("auto", null);
       const fullAccess = yield* build("full-access");
 
       assert.equal(approvalRequired.approvalPolicy, "untrusted");
       assert.equal(approvalRequired.approvalsReviewer, "user");
-      assert.equal(approvalRequired.sandboxPolicy?.type, "readOnly");
+      assert.equal(approvalRequired.permissions, ":read-only");
       assert.equal(autoAcceptEdits.approvalPolicy, "on-request");
       assert.equal(autoAcceptEdits.approvalsReviewer, "user");
-      assert.equal(autoAcceptEdits.sandboxPolicy?.type, "workspaceWrite");
+      assert.equal(autoAcceptEdits.permissions, "custom_profile");
       assert.equal(auto.approvalPolicy, "on-request");
       assert.equal(auto.approvalsReviewer, "auto_review");
-      assert.equal(auto.sandboxPolicy?.type, "workspaceWrite");
+      assert.equal(auto.permissions, "custom_profile");
+      assert.equal(autoWithoutProfile.permissions, ":workspace");
       assert.equal(fullAccess.approvalPolicy, "never");
       assert.equal(fullAccess.approvalsReviewer, "user");
-      assert.equal(fullAccess.sandboxPolicy?.type, "dangerFullAccess");
+      assert.equal(fullAccess.permissions, ":danger-full-access");
+      for (const params of [approvalRequired, autoAcceptEdits, auto, fullAccess]) {
+        assert.isUndefined(params.sandboxPolicy);
+      }
     }),
   );
 
@@ -232,6 +240,7 @@ describe("CodexAdapterV2 runtime policy", () => {
         codexInput: [{ type: "text", text: "what's on my list?" }],
         runtimePolicy: policy,
         modelSelection,
+        readConfiguredPermissions: Effect.die("unread"),
         appContext,
       });
       assert.deepEqual(alone.additionalContext, {
@@ -242,6 +251,7 @@ describe("CodexAdapterV2 runtime policy", () => {
         codexInput: [{ type: "text", text: "what's on my list?" }],
         runtimePolicy: policy,
         modelSelection,
+        readConfiguredPermissions: Effect.die("unread"),
         hasT3Mcp: true,
         appContext,
       });
@@ -669,7 +679,7 @@ function codexReplayPreamble(input: {
           model: "gpt-5.4",
           approvalPolicy: "never",
           approvalsReviewer: "user",
-          sandboxPolicy: { type: "dangerFullAccess" },
+          permissions: ":danger-full-access",
           summary: "detailed",
           ...(input.effort === undefined ? {} : { effort: input.effort }),
           collaborationMode: {
@@ -1857,12 +1867,12 @@ describe("CodexAdapterV2 post-settle continuation", () => {
           "approval-required": {
             approvalPolicy: "untrusted",
             approvalsReviewer: "user",
-            sandboxPolicy: { type: "readOnly" },
+            permissions: ":read-only",
           },
           "full-access": {
             approvalPolicy: "never",
             approvalsReviewer: "user",
-            sandboxPolicy: { type: "dangerFullAccess" },
+            permissions: ":danger-full-access",
           },
         } as const;
         const turnModes = ["approval-required", "full-access", "approval-required"] as const;
@@ -2061,6 +2071,7 @@ describe("CodexAdapterV2 post-settle continuation", () => {
           codexInput: [{ type: "text", text: "work" }],
           runtimePolicy: CODEX_TEST_RUNTIME_POLICY,
           modelSelection: CODEX_TEST_MODEL_SELECTION,
+          readConfiguredPermissions: Effect.die("unread"),
           hasT3Mcp: true,
         });
         assert.include(
@@ -2139,6 +2150,94 @@ describe("CodexAdapterV2 post-settle continuation", () => {
             text: "work",
           }),
         );
+        yield* harness.firstTerminal;
+        assert.equal(harness.terminalEvents()[0]?.status, "completed");
+      }).pipe(
+        Effect.provide(
+          Layer.mergeAll(IdAllocator.layer, McpProviderSessions.layer, NodeServices.layer),
+        ),
+      ),
+    ),
+  );
+
+  it.effect("runs Auto turns under the profile named by the Codex config for the turn's cwd", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const nativeThreadId = "auto-thread";
+        const nativeTurnId = "auto-turn";
+        const runtimePolicy = { ...CODEX_TEST_RUNTIME_POLICY, runtimeMode: "auto" } as const;
+        const transcript = makeCodexReplayTranscript({
+          scenario: "auto-configured-permissions",
+          entries: [
+            ...codexReplayPreamble({ nativeThreadId, nativeTurnId, prompt: "work" }).slice(0, 5),
+            {
+              type: "expect_outbound",
+              label: "config/read",
+              frame: {
+                id: 3,
+                method: "config/read",
+                params: { includeLayers: false, cwd: "/workspace" },
+              },
+            },
+            {
+              type: "emit_inbound",
+              label: "config/read",
+              frame: {
+                id: 3,
+                result: { config: { default_permissions: "custom_profile" }, origins: {} },
+              },
+            },
+            {
+              type: "expect_outbound",
+              label: "turn/start",
+              frame: {
+                id: 4,
+                method: "turn/start",
+                params: {
+                  threadId: nativeThreadId,
+                  input: [{ type: "text", text: "work" }],
+                  cwd: "/workspace",
+                  model: "gpt-5.4",
+                  approvalPolicy: "on-request",
+                  approvalsReviewer: "auto_review",
+                  permissions: "custom_profile",
+                  summary: "detailed",
+                  collaborationMode: { mode: "default", settings: { model: "gpt-5.4" } },
+                },
+              },
+            },
+            {
+              type: "emit_inbound",
+              label: "turn/start",
+              frame: {
+                id: 4,
+                result: { turn: makeCodexReplayTurn({ id: nativeTurnId, status: "inProgress" }) },
+              },
+            },
+            {
+              type: "emit_inbound",
+              label: "done",
+              frame: {
+                method: "turn/completed",
+                params: {
+                  threadId: nativeThreadId,
+                  turn: makeCodexReplayTurn({ id: nativeTurnId, status: "completed" }),
+                },
+              },
+            },
+          ],
+        });
+        const harness = yield* makeCodexReplayHarness(transcript);
+        yield* harness.runtime.startTurn({
+          ...makeCodexTestTurnInput({
+            threadId: harness.threadId,
+            providerThread: harness.providerThread,
+            now: yield* DateTime.now,
+            attemptId: RunAttemptId.make("auto-attempt"),
+            text: "work",
+          }),
+          runtimePolicy,
+        });
         yield* harness.firstTerminal;
         assert.equal(harness.terminalEvents()[0]?.status, "completed");
       }).pipe(
