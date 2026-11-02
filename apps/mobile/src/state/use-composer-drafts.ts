@@ -93,14 +93,31 @@ export const composerPendingMediaAtom = Atom.make<
   Record<string, ReadonlyArray<DraftComposerAttachment>>
 >({}).pipe(Atom.keepAlive);
 
-export function setComposerPendingMedia(
+function updateComposerPendingMedia(
   draftKey: string,
-  placeholders: ReadonlyArray<DraftComposerAttachment>,
+  update: (current: ReadonlyArray<DraftComposerAttachment>) => DraftComposerAttachment[],
 ): void {
-  const next = { ...appAtomRegistry.get(composerPendingMediaAtom) };
+  const all = appAtomRegistry.get(composerPendingMediaAtom);
+  const current = all[draftKey] ?? [];
+  const placeholders = update(current);
+  if (placeholders.length === current.length) return;
+  const next = { ...all };
   if (placeholders.length > 0) next[draftKey] = placeholders;
   else delete next[draftKey];
   appAtomRegistry.set(composerPendingMediaAtom, next);
+}
+
+export function addComposerPendingMedia(
+  draftKey: string,
+  placeholders: ReadonlyArray<DraftComposerAttachment>,
+): void {
+  updateComposerPendingMedia(draftKey, (current) => [...current, ...placeholders]);
+}
+
+export function removeComposerPendingMedia(draftKey: string, ids: ReadonlyArray<string>): void {
+  updateComposerPendingMedia(draftKey, (current) =>
+    current.filter((placeholder) => !ids.includes(placeholder.id)),
+  );
 }
 
 /** A draft can't be sent while context is importing or picked media is still processing. */
@@ -1442,12 +1459,7 @@ export function replaceComposerDraftAttachments(
 }
 
 export function removeComposerDraftAttachment(draftKey: string, imageId: string): void {
-  setComposerPendingMedia(
-    draftKey,
-    (appAtomRegistry.get(composerPendingMediaAtom)[draftKey] ?? []).filter(
-      (placeholder) => placeholder.id !== imageId,
-    ),
-  );
+  removeComposerPendingMedia(draftKey, [imageId]);
   const previousAttachments = getComposerDraftSnapshot(draftKey).attachments;
   updateComposerDrafts((current) => {
     const existing = normalizeDraft(current[draftKey]);

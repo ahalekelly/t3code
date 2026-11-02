@@ -19,7 +19,8 @@ import {
   getComposerDraftSnapshot,
   composerPendingMediaAtom,
   releaseUnusedComposerAttachmentFiles,
-  setComposerPendingMedia,
+  addComposerPendingMedia,
+  removeComposerPendingMedia,
   type ComposerDraftInsertion,
 } from "./use-composer-drafts";
 import { appAtomRegistry } from "./atom-registry";
@@ -67,38 +68,29 @@ export function useComposerAttachmentActions(props: {
     if (!key || props.locked) return;
     const insertion = captureComposerDraftInsertion(key);
     await withDraftOperation(key, async (signal) => {
-      let previewing = false;
-      const attach = async () => {
-        const result = await pickComposerMedia({
-          existingCount: countComposerDraftAttachmentsAfterSelection(key, insertion),
-          maxVideoBytes: capabilities?.fileAttachments?.maxUploadBytes,
-          onPicked: (placeholders) => {
-            if (placeholders.length === 0) return;
-            previewing = true;
-            setComposerPendingMedia(key, placeholders);
-          },
-        });
-        const kept = new Set(
-          (appAtomRegistry.get(composerPendingMediaAtom)[key] ?? []).map(({ id }) => id),
-        );
-        const removed = previewing
-          ? result.attachments.filter((attachment) => !kept.has(attachment.id))
-          : [];
-        await releaseUnusedComposerAttachmentFiles(removed);
-        report(
-          "Could not attach photo or video",
-          result.error,
-          await append(
-            key,
-            signal,
-            result.attachments.filter((attachment) => !removed.includes(attachment)),
-            insertion,
-          ),
-        );
-      };
-      await attach().finally(() => {
-        if (previewing) setComposerPendingMedia(key, []);
-      });
+      let placeholderIds: ReadonlyArray<string> = [];
+      await pickComposerMedia({
+        existingCount: countComposerDraftAttachmentsAfterSelection(key, insertion),
+        maxVideoBytes: capabilities?.fileAttachments?.maxUploadBytes,
+        onPicked: (placeholders) => {
+          placeholderIds = placeholders.map(({ id }) => id);
+          addComposerPendingMedia(key, placeholders);
+        },
+      })
+        .then(async (result) => {
+          // Every attachment has a placeholder; one the user removed is no longer pending.
+          const pending = appAtomRegistry.get(composerPendingMediaAtom)[key] ?? [];
+          const kept = result.attachments.filter(({ id }) => pending.some((p) => p.id === id));
+          await releaseUnusedComposerAttachmentFiles(
+            result.attachments.filter((attachment) => !kept.includes(attachment)),
+          );
+          report(
+            "Could not attach photo or video",
+            result.error,
+            await append(key, signal, kept, insertion),
+          );
+        })
+        .finally(() => removeComposerPendingMedia(key, placeholderIds));
     });
   };
   const onPickDraftFiles = async () => {
