@@ -313,6 +313,18 @@ export function parseMarkdownFileLink(href: string): FilePathPosition | null {
   return looksLikeFilePath(position.path, path) ? position : null;
 }
 
+// An absolute path with a folder. It ends at whitespace, quotes, brackets, and `#?%` (URL
+// syntax in a link), and never on sentence punctuation.
+const BARE_ABSOLUTE_PATH_PATTERN =
+  /(?<![\w.~:/\\`#?%-])(?:~?\/|[A-Za-z]:[\\/])(?:[^\s`"'<>()[\]{}|#?%\\/]+[\\/])+[^\s`"'<>()[\]{}|#?%\\/]*[^\s`"'<>()[\]{}|#?%\\/.,:;!](?![\w/\\#?%-])/g;
+
+/** Absolute paths in prose that name a file by the same rule as Markdown file links. */
+export function bareFilePathMatches(text: string): Array<{ index: number; path: string }> {
+  return [...text.matchAll(BARE_ABSOLUTE_PATH_PATTERN)]
+    .filter(([path]) => parseMarkdownFileLink(path) !== null)
+    .map((match) => ({ index: match.index, path: match[0] }));
+}
+
 const FENCED_CODE_SEGMENT_PATTERN = /(```[\s\S]*?(?:```|$))/;
 
 const INLINE_CODE_SPAN_PATTERN = /`([^`\n]+)`/g;
