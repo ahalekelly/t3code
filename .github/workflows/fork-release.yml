@@ -122,15 +122,19 @@ jobs:
       - run: vp run --filter @t3tools/desktop ensure:electron
       - run: vp run typecheck
 
-  # Each shard runs its share of every package's test files.
+  # client-runtime's tests take as long as all other packages' together.
   test:
-    name: Package tests ${{ matrix.shard }}
+    name: Package tests (${{ matrix.packages }})
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2]
+        include:
+          - packages: client-runtime
+            filter: --filter @t3tools/client-runtime
+          - packages: others
+            filter: --filter '!@t3tools/client-runtime' --filter '!t3' --filter '!@t3tools/monorepo' --filter '!@t3tools/web'
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -141,7 +145,7 @@ jobs:
       - uses: ./.github/actions/setup-ci-deps
       - run: vp run --filter @t3tools/desktop ensure:electron
       - run: sudo apt-get update && sudo apt-get install -y libsecret-1-dev pkg-config build-essential
-      - run: vp run --parallel --concurrency-limit 4 --filter '!t3' --filter '!@t3tools/monorepo' --filter '!@t3tools/web' test --shard ${{ matrix.shard }}/${{ strategy.job-total }} --passWithNoTests
+      - run: vp run --parallel --concurrency-limit 4 ${{ matrix.filter }} test
 
   test_web:
     name: Web tests ${{ matrix.shard }}
