@@ -206,8 +206,8 @@ sent until you choose one. See [Voice input](./voice-input.md).
 
 Use the composer's microphone to record, then confirm to transcribe. Text is
 inserted where your selection was when recording started, ready for you to review
-and edit before sending. On iPhone, the send button beside the check mark transcribes
-and sends the message right away, skipping the review. A tone confirms the send, and
+and edit before sending. The send button beside the check mark transcribes and
+sends the message right away, skipping the review. A tone confirms the send, and
 the reply is read aloud automatically while you stay in the thread; the agent is asked
 to write it for listening. Approvals and questions are announced, and failures are
 spoken. The screen stays awake until the reply finishes. Turn off **Read voice
@@ -256,17 +256,17 @@ a saved preference, but simultaneous same-name inputs remain separately selectab
 T3 Code deletes the temporary recording from your phone after transcription or
 cancellation. The transcript stays in your draft until you send the message to the agent.
 Messages containing dictated text end with a short note marking them as a voice
-transcription, so the agent expects misheard words. API keys stay in your device keychain.
+transcription, so the agent expects misheard words. API keys stay in your device's secure storage.
 Microsoft's MAI-Transcribe-2 and MAI voices take Azure Speech keys from resources
 in West US 2. Add a free F0 key, a paid S0 key, or both: T3 Code uses the F0 key
 until its monthly quota runs out, then the S0 key until the quota refills.
 
 ## Reading responses aloud
 
-On iOS, tap the speaker beneath a response to read it aloud, and tap it again to
+Tap the speaker beneath a response to read it aloud, and tap it again to
 stop. While reading, the bar above the composer rewinds 10 seconds, pauses, skips
-to the next paragraph, changes the pace, and stops. Headphone, car, and Lock Screen
-controls do the same: previous rewinds and next skips a paragraph. Tap a paragraph
+to the next paragraph, changes the pace, and stops. Headphone, car, Lock Screen, and
+Android notification controls do the same: previous rewinds and next skips a paragraph. Tap a paragraph
 to read from there. The paragraph being read is highlighted and kept on screen.
 Code blocks are announced rather than read. Removing your headphones pauses
 reading; resuming starts that paragraph again.
@@ -277,7 +277,8 @@ v4 or v4 Turbo), voice, and pace. Gemini also takes a **Delivery**
 description. Reading uses that provider's key from the same screen and costs
 about 1 to 7 cents per minute of audio. Use a paid-tier Gemini key: Google
 trains on free-tier requests. ElevenLabs lists the voices saved in your account.
-Reading continues with the screen locked.
+Reading continues with the screen locked. On Android, reading can only start while
+T3 Code is open.
 Reading another response, leaving the thread, or starting dictation stops playback.
 
 ## Queued messages
