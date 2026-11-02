@@ -407,15 +407,17 @@ const openFakeCli = (cli: string) =>
     });
   });
 
-it.effect("tells Claude after a tool batch that the OOM killer hit a process in its scope", () =>
+it.effect("puts Claude's Bash commands above its OOM score and tells it when one is killed", () =>
   Effect.scoped(
     Effect.gen(function* () {
       const unit = "t3code-claude-test.scope";
       const kills = [2];
       const taken: Array<string> = [];
       let hooks: ClaudeSdk.Options["hooks"];
+      let envFile: string | undefined;
       const querySpy = vi.spyOn(ClaudeSdk, "query").mockImplementation(({ options }) => {
         hooks = options?.hooks;
+        envFile = options?.env?.CLAUDE_ENV_FILE;
         return {
           close: vi.fn(),
           [Symbol.asyncDispose]: async () => {},
@@ -429,6 +431,7 @@ it.effect("tells Claude after a tool batch that the OOM killer hit a process in 
               Layer.succeed(AgentScope, {
                 ...AgentScope.defaultValue(),
                 wrap: ({ command, args }) => Effect.succeed({ command, args, unit }),
+                toolShellEnv: "/t3/tool-shell-env.sh",
                 takeOomKills: (scopeUnit) =>
                   Effect.sync(() => {
                     taken.push(scopeUnit);
@@ -440,6 +443,7 @@ it.effect("tells Claude after a tool batch that the OOM killer hit a process in 
         ),
       );
       yield* Effect.addFinalizer(() => session.close.pipe(Effect.orDie));
+      assert.equal(envFile, "/t3/tool-shell-env.sh");
       const callback = hooks?.PostToolBatch?.[0]?.hooks[0];
       assert.isDefined(callback);
       const signal = yield* Effect.abortSignal;

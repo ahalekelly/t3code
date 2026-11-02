@@ -981,11 +981,17 @@ export const layerQueryRunner: Layer.Layer<
           // Send MCP credentials over stdin to keep them out of SDK argv and inherited command environments.
           const { mcpServers, ...sdkOptions } = input.options;
           // Jobs the agent starts inherit the thread, so port discovery can attribute their servers.
+          // Claude runs CLAUDE_ENV_FILE in each Bash command's shell, putting commands above the
+          // agent's OOM score. Tools inherit the variable, so a server they start would read this
+          // server's file; it replaces any inherited one.
           const queryOptions = {
             ...sdkOptions,
             env: {
               ...(sdkOptions.env ?? hostEnvironment),
               [PortScanner.AGENT_THREAD_ENV]: input.threadId,
+              ...(agentScope.toolShellEnv === undefined
+                ? {}
+                : { CLAUDE_ENV_FILE: agentScope.toolShellEnv }),
             },
           };
           // The SDK can prepend a scope wrapper to native binaries; script entries run through node.
@@ -1482,8 +1488,7 @@ const CLAUDE_BACKGROUND_WAIT_INSTRUCTIONS = `
 To wait for a background command or Monitor you started (tests, a build), call \`t3_background_wait\` with its task ID before you end your turn. Do not mark work you leave running, or PRs. T3 MCP tools are deferred: load one with ToolSearch before you call it.
 `;
 
-// Agents run with oom_score_adj 800, so the kernel's OOM killer picks the
-// biggest process in an agent's scope, often a tool rather than the agent.
+// Claude's Bash commands mostly run above its own OOM score, so the OOM killer takes them first.
 const claudeOomKillNotice = (kills: number) =>
   `The kernel's out-of-memory killer killed ${kills === 1 ? "a process" : `${kills} processes`} in this session since your last tool results. A command that failed with "Killed" or exit code 137 ran out of memory: rerun it with less memory, such as fewer parallel workers, a narrower test selection, or one browser at a time.`;
 
