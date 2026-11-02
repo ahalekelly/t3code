@@ -60,6 +60,7 @@ import {
   composerDraftsAtom,
   setComposerDraftText,
   composerContextImportsAtom,
+  composerPendingPhotosAtom,
   countComposerDraftAttachmentsAfterSelection,
   useComposerDraft,
 } from "../../state/use-composer-drafts";
@@ -456,7 +457,18 @@ export const ThreadComposer = function ThreadComposer(props: ThreadComposerProps
     draftMessage.trim().length > 0 ||
     draftAttachments.length > 0 ||
     (queuedEdit?.existingAttachments.length ?? 0) > 0;
-  const stripAttachments = composerStripAttachments(draftAttachments);
+  const pendingPhotos = useAtomValue(composerPendingPhotosAtom)[composerDraftKey] ?? [];
+  const stripAttachments = [
+    ...composerStripAttachments(draftAttachments),
+    ...pendingPhotos.map((uri) => ({
+      id: uri,
+      type: "image" as const,
+      name: "Photo",
+      mimeType: "image/jpeg",
+      sizeBytes: 0,
+      previewUri: uri,
+    })),
+  ];
   const showStopAction = !hasContent && props.canStopThread && queuedEdit === null;
   const onResumeQueue = props.onResumeQueue;
   const [resumingQueue, setResumingQueue] = useState(false);
