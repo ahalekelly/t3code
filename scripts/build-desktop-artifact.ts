@@ -2818,8 +2818,9 @@ export const createBuildConfig = Effect.fn("createBuildConfig")(function* (
     const updateUrl = yield* Config.String("T3CODE_DESKTOP_UPDATE_URL").pipe(
       Config.withDefault(""),
     );
+    // Without a channel, electron-builder names the feed after the version's prerelease tag.
     const publishConfig = updateUrl
-      ? { provider: "generic" as const, url: updateUrl }
+      ? { provider: "generic" as const, url: updateUrl, channel: updateChannel }
       : yield* resolveGitHubPublishConfig(updateChannel);
     if (publishConfig) {
       buildConfig.publish = [publishConfig];
