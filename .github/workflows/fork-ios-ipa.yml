@@ -2,7 +2,7 @@ name: Fork iPhone build
 
 # Builds the production app as an ad hoc IPA for Adrian's iPhone, signed by his team. The build
 # number is the version's run number, so `xcrun devicectl device info apps` shows which release a
-# phone runs. fork-mac-release.yml calls it when the app's code changes; dispatch it to try a branch.
+# phone runs. fork-ios-release.yml calls it when the app's code changes; dispatch it to try a branch.
 on:
   workflow_call:
     inputs:
