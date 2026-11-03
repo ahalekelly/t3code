@@ -1,4 +1,5 @@
 import { AudioModule, setAudioModeAsync, setIsAudioActiveAsync } from "expo-audio";
+import { Platform } from "react-native";
 
 type AudioSessionToken = {
   readonly kind: "playback" | "recording";
@@ -73,6 +74,9 @@ export function activateAudioSession(
       interruptionMode: "doNotMix",
       playsInSilentMode: true,
       shouldPlayInBackground: false,
+      ...(token.kind === "recording" && Platform.OS === "ios"
+        ? { allowsBackgroundRecording: true }
+        : {}),
     });
     if (!isAudioSessionOwner(token)) return false;
     await setIsAudioActiveAsync(true);
