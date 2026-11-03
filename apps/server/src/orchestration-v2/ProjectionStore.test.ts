@@ -3329,7 +3329,7 @@ it.layer(layerTest)("ProjectionStoreV2", (it) => {
     }),
   );
 
-  it.effect("shows the native goal of the active provider thread on the shell", () =>
+  it.effect("shows the goal and native id of the active provider thread on the shell", () =>
     Effect.gen(function* () {
       const projectionStore = yield* ProjectionStore.ProjectionStoreV2;
       const now = yield* DateTime.now;
@@ -3366,6 +3366,7 @@ it.layer(layerTest)("ProjectionStoreV2", (it) => {
       const applyProviderThread = (
         suffix: string,
         goal: OrchestrationV2ProviderThread["goal"],
+        nativeId: string | null,
         seconds: number,
       ) =>
         projectionStore.apply({
@@ -3381,7 +3382,7 @@ it.layer(layerTest)("ProjectionStoreV2", (it) => {
             providerSessionId: null,
             appThreadId: threadId,
             ownerNodeId: null,
-            nativeThreadRef: null,
+            nativeThreadRef: nativeId === null ? null : { driver, nativeId, strength: "strong" },
             nativeConversationHeadRef: null,
             status: "idle",
             firstRunOrdinal: null,
@@ -3393,16 +3394,19 @@ it.layer(layerTest)("ProjectionStoreV2", (it) => {
             updatedAt: DateTime.add(now, { seconds }),
           },
         });
-      const shellGoal = Effect.map(
-        projectionStore.getShellSnapshot(),
-        (snapshot) => snapshot.threads.find((thread) => thread.id === threadId)?.goal,
+      const shell = Effect.map(projectionStore.getShellSnapshot(), (snapshot) =>
+        snapshot.threads.find((thread) => thread.id === threadId),
       );
       const goal = { objective: "Ship it", status: "active" as const, tokensUsed: 10 };
 
-      yield* applyProviderThread("first", goal, 0);
-      assert.deepEqual(yield* shellGoal, goal);
-      yield* applyProviderThread("second", null, 1);
-      assert.isNull(yield* shellGoal);
+      yield* applyProviderThread("first", goal, "native-first", 0);
+      const first = yield* shell;
+      assert.deepEqual(first?.goal, goal);
+      assert.equal(first?.activeNativeThreadId, "native-first");
+      yield* applyProviderThread("second", null, null, 1);
+      const second = yield* shell;
+      assert.isNull(second?.goal);
+      assert.isNull(second?.activeNativeThreadId);
     }),
   );
 
