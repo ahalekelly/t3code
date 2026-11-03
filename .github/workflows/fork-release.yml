@@ -2,9 +2,9 @@ name: Fork release
 
 # Tests each main revision and publishes the builds whose code changed since their last release:
 # the Linux and Windows desktop apps and the CLI as this repository's Latest release `v<version>`,
-# and the Android app as `android-<version>`. Once a run passes, fork-mac-release.yml builds the
-# macOS and iPhone apps, which wait for GitHub's scarce macOS runners, as `mac-<version>` and
-# `ios-<version>`. Only `v` releases are ever Latest. Installed fork builds update from these releases.
+# and the Android app as `android-<version>`. Once a run passes, fork-mac-release.yml and
+# fork-ios-release.yml build the macOS and iPhone apps, which wait for GitHub's scarce macOS
+# runners, as `mac-<version>` and `ios-<version>`. Only `v` releases are ever Latest. Installed fork builds update from these releases.
 # Versions are prereleases of the next upstream patch, `<major>.<minor>.<patch + 1>-akelly-<run>`,
 # so each one ranks above the upstream release it is built on and below the next one. The run is
 # zero-padded to four digits, because GitHub lists a day's releases by comparing that part as text.
@@ -109,7 +109,7 @@ jobs:
           name: release-plan
           path: release-plan.env
           if-no-files-found: error
-          # fork-mac-release.yml reads it, and the bundle, from this run, maybe after a long wait.
+          # fork-mac-release.yml and fork-ios-release.yml read it, and the bundle, from this run, maybe after a long wait.
           retention-days: 3
 
       # Fork migrations collide with upstream's numbering when the fork moves to a new release.
