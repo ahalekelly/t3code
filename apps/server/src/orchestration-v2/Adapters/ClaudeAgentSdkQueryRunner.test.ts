@@ -8,7 +8,7 @@ import * as NodePath from "node:path";
 import * as NodeStream from "node:stream";
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import { assert, describe, it } from "@effect/vitest";
+import { assert, describe, expect, it } from "@effect/vitest";
 import { ProviderSessionId, ThreadId } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
@@ -497,6 +497,75 @@ const openFakeCli = (cli: string) =>
       },
     });
   });
+
+it.effect("puts Claude's Bash commands above its OOM score and tells it when one is killed", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const unit = "t3code-claude-test.scope";
+      const kills = [2];
+      const taken: Array<string> = [];
+      let hooks: ClaudeSdk.Options["hooks"];
+      let envFile: string | undefined;
+      const querySpy = vi.spyOn(ClaudeSdk, "query").mockImplementation(({ options }) => {
+        hooks = options?.hooks;
+        envFile = options?.env?.CLAUDE_ENV_FILE;
+        return {
+          close: vi.fn(),
+          [Symbol.asyncDispose]: async () => {},
+        } as unknown as ClaudeSdk.Query;
+      });
+      yield* Effect.addFinalizer(() => Effect.sync(() => querySpy.mockRestore()));
+      const session = yield* openFakeCli("/usr/bin/claude").pipe(
+        Effect.provide(
+          realQueryRunner.pipe(
+            Layer.provide(
+              Layer.succeed(AgentScope, {
+                ...AgentScope.defaultValue(),
+                wrap: ({ command, args }) => Effect.succeed({ command, args, unit }),
+                toolShellEnv: "/t3/tool-shell-env.sh",
+                takeOomKills: (scopeUnit) =>
+                  Effect.sync(() => {
+                    taken.push(scopeUnit);
+                    return kills.shift() ?? 0;
+                  }),
+              }),
+            ),
+          ),
+        ),
+      );
+      yield* Effect.addFinalizer(() => session.close.pipe(Effect.orDie));
+      assert.equal(envFile, "/t3/tool-shell-env.sh");
+      const callback = hooks?.PostToolBatch?.[0]?.hooks[0];
+      assert.isDefined(callback);
+      const signal = yield* Effect.abortSignal;
+      const batch = (agentId?: string) =>
+        Effect.promise(() =>
+          callback!(
+            {
+              hook_event_name: "PostToolBatch",
+              session_id: "native-session-fake-cli",
+              transcript_path: "/repo/session.jsonl",
+              cwd: "/repo",
+              tool_calls: [],
+              ...(agentId === undefined ? {} : { agent_id: agentId }),
+            },
+            undefined,
+            { signal },
+          ),
+        );
+
+      // A subagent shares its parent's scope, so its batch can carry the notice.
+      expect(yield* batch("subagent-1")).toEqual({
+        hookSpecificOutput: {
+          hookEventName: "PostToolBatch",
+          additionalContext: expect.stringContaining("killed 2 processes"),
+        },
+      });
+      assert.deepEqual(yield* batch(), {});
+      assert.deepEqual(taken, [unit, unit]);
+    }).pipe(Effect.provide(NodeServices.layer)),
+  ),
+);
 
 describe.skipIf(HostProcess.Platform.defaultValue() === "win32")("Claude CLI process", () => {
   // The leftover child holds a FIFO open; its death produces EOF without polling.
