@@ -1,18 +1,15 @@
 import { useAtomSet, useAtomValue } from "@effect/atom-react";
-import { useNavigation } from "@react-navigation/native";
 import { AsyncResult } from "effect/reactivity";
 import { useState } from "react";
-import { Platform, Pressable, View } from "react-native";
+import { Pressable, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { AndroidScreenHeader } from "../../components/ui/AndroidScreenHeader";
 import { ScreenScrollView as ScrollView } from "../../components/ui/ScreenScrollView";
 import { AppText as Text, AppTextInput as TextInput } from "../../components/ui/AppText";
 import { SymbolView } from "../../components/ui/AppSymbol";
 import { Menu } from "../../components/ui/Menu";
 import * as Dialog from "../../components/ui/Dialog";
 import { copyTextWithHaptic } from "../../lib/copyTextWithHaptic";
-import { NativeStackScreenOptions } from "../../native/StackHeader";
 import { updateMobilePreferencesAtom } from "../../state/preferences";
 import { useVoiceSettings } from "../../state/voiceSettings";
 import { setVoiceApiKeyAtom, voiceApiKeyAtom } from "../../state/voiceApiKeys";
@@ -29,11 +26,11 @@ import {
   type SpeechPace,
   type VoiceApiKey,
 } from "../../lib/speechSettings";
+import { SettingsScreen } from "./components/SettingsScreen";
 import { SettingsSwitchRow } from "./components/SettingsSwitchRow";
 import { SettingsSection } from "./components/SettingsSection";
 
 export function SettingsVoiceRouteScreen() {
-  const navigation = useNavigation();
   const insets = useSafeAreaInsets();
   const savePreferences = useAtomSet(updateMobilePreferencesAtom);
   const [instructionsDraft, setInstructionsDraft] = useState<string | null>(null);
@@ -53,13 +50,7 @@ export function SettingsVoiceRouteScreen() {
   };
 
   return (
-    <View collapsable={false} className="flex-1 bg-sheet">
-      {Platform.OS === "android" ? (
-        <>
-          <NativeStackScreenOptions options={{ headerShown: false }} />
-          <AndroidScreenHeader title="Voice" onBack={() => navigation.goBack()} />
-        </>
-      ) : null}
+    <SettingsScreen title="Voice">
       <ScrollView
         contentInsetAdjustmentBehavior="automatic"
         showsVerticalScrollIndicator={false}
@@ -172,7 +163,7 @@ export function SettingsVoiceRouteScreen() {
           refills.
         </Text>
       </ScrollView>
-    </View>
+    </SettingsScreen>
   );
 }
 
