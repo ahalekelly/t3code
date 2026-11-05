@@ -11,7 +11,11 @@ import { View, type TextInputInstance } from "react-native";
 import { useEffect, useEffectEvent, useRef, useState } from "react";
 import { ComposerAttachmentButton } from "./ComposerAttachmentButton";
 import { ComposerAttachmentStrip } from "../../components/ComposerAttachmentStrip";
-import { pickComposerFiles, pickComposerMedia } from "../../lib/composerImages";
+import {
+  pickComposerFiles,
+  pickComposerMedia,
+  type ComposerMediaSource,
+} from "../../lib/composerImages";
 import { useThreadSelection } from "../../state/use-thread-selection";
 import { useNavigation } from "@react-navigation/native";
 import { FilePreviewModal, type FilePreviewSource } from "../../components/FilePreviewModal";
@@ -137,7 +141,7 @@ export function QuestionAttachments(props: {
     props.question.id,
   );
   const attachments = drafts[key]?.attachments ?? [];
-  const pick = async (kind: "media" | "files") => {
+  const pick = async (kind: ComposerMediaSource | "files") => {
     const scope = pickerScope.current;
     changeQuestionAttachmentPreparation(key, 1);
     const picked = await settlePromise(async () => {
@@ -149,6 +153,7 @@ export function QuestionAttachments(props: {
               maxBytes: capabilities?.fileAttachments?.maxUploadBytes,
             })
           : await pickComposerMedia({
+              source: kind,
               existingCount,
               maxVideoBytes: capabilities?.fileAttachments?.maxUploadBytes,
             });
@@ -177,7 +182,7 @@ export function QuestionAttachments(props: {
         <ComposerAttachmentButton
           disabled={props.disabled}
           supportsFiles
-          onPickMedia={() => pick("media")}
+          onPickMedia={pick}
           onPickFiles={() => pick("files")}
         />
       ) : null}
