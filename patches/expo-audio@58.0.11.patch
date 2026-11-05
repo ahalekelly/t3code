@@ -182,6 +182,54 @@ index 2ff4a474fdea3efa652436a8a3960c3669ad298b..1ced279991294d3d81cb20fa339ca73e
          return device
        }
      }
+diff --git a/android/src/main/java/expo/modules/audio/AudioRecords.kt b/android/src/main/java/expo/modules/audio/AudioRecords.kt
+index b6b3b73c3d1422a8023e2d943c54d7714c6354b6..78f02a627393e8d7083890d5b5d012d7988a23e8 100644
+--- a/android/src/main/java/expo/modules/audio/AudioRecords.kt
++++ b/android/src/main/java/expo/modules/audio/AudioRecords.kt
+@@ -68,7 +68,8 @@ enum class AndroidOutputFormat(val value: String) : Enumerable {
+   AMR_WB("amrwb"),
+   AAC_ADTS("aac_adts"),
+   MPEG2TS("mpeg2ts"),
+-  WEBM("webm");
++  WEBM("webm"),
++  OGG("ogg");
+ 
+   fun toMediaOutputFormat(): Int {
+     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+@@ -85,6 +86,11 @@ enum class AndroidOutputFormat(val value: String) : Enumerable {
+       AMR_WB -> MediaRecorder.OutputFormat.AMR_WB
+       AAC_ADTS -> MediaRecorder.OutputFormat.AAC_ADTS
+       WEBM -> MediaRecorder.OutputFormat.WEBM
++      OGG -> if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
++        MediaRecorder.OutputFormat.OGG
++      } else {
++        throw IllegalArgumentException("Ogg recording needs Android 10 or later")
++      }
+       else -> MediaRecorder.OutputFormat.DEFAULT
+     }
+   }
+@@ -96,7 +102,8 @@ enum class AndroidAudioEncoder(val value: String) : Enumerable {
+   AMR_WB("amr_wb"),
+   AAC("aac"),
+   HE_AAC("he_aac"),
+-  AAC_ELD("aac_eld");
++  AAC_ELD("aac_eld"),
++  OPUS("opus");
+ 
+   fun toMediaEncoding() = when (this) {
+     DEFAULT -> MediaRecorder.AudioEncoder.DEFAULT
+@@ -105,6 +112,11 @@ enum class AndroidAudioEncoder(val value: String) : Enumerable {
+     AAC -> MediaRecorder.AudioEncoder.AAC
+     HE_AAC -> MediaRecorder.AudioEncoder.HE_AAC
+     AAC_ELD -> MediaRecorder.AudioEncoder.AAC_ELD
++    OPUS -> if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
++      MediaRecorder.AudioEncoder.OPUS
++    } else {
++      throw IllegalArgumentException("Opus recording needs Android 10 or later")
++    }
+   }
+ }
+ 
 diff --git a/android/src/main/java/expo/modules/audio/AudioUtils.kt b/android/src/main/java/expo/modules/audio/AudioUtils.kt
 index 81819c1d771bdeec093bb35a65a5e1e1af0cf9d7..b52d0cd0622c233b45115b90057c1765337e4297 100644
 --- a/android/src/main/java/expo/modules/audio/AudioUtils.kt
@@ -364,7 +412,7 @@ index 0000000000000000000000000000000000000000..4dd0567e2170770e9b0f6a17dc4581bc
 +  }
 +}
 diff --git a/build/Audio.types.d.ts b/build/Audio.types.d.ts
-index 332b0c2f38310616c6bff64cb86fc8d5688d1280..9680035bd031a9c80b98d834960e2aee5ff2ed87 100644
+index 332b0c2f38310616c6bff64cb86fc8d5688d1280..50f3bd99db7fbca9eaf0de0d3980ef72ec3902b1 100644
 --- a/build/Audio.types.d.ts
 +++ b/build/Audio.types.d.ts
 @@ -282,6 +282,12 @@ export type RecordingStatus = {
@@ -380,6 +428,24 @@ index 332b0c2f38310616c6bff64cb86fc8d5688d1280..9680035bd031a9c80b98d834960e2aee
  };
  /**
   * Current state information for an `AudioRecorder`.
+@@ -321,7 +327,7 @@ export type RecorderState = {
+  *
+  * @platform android
+  */
+-export type AndroidOutputFormat = 'default' | '3gp' | 'mpeg4' | 'amrnb' | 'amrwb' | 'aac_adts' | 'mpeg2ts' | 'webm';
++export type AndroidOutputFormat = 'default' | '3gp' | 'mpeg4' | 'amrnb' | 'amrwb' | 'aac_adts' | 'mpeg2ts' | 'webm' | 'ogg';
+ /**
+  * Audio encoder options for Android recording.
+  *
+@@ -330,7 +336,7 @@ export type AndroidOutputFormat = 'default' | '3gp' | 'mpeg4' | 'amrnb' | 'amrwb
+  *
+  * @platform android
+  */
+-export type AndroidAudioEncoder = 'default' | 'amr_nb' | 'amr_wb' | 'aac' | 'he_aac' | 'aac_eld';
++export type AndroidAudioEncoder = 'default' | 'amr_nb' | 'amr_wb' | 'aac' | 'he_aac' | 'aac_eld' | 'opus';
+ /**
+  * Bit rate strategies for audio encoding.
+  *
 diff --git a/build/AudioModule.types.d.ts b/build/AudioModule.types.d.ts
 index 0d63c9b949cfae7a101902fc3bb70fcf46094f68..a312b8fcdaf728220db3d6c04d92fd78a4aa101c 100644
 --- a/build/AudioModule.types.d.ts
@@ -518,6 +584,29 @@ index 198fe6dc95b564ff3916657f14ea67fc44d2e424..41b0fdb1b4997c45ea08b0582e5bad54
        "url": recorder.url.absoluteString
      ])
    }
+diff --git a/src/Audio.types.ts b/src/Audio.types.ts
+index fe5f5c3a08d2be39b0fdb1da6ae6b158931cac4c..134c19bac13a2b4d679d627597365d2b4ecc610d 100644
+--- a/src/Audio.types.ts
++++ b/src/Audio.types.ts
+@@ -345,7 +345,8 @@ export type AndroidOutputFormat =
+   | 'amrwb'
+   | 'aac_adts'
+   | 'mpeg2ts'
+-  | 'webm';
++  | 'webm'
++  | 'ogg';
+ 
+ /**
+  * Audio encoder options for Android recording.
+@@ -355,7 +356,7 @@ export type AndroidOutputFormat =
+  *
+  * @platform android
+  */
+-export type AndroidAudioEncoder = 'default' | 'amr_nb' | 'amr_wb' | 'aac' | 'he_aac' | 'aac_eld';
++export type AndroidAudioEncoder = 'default' | 'amr_nb' | 'amr_wb' | 'aac' | 'he_aac' | 'aac_eld' | 'opus';
+ 
+ /**
+  * Bit rate strategies for audio encoding.
 diff --git a/src/AudioModule.types.ts b/src/AudioModule.types.ts
 index 3194a8ebd1b91793d03a1692c563b5d2e83c2738..d8822a6c2ad8a581275e2ca428f4b5d0ed961be2 100644
 --- a/src/AudioModule.types.ts

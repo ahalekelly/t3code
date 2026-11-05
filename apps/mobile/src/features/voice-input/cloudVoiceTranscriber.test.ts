@@ -32,7 +32,7 @@ function deferred<T>() {
 async function transcribe(signal: AbortSignal, source: "openai" | "azure" = "openai") {
   const transcriber = createCloudVoiceTranscriber(source, ["sk-test"]);
   const prepared = await transcriber.prepare({ signal });
-  return prepared.transcribe("file:///voice.m4a", { signal });
+  return prepared.transcribe("file:///voice.ogg", { signal });
 }
 
 beforeEach(() => {
@@ -58,7 +58,7 @@ describe("createCloudVoiceTranscriber", () => {
         httpMethod: "POST",
         uploadType: 1,
         fieldName: "file",
-        mimeType: "audio/mp4",
+        mimeType: "audio/ogg",
         headers: { Authorization: "Bearer sk-test" },
         parameters: { model: "gpt-transcribe", language: "sv", response_format: "json" },
       }),
@@ -96,7 +96,7 @@ describe("createCloudVoiceTranscriber", () => {
     const { signal } = new AbortController();
     const prepared = await transcriber.prepare({ signal });
 
-    await expect(prepared.transcribe("file:///voice.m4a", { signal })).resolves.toBe("Hej.");
+    await expect(prepared.transcribe("file:///voice.ogg", { signal })).resolves.toBe("Hej.");
     expect(mocks.upload.mock.calls.map(([, options]) => options.headers)).toEqual([
       { "Ocp-Apim-Subscription-Key": "free" },
       { "Ocp-Apim-Subscription-Key": "paid" },
@@ -112,7 +112,7 @@ describe("createCloudVoiceTranscriber", () => {
       const transcriber = createCloudVoiceTranscriber("azure", ["spent", "paid"]);
       const { signal } = new AbortController();
       const transcribeOnce = async () =>
-        (await transcriber.prepare({ signal })).transcribe("file:///voice.m4a", { signal });
+        (await transcriber.prepare({ signal })).transcribe("file:///voice.ogg", { signal });
       const keysUsed = () =>
         mocks.upload.mock.calls.map(
           ([, options]) => options.headers?.["Ocp-Apim-Subscription-Key"],
@@ -139,7 +139,7 @@ describe("createCloudVoiceTranscriber", () => {
       const transcriber = createCloudVoiceTranscriber("azure", ["early", "paid"]);
       const { signal } = new AbortController();
       const transcribeOnce = async () =>
-        (await transcriber.prepare({ signal })).transcribe("file:///voice.m4a", { signal });
+        (await transcriber.prepare({ signal })).transcribe("file:///voice.ogg", { signal });
       const keysUsed = () =>
         mocks.upload.mock.calls.map(
           ([, options]) => options.headers?.["Ocp-Apim-Subscription-Key"],
