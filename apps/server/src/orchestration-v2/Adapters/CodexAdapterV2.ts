@@ -693,6 +693,7 @@ const decodeTurnApprovalPolicy = Schema.decodeUnknownEffect(
 const decodeTurnSandboxPolicy = Schema.decodeUnknownEffect(
   Schema.Union([CodexSchema.V2TurnStartParams__SandboxPolicy, Schema.Null]),
 );
+const decodeConfiguredPermissions = Schema.decodeUnknownEffect(Schema.NullOr(Schema.String));
 const decodeTurnReasoningEffort = Schema.decodeUnknownEffect(
   Schema.Union([CodexSchema.V2TurnStartParams__ReasoningEffort, Schema.Null]),
 );
@@ -700,6 +701,7 @@ const decodeTurnReasoningEffort = Schema.decodeUnknownEffect(
 const CodexTurnStartParamsWithCollaborationMode = CodexSchema.V2TurnStartParams.pipe(
   Schema.fieldsAssign({
     collaborationMode: Schema.optionalKey(CodexSchema.ClientRequest__CollaborationMode),
+    permissions: Schema.optionalKey(Schema.String),
     additionalContext: Schema.optionalKey(
       Schema.Record(Schema.String, CodexSchema.V2TurnStartParams__AdditionalContextEntry),
     ),
@@ -714,43 +716,25 @@ const isProviderAdapterRuntimeRequestResponseError = Schema.is(
   ProviderAdapter.ProviderAdapterRuntimeRequestResponseError,
 );
 
+// A null profile selects the user's `default_permissions`. Profiles carry network, extra roots,
+// and denied paths, which a legacy `sandboxPolicy` would replace.
 function codexRuntimeModeTurnDefaults(runtimeMode: RuntimeMode): {
   readonly approvalPolicy: CodexSchema.V2TurnStartParams__AskForApproval;
   readonly approvalsReviewer: CodexSchema.V2TurnStartParams__ApprovalsReviewer;
-  readonly sandboxPolicy: CodexSchema.V2TurnStartParams__SandboxPolicy;
+  readonly permissions: string | null;
 } {
   switch (runtimeMode) {
     case "approval-required":
-      return {
-        approvalPolicy: "untrusted",
-        approvalsReviewer: "user",
-        sandboxPolicy: {
-          type: "readOnly",
-        },
-      };
+      return { approvalPolicy: "untrusted", approvalsReviewer: "user", permissions: ":read-only" };
     case "auto-accept-edits":
-      return {
-        approvalPolicy: "on-request",
-        approvalsReviewer: "user",
-        sandboxPolicy: {
-          type: "workspaceWrite",
-        },
-      };
+      return { approvalPolicy: "on-request", approvalsReviewer: "user", permissions: null };
     case "auto":
-      return {
-        approvalPolicy: "on-request",
-        approvalsReviewer: "auto_review",
-        sandboxPolicy: {
-          type: "workspaceWrite",
-        },
-      };
+      return { approvalPolicy: "on-request", approvalsReviewer: "auto_review", permissions: null };
     case "full-access":
       return {
         approvalPolicy: "never",
         approvalsReviewer: "user",
-        sandboxPolicy: {
-          type: "dangerFullAccess",
-        },
+        permissions: ":danger-full-access",
       };
   }
 }
@@ -761,6 +745,11 @@ export const buildCodexTurnStartParams = Effect.fn("CodexAdapterV2.buildCodexTur
     readonly codexInput: ReadonlyArray<CodexSchema.V2TurnStartParams__UserInput>;
     readonly runtimePolicy: ProviderAdapter.ProviderAdapterV2RuntimePolicy;
     readonly modelSelection: ModelSelection;
+    /** Reads `default_permissions` from the Codex config for the turn's cwd. */
+    readonly readConfiguredPermissions: Effect.Effect<
+      string | null,
+      CodexErrors.CodexAppServerError | Schema.SchemaError
+    >;
     readonly hasT3Mcp?: boolean;
     readonly browserToolsAvailable?: boolean;
     readonly deviceToolsAvailable?: boolean;
@@ -773,10 +762,15 @@ export const buildCodexTurnStartParams = Effect.fn("CodexAdapterV2.buildCodexTur
       input.runtimePolicy.approvalPolicy === undefined
         ? runtimeModeDefaults.approvalPolicy
         : yield* decodeTurnApprovalPolicy(input.runtimePolicy.approvalPolicy);
-    const sandboxPolicy =
+    const sandbox =
       input.runtimePolicy.sandboxPolicy === undefined
-        ? runtimeModeDefaults.sandboxPolicy
-        : yield* decodeTurnSandboxPolicy(input.runtimePolicy.sandboxPolicy);
+        ? {
+            permissions:
+              runtimeModeDefaults.permissions ??
+              (yield* input.readConfiguredPermissions) ??
+              ":workspace",
+          }
+        : { sandboxPolicy: yield* decodeTurnSandboxPolicy(input.runtimePolicy.sandboxPolicy) };
     const selectedEffort =
       getModelSelectionStringOptionValue(input.modelSelection, "reasoningEffort") ??
       codexDefaultReasoningEffortOverride(input.modelSelection.model);
@@ -818,7 +812,7 @@ export const buildCodexTurnStartParams = Effect.fn("CodexAdapterV2.buildCodexTur
       // Omitting the reviewer on resume preserves the previous Auto reviewer.
       approvalsReviewer: runtimeModeDefaults.approvalsReviewer,
       ...(approvalPolicy === undefined ? {} : { approvalPolicy }),
-      ...(sandboxPolicy === undefined ? {} : { sandboxPolicy }),
+      ...sandbox,
       ...(effort === undefined ? {} : { effort }),
       ...(serviceTier === undefined ? {} : { serviceTier }),
       // Codex supplies its own mode instructions; send both modes to clear Plan on exit.
@@ -6789,6 +6783,13 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
               codexInput,
               runtimePolicy: turnInput.runtimePolicy,
               modelSelection: turnInput.modelSelection,
+              readConfiguredPermissions: client
+                .request("config/read", { includeLayers: false, cwd: turnInput.runtimePolicy.cwd })
+                .pipe(
+                  Effect.flatMap(({ config }) =>
+                    decodeConfiguredPermissions(config.default_permissions ?? null),
+                  ),
+                ),
               hasT3Mcp: mcpSession !== undefined,
               browserToolsAvailable: mcpSession?.browserToolsAvailable ?? true,
               deviceToolsAvailable: mcpSession?.capabilities?.has("device") ?? false,
