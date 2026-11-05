@@ -58,10 +58,10 @@ const VOICE_RECORDING_OPTIONS = {
 function missingKeyTranscriber(source: CloudTranscriptionSource): VoiceTranscriber {
   return {
     prepare: async () => {
-      throw new VoiceTranscriptionError(
-        "unavailable",
-        `Add your ${VOICE_API_PROVIDERS[source].label} API key in Settings → Voice.`,
-      );
+      throw new VoiceTranscriptionError({
+        code: "unavailable",
+        message: `Add your ${VOICE_API_PROVIDERS[source].label} API key in Settings → Voice.`,
+      });
     },
   };
 }

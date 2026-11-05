@@ -1,3 +1,4 @@
+import * as Schema from "effect/Schema";
 import { File, UploadType, type UploadResult } from "expo-file-system";
 
 import {
@@ -10,6 +11,8 @@ import {
 
 import { VOICE_API_PROVIDERS } from "../../lib/speechSettings";
 import type { CloudTranscriptionSource } from "../../lib/voiceTranscriptionSources";
+
+const isVoiceTranscriptionError = Schema.is(VoiceTranscriptionError);
 
 const RECORDING_MIME_TYPE = "audio/mp4";
 
@@ -113,12 +116,12 @@ async function transcribe(
       });
     } catch (error) {
       throwIfVoiceTranscriptionAborted(signal);
-      if (error instanceof VoiceTranscriptionError) throw error;
-      throw new VoiceTranscriptionError(
-        "transcription-failed",
-        `The recording could not be uploaded to ${label}.`,
-        { cause: error },
-      );
+      if (isVoiceTranscriptionError(error)) throw error;
+      throw new VoiceTranscriptionError({
+        code: "transcription-failed",
+        message: `The recording could not be uploaded to ${label}.`,
+        cause: error,
+      });
     }
     throwIfVoiceTranscriptionAborted(signal);
     if (![403, 429].includes(response.status) || position === keys.length - 1) break;
@@ -128,17 +131,17 @@ async function transcribe(
 
   const body = readJsonBody(response.body);
   if (response.status < 200 || response.status >= 300) {
-    throw new VoiceTranscriptionError(
-      "transcription-failed",
-      `${label} transcription failed (${response.status}): ${readErrorMessage(body) ?? response.body}`,
-    );
+    throw new VoiceTranscriptionError({
+      code: "transcription-failed",
+      message: `${label} transcription failed (${response.status}): ${readErrorMessage(body) ?? response.body}`,
+    });
   }
   const text = provider.readText(body);
   if (typeof text !== "string") {
-    throw new VoiceTranscriptionError(
-      "transcription-failed",
-      `${label} returned a transcription response without any text.`,
-    );
+    throw new VoiceTranscriptionError({
+      code: "transcription-failed",
+      message: `${label} returned a transcription response without any text.`,
+    });
   }
   return text;
 }
