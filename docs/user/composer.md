@@ -425,6 +425,12 @@ On web and desktop, HTML and PDF files open as rendered pages. Switch an HTML
 file to source view to read its markup; a link to a specific line opens source
 automatically. HTML previews cannot access your T3 Code session.
 
+Selecting an HTML, PDF, or Markdown file link opens it where **Open links in**
+sends links. Right-click an HTML or PDF link and choose **Open in integrated
+browser** to open it in T3 Code. Markdown opens as plain text unless the browser
+has a Markdown viewer extension; its images and links to files in the same folder
+or below work.
+
 The file viewer recognizes images, HTML, and PDF files by their filename extension,
 including filenames or folders containing `#` or `?`.
 
