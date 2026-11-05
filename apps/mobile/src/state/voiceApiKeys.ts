@@ -1,5 +1,6 @@
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
+import { HttpClient } from "effect/http";
 import { AsyncResult, Atom } from "effect/reactivity";
 
 import { MobileSecureStorage } from "../persistence/mobile-secure-storage";
@@ -72,21 +73,22 @@ export const setVoiceApiKeyAtom = Atom.family((key: VoiceApiKey) =>
 
 /** Refetched once unused, so a failure can recover. */
 export const elevenLabsVoicesAtom = Atom.family((apiKey: string) =>
-  Atom.make(
-    Effect.tryPromise({
-      try: async () => {
+  voiceApiKeysRuntime
+    .atom(
+      Effect.gen(function* () {
+        const client = yield* HttpClient.HttpClient;
         const voices: SpeechVoice[] = [];
         let pageToken: string | undefined;
         do {
           const url = new URL("https://api.elevenlabs.io/v2/voices?page_size=100");
           if (pageToken) url.searchParams.set("next_page_token", pageToken);
-          const response = await fetch(url, { headers: { "xi-api-key": apiKey } });
-          if (!response.ok) {
-            throw new Error(
-              `ElevenLabs voices failed (${response.status}): ${await response.text()}`,
+          const response = yield* client.get(url, { headers: { "xi-api-key": apiKey } });
+          if (response.status < 200 || response.status >= 300) {
+            return yield* Effect.fail(
+              `ElevenLabs voices failed (${response.status}): ${yield* response.text}`,
             );
           }
-          const page = (await response.json()) as {
+          const page = (yield* response.json) as {
             voices: { voice_id: string; name: string }[];
             has_more: boolean;
             next_page_token: string | null;
@@ -95,8 +97,7 @@ export const elevenLabsVoicesAtom = Atom.family((apiKey: string) =>
           pageToken = page.has_more ? (page.next_page_token ?? undefined) : undefined;
         } while (pageToken);
         return voices;
-      },
-      catch: String,
-    }),
-  ).pipe(Atom.withLabel("mobile:voice:elevenlabs-voices")),
+      }).pipe(Effect.mapError((error) => (typeof error === "string" ? error : error.message))),
+    )
+    .pipe(Atom.withLabel("mobile:voice:elevenlabs-voices")),
 );
