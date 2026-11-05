@@ -117,7 +117,7 @@ export interface Preferences {
   /** Unset means on: crash reports are sent unless the user turns them off. */
   readonly crashReportsEnabled?: boolean;
   readonly connectOnboardingOptOutAccounts?: ReadonlyArray<string>;
-  readonly collapsedProjectGroups?: readonly string[];
+  readonly collapsedProjectFolders?: readonly string[];
   readonly dismissedDatabaseStorageNotices?: readonly string[];
   /** Hardware Return behavior is iOS-only. */
   readonly composerEnterBehavior?: ComposerEnterBehavior;
@@ -127,6 +127,7 @@ export interface Preferences {
   readonly projectGroupingMode?: SidebarProjectGroupingMode;
   readonly planModeEnabled?: boolean;
   readonly workingShelfEnabled?: boolean;
+  readonly projectFoldersEnabled?: boolean;
   readonly useLastProjectForNewThreads?: boolean;
   readonly lastThreadProject?: typeof ThreadProject.Type;
   readonly modelFavorites?: ReadonlyArray<{
@@ -207,7 +208,7 @@ function sanitizePreferences(parsed: Preferences): Preferences {
     mathRenderingEnabled?: boolean;
     crashReportsEnabled?: boolean;
     connectOnboardingOptOutAccounts?: ReadonlyArray<string>;
-    collapsedProjectGroups?: readonly string[];
+    collapsedProjectFolders?: readonly string[];
     dismissedDatabaseStorageNotices?: readonly string[];
     composerEnterBehavior?: ComposerEnterBehavior;
     followUpBehavior?: FollowUpBehavior;
@@ -216,6 +217,7 @@ function sanitizePreferences(parsed: Preferences): Preferences {
     projectGroupingMode?: SidebarProjectGroupingMode;
     planModeEnabled?: boolean;
     workingShelfEnabled?: boolean;
+    projectFoldersEnabled?: boolean;
     useLastProjectForNewThreads?: boolean;
     lastThreadProject?: typeof ThreadProject.Type;
     modelFavorites?: Preferences["modelFavorites"];
@@ -310,8 +312,8 @@ function sanitizePreferences(parsed: Preferences): Preferences {
       (account): account is string => typeof account === "string",
     );
   }
-  if (Array.isArray(parsed.collapsedProjectGroups)) {
-    preferences.collapsedProjectGroups = parsed.collapsedProjectGroups.filter(
+  if (Array.isArray(parsed.collapsedProjectFolders)) {
+    preferences.collapsedProjectFolders = parsed.collapsedProjectFolders.filter(
       (key): key is string => typeof key === "string",
     );
   }
@@ -350,6 +352,9 @@ function sanitizePreferences(parsed: Preferences): Preferences {
   }
   if (typeof parsed.workingShelfEnabled === "boolean") {
     preferences.workingShelfEnabled = parsed.workingShelfEnabled;
+  }
+  if (typeof parsed.projectFoldersEnabled === "boolean") {
+    preferences.projectFoldersEnabled = parsed.projectFoldersEnabled;
   }
   if (typeof parsed.useLastProjectForNewThreads === "boolean") {
     preferences.useLastProjectForNewThreads = parsed.useLastProjectForNewThreads;
