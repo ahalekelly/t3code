@@ -14,7 +14,10 @@ import type { CloudTranscriptionSource } from "../../lib/voiceTranscriptionSourc
 
 const isVoiceTranscriptionError = Schema.is(VoiceTranscriptionError);
 
-const RECORDING_MIME_TYPE = "audio/mp4";
+const RECORDING_MIME_TYPES: Readonly<Record<string, string>> = {
+  flac: "audio/flac",
+  ogg: "audio/ogg",
+};
 
 const PROVIDERS = {
   openai: {
@@ -95,6 +98,9 @@ async function transcribe(
   apiKeys: readonly string[],
   { signal }: VoiceTranscriptionOptions,
 ): Promise<string> {
+  const extension = uri.split(".").pop() ?? "";
+  const mimeType = RECORDING_MIME_TYPES[extension];
+  if (mimeType === undefined) throw new Error(`Unexpected recording format: ${uri}`);
   const provider = PROVIDERS[source];
   const label = VOICE_API_PROVIDERS[source].label;
   const now = new Date();
@@ -109,7 +115,7 @@ async function transcribe(
         httpMethod: "POST",
         uploadType: UploadType.MULTIPART,
         fieldName: provider.fieldName,
-        mimeType: RECORDING_MIME_TYPE,
+        mimeType,
         headers: provider.headers(apiKey),
         parameters: provider.parameters(locale),
         signal,
