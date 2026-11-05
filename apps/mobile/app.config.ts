@@ -1,3 +1,4 @@
+// @effect-diagnostics nodeBuiltinImport:off -- Expo runs this build config synchronously in Node, outside Effect.
 import * as NodeChildProcess from "node:child_process";
 
 import type { ExpoConfig } from "expo/config";
