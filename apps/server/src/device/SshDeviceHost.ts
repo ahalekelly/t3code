@@ -45,24 +45,20 @@ export const isSshWindowsHostError = Schema.is(SshWindowsHostError);
 export class SshConnectError extends Schema.TaggedError<SshConnectError>()("SshConnectError", {
   reason: Schema.Literals(["host_key_unknown", "host_key_changed", "auth", "resolve", "connect"]),
   target: Schema.String,
-  port: Schema.NullOr(Schema.Int),
   /** The ssh diagnostic line that identified the reason. */
   detail: Schema.String,
   cause: Schema.Defect(),
 }) {
   override get message(): string {
     const here = "the machine running this T3 Code server";
-    const ssh = `ssh${this.port === null ? "" : ` -p ${this.port}`} ${this.target}`;
-    const host = this.target.replace(/^.*@/u, "");
-    const knownHostsName = this.port === null ? host : `[${host}]:${this.port}`;
     const detail = this.detail.replace(/\.$/u, "");
     switch (this.reason) {
       case "host_key_unknown":
-        return `The host key of ${this.target} is not trusted on ${here}. Run \`${ssh}\` there once and accept the key, or use a host name that is already in its known_hosts.`;
+        return `The host key of ${this.target} is not trusted on ${here}. Connect to it once with ssh from there and accept the key, or use a host name that is already in its known_hosts.`;
       case "host_key_changed":
-        return `The host key of ${this.target} changed since ${here} trusted it. If you expected this, run \`ssh-keygen -R '${knownHostsName}'\` there, then \`${ssh}\` once to accept the new key.`;
+        return `The host key of ${this.target} changed since ${here} trusted it. If you expected this, remove the old key with \`ssh-keygen -R\` there, then connect once with ssh to accept the new one.`;
       case "auth":
-        return `SSH rejected the login to ${this.target}: ${detail}. Check the user name, key, or identity file; \`${ssh}\` must work without a prompt on ${here}.`;
+        return `SSH rejected the login to ${this.target}: ${detail}. Check the user name and key; ssh from ${here} must log in without a prompt.`;
       case "resolve":
         return `Could not resolve the host name ${this.target} from ${here}: ${detail}.`;
       case "connect":
@@ -129,13 +125,10 @@ const SSH_CONNECT_FAILURES: ReadonlyArray<readonly [SshConnectError["reason"], R
   ["host_key_unknown", /^Host key verification failed\.$/u],
   [
     "auth",
-    /Permission denied|Too many authentication failures|No supported authentication methods/u,
+    /^\S+: (?:Permission denied \(|No supported authentication methods)|: Too many authentication failures$/u,
   ],
   ["resolve", /^ssh: Could not resolve hostname /u],
-  [
-    "connect",
-    /^ssh: connect to host |^kex_exchange_identification: |^ssh_exchange_identification: |^Connection (?:closed|reset) by /u,
-  ],
+  ["connect", /^ssh: connect to host /u],
 ];
 const explainSshConnectFailure = (
   config: SshDeviceHostConfig,
@@ -153,7 +146,6 @@ const explainSshConnectFailure = (
       cause: new SshConnectError({
         reason,
         target: config.target,
-        port: config.port ?? null,
         detail,
         cause,
       }),

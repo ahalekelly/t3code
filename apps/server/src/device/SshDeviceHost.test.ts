@@ -445,6 +445,14 @@ it.effect.each([
     windows: false,
   },
   {
+    name: "a ProxyCommand permission error",
+    exitCode: 255,
+    stderr: "bash: /usr/local/bin/proxy: Permission denied\n",
+    shellEcho: "",
+    nodePlatform: null,
+    windows: false,
+  },
+  {
     name: "an untrusted host key",
     exitCode: 255,
     stderr: "Host key verification failed.\r\n",
