@@ -1661,7 +1661,7 @@ export function threadShellFromProjection(
       threadId: projection.thread.id,
       providerThreads: projection.providerThreads,
     }),
-    goal: activeProviderGoalForShell(
+    ...activeProviderThreadForShell(
       projection.providerThreads,
       projection.thread.activeProviderThreadId,
     ),
@@ -1709,11 +1709,15 @@ function providerInstanceHistoryForShell(input: {
   return history;
 }
 
-function activeProviderGoalForShell(
+function activeProviderThreadForShell(
   providerThreads: ReadonlyArray<OrchestrationV2ThreadProjection["providerThreads"][number]>,
   activeProviderThreadId: OrchestrationV2ThreadProjection["thread"]["activeProviderThreadId"],
-): OrchestrationV2ThreadShell["goal"] {
-  return providerThreads.find((thread) => thread.id === activeProviderThreadId)?.goal ?? null;
+) {
+  const active = providerThreads.find((thread) => thread.id === activeProviderThreadId);
+  return {
+    goal: active?.goal ?? null,
+    activeNativeThreadId: active?.nativeThreadRef?.nativeId ?? null,
+  };
 }
 
 function isSilentRunForShell(
@@ -1768,6 +1772,7 @@ type ShellThreadState = {
   readonly pendingBackgroundTasks: OrchestrationV2ThreadShell["pendingBackgroundTasks"];
   readonly providerInstanceHistory: OrchestrationV2ThreadShell["providerInstanceHistory"];
   readonly goal: OrchestrationV2ThreadShell["goal"];
+  readonly activeNativeThreadId: OrchestrationV2ThreadShell["activeNativeThreadId"];
   readonly itemCount: number;
   readonly runlessItemCount: number;
   readonly updatedAt: OrchestrationV2ThreadProjection["updatedAt"];
@@ -1931,6 +1936,7 @@ function shellFromState(input: {
     pendingBackgroundTasks: input.state.pendingBackgroundTasks,
     providerInstanceHistory: input.state.providerInstanceHistory,
     goal: input.state.goal,
+    activeNativeThreadId: input.state.activeNativeThreadId,
     itemCount: input.state.itemCount,
     visibleItemCount: input.visibleItemCount,
     createdAt: input.state.thread.createdAt,
@@ -6875,7 +6881,7 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
             threadId: thread.id,
             providerThreads: providerThreadsByThreadId.get(thread.id) ?? [],
           }),
-          goal: activeProviderGoalForShell(
+          ...activeProviderThreadForShell(
             providerThreadsByThreadId.get(thread.id) ?? [],
             thread.activeProviderThreadId,
           ),
