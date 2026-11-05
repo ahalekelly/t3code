@@ -1,6 +1,7 @@
-import { createContext, use, type ComponentProps } from "react";
+import { createContext, forwardRef, use, type ComponentProps } from "react";
 import { Platform } from "react-native";
 import { KeyboardAwareScrollView } from "react-native-keyboard-controller";
+import Reanimated from "react-native-reanimated";
 import { cn } from "../../lib/cn";
 import { NativeScrollViewMarker } from "../../native/NativeScrollViewMarker";
 
@@ -11,12 +12,22 @@ export const ScreenScrollViewBottomInset = createContext(0);
  */
 export const ScreenScrollViewSurface = createContext<string | undefined>(undefined);
 
+// The marker must be the scroll view's direct parent, inside keyboard-controller's clipping wrapper.
+const MarkedScrollView: NonNullable<
+  ComponentProps<typeof KeyboardAwareScrollView>["ScrollViewComponent"]
+> = forwardRef((props, ref) => (
+  <NativeScrollViewMarker style={{ flex: 1 }}>
+    <Reanimated.ScrollView ref={ref} {...props} />
+  </NativeScrollViewMarker>
+));
+
 export function ScreenScrollView(props: ComponentProps<typeof KeyboardAwareScrollView>) {
   const bottomInset = use(ScreenScrollViewBottomInset);
   const surface = use(ScreenScrollViewSurface);
-  const scrollView = (
+  return (
     <KeyboardAwareScrollView
       bottomOffset={16}
+      {...(Platform.OS === "ios" && { ScrollViewComponent: MarkedScrollView })}
       {...props}
       className={Platform.OS === "ios" && surface ? cn(surface, props.className) : props.className}
       contentInset={
@@ -33,10 +44,5 @@ export function ScreenScrollView(props: ComponentProps<typeof KeyboardAwareScrol
         },
       ]}
     />
-  );
-  return Platform.OS === "ios" ? (
-    <NativeScrollViewMarker style={{ flex: 1 }}>{scrollView}</NativeScrollViewMarker>
-  ) : (
-    scrollView
   );
 }
