@@ -10,7 +10,10 @@ vi.mock("@react-navigation/native", () => {
   return requireFromNative("@react-navigation/core");
 });
 
-vi.mock("./uuid", () => ({ uuidv4: () => crypto.randomUUID() }));
+vi.mock("./uuid", () => {
+  let count = 0;
+  return { uuidv4: () => `request-${++count}` };
+});
 
 import { restoreDraftLinkState } from "./appLinking";
 import {
