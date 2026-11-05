@@ -1,5 +1,5 @@
 import { useAtomValue } from "@effect/atom-react";
-import { AudioModule, RecordingPresets, type RecordingStatus } from "expo-audio";
+import { AudioModule, AudioQuality, type RecordingStatus } from "expo-audio";
 import { File } from "expo-file-system";
 import * as Haptics from "expo-haptics";
 import { activateKeepAwakeAsync, deactivateKeepAwake } from "expo-keep-awake";
@@ -43,17 +43,20 @@ import {
   releaseAudioSession,
 } from "../../lib/audioSession";
 
-// The native constructor expects platform-flattened options, as built by useAudioRecorder.
-const { ios: IOS_RECORDING_OPTIONS, android: ANDROID_RECORDING_OPTIONS } =
-  RecordingPresets.HIGH_QUALITY;
+// MAI-Transcribe reads FLAC and Ogg Opus but not AAC. iOS can't write Ogg; Android can't encode
+// FLAC. The native constructor expects platform-flattened options, as built by useAudioRecorder.
 const VOICE_RECORDING_OPTIONS = {
-  extension: RecordingPresets.HIGH_QUALITY.extension,
-  sampleRate: RecordingPresets.HIGH_QUALITY.sampleRate,
-  // Mono AAC at 64 kbps keeps speech clear at under 10 MB for the full recording limit.
+  sampleRate: 16_000,
   numberOfChannels: 1,
-  bitRate: 64_000,
   isMeteringEnabled: true,
-  ...(Platform.OS === "ios" ? IOS_RECORDING_OPTIONS : ANDROID_RECORDING_OPTIONS),
+  ...(Platform.OS === "ios"
+    ? {
+        extension: ".flac",
+        outputFormat: "flac",
+        audioQuality: AudioQuality.MAX,
+        linearPCMBitDepth: 16,
+      }
+    : { extension: ".ogg", outputFormat: "ogg", audioEncoder: "opus", bitRate: 32_000 }),
 };
 
 /** Selecting a cloud source without its key is a setup mistake, not a reason to fall back. */
