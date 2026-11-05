@@ -9,7 +9,11 @@ import {
   threadWokeAt,
 } from "@t3tools/client-runtime/state/thread-settled";
 import type { SnoozePreset } from "@t3tools/client-runtime/state/thread-settled";
-import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
+import { groupThreadsByProject } from "@t3tools/client-runtime/state/project-grouping";
+import type {
+  EnvironmentProject,
+  EnvironmentThreadShell,
+} from "@t3tools/client-runtime/state/shell";
 import { resolveThreadProviderStack } from "@t3tools/client-runtime/state/models";
 import {
   threadSearchMatchKey,
@@ -28,7 +32,12 @@ import {
   sortPinnedThreadsByOrderKey,
   sortSettledThreads,
 } from "@t3tools/client-runtime/state/thread-sort";
-import { isListedThreadLineage, type EnvironmentId, type ProjectId } from "@t3tools/contracts";
+import {
+  isListedThreadLineage,
+  type EnvironmentId,
+  type ProjectId,
+  type ScopedProjectRef,
+} from "@t3tools/contracts";
 import type { SnoozePresetSetting } from "@t3tools/contracts/settings";
 import type { MenuAction } from "@react-native-menu/menu";
 
@@ -295,6 +304,28 @@ export function resolveThreadListV2Status(
   return "ready";
 }
 
+export type ThreadListV2FolderDot = "attention" | "failed" | "unread" | "working";
+
+/** The most urgent status among a closed folder's hidden threads, or null when none needs a look. */
+export function resolveThreadListV2FolderDot(
+  threads: ReadonlyArray<EnvironmentThreadShell>,
+): ThreadListV2FolderDot | null {
+  const statuses = threads.map(resolveThreadListV2Status);
+  const has = new Set(statuses);
+  if (has.has("approval") || has.has("input") || has.has("request") || has.has("limited")) {
+    return "attention";
+  }
+  if (has.has("failed")) return "failed";
+  if (
+    threads.some(
+      (thread, index) => statuses[index] === "ready" && threadHasUnseenCompletion(thread),
+    )
+  ) {
+    return "unread";
+  }
+  return has.has("working") ? "working" : null;
+}
+
 function parseTimestampMs(isoDate: string): number {
   const parsed = Date.parse(isoDate);
   return Number.isNaN(parsed) ? 0 : parsed;
@@ -357,6 +388,27 @@ export interface ThreadListV2Item {
   readonly pinned: boolean;
   readonly wokeAt: string | null;
   readonly isLast: boolean;
+  /** Listed under a project folder header, which already shows the project. */
+  readonly inFolder: boolean;
+}
+
+/** A project folder the active threads group into. */
+export interface ThreadListV2ProjectFolder {
+  readonly key: string;
+  readonly title: string;
+  readonly project: EnvironmentProject;
+  readonly memberProjectRefs: ReadonlyArray<ScopedProjectRef>;
+  readonly pinned: boolean;
+  readonly archived: boolean;
+  readonly collapsed: boolean;
+}
+
+export interface ThreadListV2FolderHeader {
+  /** Position in `items` the header sits before. */
+  readonly index: number;
+  readonly folder: ThreadListV2ProjectFolder;
+  readonly hiddenCount: number;
+  readonly dot: ThreadListV2FolderDot | null;
 }
 
 export interface ThreadListV2Layout {
@@ -370,6 +422,7 @@ export interface ThreadListV2Layout {
   readonly snoozedShelfHeaderIndex: number | null;
   readonly settledCount: number;
   readonly settledShelfHeaderIndex: number | null;
+  readonly folderHeaders: ReadonlyArray<ThreadListV2FolderHeader>;
   /** Arm a timeout here to repartition at snooze expiry rather than the next minute tick. */
   readonly nextSnoozeWakeAt: string | null;
   /** Threads listed only because their messages match the search. */
@@ -415,6 +468,14 @@ export interface ThreadListV2SnoozedShelfListItem {
   readonly disabled: boolean;
 }
 
+export interface ThreadListV2ProjectFolderListItem {
+  readonly type: "v2-project-folder";
+  readonly key: string;
+  readonly folder: ThreadListV2ProjectFolder;
+  readonly hiddenCount: number;
+  readonly dot: ThreadListV2FolderDot | null;
+}
+
 export interface ThreadListV2SettledShelfListItem {
   readonly type: "v2-settled-shelf";
   readonly key: "v2-settled-shelf";
@@ -428,7 +489,8 @@ export type ThreadListV2ListItem =
   | ThreadListV2PendingListItem
   | ThreadListV2WorkingShelfListItem
   | ThreadListV2SnoozedShelfListItem
-  | ThreadListV2SettledShelfListItem;
+  | ThreadListV2SettledShelfListItem
+  | ThreadListV2ProjectFolderListItem;
 
 export function isThreadListV2ListItem(value: {
   readonly type: string;
@@ -438,7 +500,8 @@ export function isThreadListV2ListItem(value: {
     value.type === "v2-pending" ||
     value.type === "v2-working-shelf" ||
     value.type === "v2-snoozed-shelf" ||
-    value.type === "v2-settled-shelf"
+    value.type === "v2-settled-shelf" ||
+    value.type === "v2-project-folder"
   );
 }
 
@@ -457,6 +520,7 @@ export function threadListV2ListItemsAreEqual(
         previous.item.snoozed === item.item.snoozed &&
         previous.item.pinned === item.item.pinned &&
         previous.item.wokeAt === item.item.wokeAt &&
+        previous.item.inFolder === item.item.inFolder &&
         previous.snoozeWakeLabelText === item.snoozeWakeLabelText &&
         previous.timeLabel === item.timeLabel &&
         previous.snoozePresetMinute === item.snoozePresetMinute &&
@@ -494,6 +558,16 @@ export function threadListV2ListItemsAreEqual(
         previous.expanded === item.expanded &&
         previous.disabled === item.disabled
       );
+    case "v2-project-folder":
+      return (
+        previous.type === "v2-project-folder" &&
+        previous.key === item.key &&
+        previous.folder.title === item.folder.title &&
+        previous.folder.project === item.folder.project &&
+        previous.folder.collapsed === item.folder.collapsed &&
+        previous.hiddenCount === item.hiddenCount &&
+        previous.dot === item.dot
+      );
   }
 }
 
@@ -529,6 +603,7 @@ export function buildThreadListV2ListItems(input: {
   readonly settledCount?: number;
   readonly settledShelfExpanded?: boolean;
   readonly settledShelfHeaderIndex?: number | null;
+  readonly folderHeaders?: ReadonlyArray<ThreadListV2FolderHeader>;
   readonly snoozeLabelNow?: string;
   readonly snoozeEnvironmentIds?: ReadonlySet<EnvironmentId>;
   readonly queuedThreadKeys?: ReadonlySet<string>;
@@ -583,7 +658,22 @@ export function buildThreadListV2ListItems(input: {
   const snoozedEnd = settledShelfHeaderIndex ?? threadItems.length;
   const workingEnd = snoozedShelfHeaderIndex ?? snoozedEnd;
   const activeEnd = workingShelfHeaderIndex ?? workingEnd;
-  const result: ThreadListV2ListItem[] = [...pendingItems, ...threadItems.slice(0, activeEnd)];
+  const result: ThreadListV2ListItem[] = [...pendingItems];
+  const folderHeaders = input.folderHeaders ?? [];
+  let headerIndex = 0;
+  for (let index = 0; index <= activeEnd; index += 1) {
+    for (; folderHeaders[headerIndex]?.index === index; headerIndex += 1) {
+      const header = folderHeaders[headerIndex]!;
+      result.push({
+        type: "v2-project-folder",
+        key: `v2-project-folder:${header.folder.key}`,
+        folder: header.folder,
+        hiddenCount: header.hiddenCount,
+        dot: header.dot,
+      });
+    }
+    if (index < activeEnd) result.push(threadItems[index]!);
+  }
   const shelfDisabled = input.shelfPreferencesLoading === true;
   if (workingShelfHeaderIndex !== null && workingCount > 0) {
     result.push({
@@ -674,6 +764,8 @@ export function buildThreadListV2Items(input: {
   readonly isListedSettled?: (thread: EnvironmentThreadShell) => boolean;
   /** Settled threads in scope that are not local (older settled threads not loaded). */
   readonly unloadedSettledCount?: number;
+  /** Groups active threads into these folders, newest message first, in place of the Working shelf. */
+  readonly projectFolders?: ReadonlyArray<ThreadListV2ProjectFolder> | null;
 }): ThreadListV2Layout {
   const now = input.now;
   const pending =
@@ -784,6 +876,7 @@ export function buildThreadListV2Items(input: {
         pinned: pinnedThreads.has(thread),
         wokeAt: slim.has(thread) ? null : resolveThreadListV2WokeAt(thread, { now }),
         isLast: index === results.length - 1,
+        inFolder: false,
       })),
       hiddenSettledCount: 0,
       listedSettledThreads: [],
@@ -793,14 +886,19 @@ export function buildThreadListV2Items(input: {
       snoozedShelfHeaderIndex: null,
       settledCount: 0,
       settledShelfHeaderIndex: null,
+      folderHeaders: [],
       nextSnoozeWakeAt,
       contentOnlyThreadKeys,
     };
   }
 
-  const orderedActive = workingShelfEnabled
-    ? sortInboxThreadsByReturn(active, input.inboxReturnAt)
-    : applyPendingThreadOrder(sortThreadsForListV2(active), "active", pending);
+  const projectFolders = input.projectFolders ?? null;
+  const orderedActive =
+    projectFolders !== null
+      ? sortWorkingThreadsBySend(active)
+      : workingShelfEnabled
+        ? sortInboxThreadsByReturn(active, input.inboxReturnAt)
+        : applyPendingThreadOrder(sortThreadsForListV2(active), "active", pending);
   const orderedWorking = sortWorkingThreadsBySend(working);
   const orderedSnoozed = [...snoozed].sort(
     (left, right) =>
@@ -857,17 +955,49 @@ export function buildThreadListV2Items(input: {
       pinned: true,
       wokeAt: resolveThreadListV2WokeAt(thread, { now }),
       isLast: false,
+      inFolder: false,
     });
   }
-  for (const thread of orderedActive) {
-    items.push({
-      thread,
-      variant: "card",
-      snoozed: false,
-      pinned: false,
-      wokeAt: resolveThreadListV2WokeAt(thread, { now }),
-      isLast: false,
-    });
+  const pushActive = (threads: ReadonlyArray<EnvironmentThreadShell>, inFolder: boolean) => {
+    for (const thread of threads) {
+      items.push({
+        thread,
+        variant: "card",
+        snoozed: false,
+        pinned: false,
+        wokeAt: resolveThreadListV2WokeAt(thread, { now }),
+        isLast: false,
+        inFolder,
+      });
+    }
+  };
+  const folderHeaders: ThreadListV2FolderHeader[] = [];
+  if (projectFolders === null) {
+    pushActive(orderedActive, false);
+  } else {
+    // Pinned projects come first and archived ones last; within each band, threads arrive
+    // newest message first, so each folder's first thread ranks the folder.
+    const rank = new Map(orderedActive.map((thread, index) => [thread, index]));
+    const band = (folder: ThreadListV2ProjectFolder) =>
+      folder.archived ? 2 : folder.pinned ? 0 : 1;
+    const folders = groupThreadsByProject(projectFolders, orderedActive, () => false).sort(
+      (left, right) =>
+        band(left.group) - band(right.group) ||
+        rank.get(left.threads[0]!)! - rank.get(right.threads[0]!)!,
+    );
+    for (const { group: folder, threads } of folders) {
+      // A closed folder still shows the open thread.
+      const isSelected = (thread: EnvironmentThreadShell) =>
+        `${thread.environmentId}:${thread.id}` === selectedThreadKey;
+      const hidden = folder.collapsed ? threads.filter((thread) => !isSelected(thread)) : [];
+      folderHeaders.push({
+        index: items.length,
+        folder,
+        hiddenCount: hidden.length,
+        dot: resolveThreadListV2FolderDot(hidden),
+      });
+      pushActive(folder.collapsed ? threads.filter(isSelected) : threads, true);
+    }
   }
   const workingShelfHeaderIndex = orderedWorking.length > 0 ? items.length : null;
   for (const thread of visibleWorking) {
@@ -878,6 +1008,7 @@ export function buildThreadListV2Items(input: {
       pinned: false,
       wokeAt: resolveThreadListV2WokeAt(thread, { now }),
       isLast: false,
+      inFolder: false,
     });
   }
   const snoozedShelfHeaderIndex = orderedSnoozed.length > 0 ? items.length : null;
@@ -889,6 +1020,7 @@ export function buildThreadListV2Items(input: {
       pinned: false,
       wokeAt: null,
       isLast: false,
+      inFolder: false,
     });
   }
   const settledShelfHeaderIndex = settledTotal > 0 ? items.length : null;
@@ -900,6 +1032,7 @@ export function buildThreadListV2Items(input: {
       pinned: false,
       wokeAt: null,
       isLast: false,
+      inFolder: false,
     });
   }
   const last = items.at(-1);
@@ -916,6 +1049,7 @@ export function buildThreadListV2Items(input: {
     snoozedShelfHeaderIndex,
     settledCount: settledTotal,
     settledShelfHeaderIndex,
+    folderHeaders,
     nextSnoozeWakeAt,
     contentOnlyThreadKeys,
   };
