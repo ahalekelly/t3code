@@ -599,8 +599,7 @@ const layerSecretResolver = Layer.succeed(SecretResolver.SecretResolver, {
   invalidate: () => Effect.void,
 });
 
-const WINDOWS_HOST_GUIDANCE =
-  "Connected over SSH, but this host runs Windows, and SSH device hosts currently need macOS or Linux. To use this machine's devices, run T3 Code on it and connect to that environment.";
+const WINDOWS_HOST_GUIDANCE = new SshDeviceHost.SshWindowsHostError({ cause: null }).message;
 
 it.effect.each([
   {
@@ -620,7 +619,7 @@ it.effect.each([
     exitCode: 255,
     stderr: "Host key verification failed.\r\n",
     reason:
-      "The host key of probe.test is not trusted on the machine running this T3 Code server. Run `ssh -p 2222 probe.test` there once and accept the key, or use a host name that is already in its known_hosts.",
+      "The host key of probe.test is not trusted on the machine running this T3 Code server. Connect to it once with ssh from there and accept the key, or use a host name that is already in its known_hosts.",
   },
   {
     name: "unrecognized SSH failure",
