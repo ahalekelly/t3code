@@ -84,6 +84,7 @@ export const DEVICE_HUB_ROUTE_PREFIX = "/api/device-hub";
 const isSshCommandError = Schema.is(SshCommandError);
 
 const sshProbeFailureMessage = (error: DeviceHost.DeviceHostError): string => {
+  if (SshDeviceHost.isSshConnectError(error.cause)) return error.cause.message;
   const windows = SshDeviceHost.isSshWindowsHostError(error.cause) ? error.cause : null;
   const cause = windows ? windows.cause : error.cause;
   if (
@@ -1359,7 +1360,7 @@ export const make = Effect.gen(function* () {
         return yield* SshDeviceHost.probe(host).pipe(Effect.provide(probeContext));
       }).pipe(
         Effect.mapError((error) =>
-          error._tag === "DeviceHostError" && SshDeviceHost.isSshWindowsHostError(error.cause)
+          error._tag === "DeviceHostError" && error.step === "probe"
             ? new DeviceHostUnavailableError({
                 hostId: host.id,
                 hostLabel: host.label,
