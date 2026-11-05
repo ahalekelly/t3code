@@ -73,11 +73,16 @@ it.each([
     readDraft: () => draft,
     commitDraft: commit,
     onStateChange: () => {},
+    onRecordingInterrupted: () => {},
+    holdBackgroundTime: async () => () => undefined,
   });
   await controller.start();
   if (phase === "transcription") await controller.stop();
 
-  expect(controller.currentState).toMatchObject({ phase: "error", errorAction: "retry" });
+  expect(controller.currentState).toMatchObject({
+    phase: "error",
+    errorAction: phase === "transcription" ? "transcribe" : "retry",
+  });
   expect(commit).not.toHaveBeenCalled();
   expect(draft.text).toBe("Preserved draft.");
   expect(controller.currentState.error).toMatch(expected);
