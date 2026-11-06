@@ -3,11 +3,17 @@
 Transcription edits a composer draft. It does not submit an agent turn. Audio is
 temporary client input, and only normal message submission sends the resulting
 text. Mobile defaults to on-device transcription; any client that sends audio off
-the device needs a grant for one environment.
+the device needs a grant for one environment. Mobile can instead upload recordings
+straight to OpenAI's GPT Transcribe or Microsoft's MAI-Transcribe-2 with the user's
+own key, which lives only in the device's secure storage; no environment is involved.
 
 The [shared controller](../../packages/client-runtime/src/voice-input/controller.ts)
 owns the operation while the client supplies capture and transcription. Preparation
-binds the transcriber and resolved locale for the whole recording. Draft ownership,
+binds the transcriber and resolved locale for the whole recording. Retrying a kept
+failed recording prepares again and transcribes the file, so it uses the mobile cloud
+source chosen since the failure; an environment change deletes the recording instead.
+Recording length comes from the prepared transcription; cloud sources allow 20
+minutes, the rest 5. Draft ownership,
 text, and revision are captured before recording and checked before insertion, so
 a late transcript cannot overwrite a draft that was edited or replaced. A
 transcriber may expose a streaming session, in which case audio leaves during
@@ -15,7 +21,7 @@ capture and `finish` replaces the file-based `transcribe`.
 
 ## Where audio may go
 
-Only an explicit audio grant authorizes off-device transcription. On mobile the
+Only an explicit audio grant authorizes sending audio to an environment. On mobile the
 grant is stored in device-bound secure storage, outside preference backups. The
 recorder is the same for both destinations; only a finished recording can be
 uploaded, and its grant is checked again after native decoding and before dispatch.
@@ -63,4 +69,7 @@ therefore requires implementations to settle only after their work has stopped;
 the [Apple binding](../../apps/mobile/src/native/voiceTranscription.ios.ts) checks
 cancellation between native calls and discards late results. On the server,
 interrupting a batch request kills the worker process instead; the next request
-reloads the model.
+reloads the model. The
+[cloud binding](../../apps/mobile/src/features/voice-input/cloudVoiceTranscriber.ts)
+aborts the upload through the same signal and reports `cancelled` when the signal
+fired before the upload settled.
