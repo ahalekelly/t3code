@@ -124,7 +124,6 @@ it.effect("a persisted fork leaves PR watching with its parent until explicitly 
     const parentBefore = yield* orchestrator.getThreadShell(sourceThreadId);
     const parentWatch = parentBefore?.pullRequests?.[0]?.watch;
     assert.isDefined(parentWatch);
-    assert.lengthOf(parentBefore?.pendingBackgroundTasks ?? [], 1);
 
     yield* orchestrator.dispatch({
       type: "thread.fork",
@@ -146,7 +145,6 @@ it.effect("a persisted fork leaves PR watching with its parent until explicitly 
         stack: null,
       },
     ]);
-    assert.deepEqual(fork.pendingBackgroundTasks, []);
     assert.deepEqual(yield* orchestrator.getThreadShell(sourceThreadId), parentBefore);
 
     const stale = yield* orchestrator
@@ -183,7 +181,6 @@ it.effect("a persisted fork leaves PR watching with its parent until explicitly 
     const watchingFork = yield* orchestrator.getThreadShell(targetThreadId);
     assert.isDefined(watchingFork?.pullRequests?.[0]?.watch);
     assert.notEqual(watchingFork.pullRequests[0].watch.startedAt, parentWatch.startedAt);
-    assert.lengthOf(watchingFork.pendingBackgroundTasks ?? [], 1);
     assert.deepEqual(yield* orchestrator.getThreadShell(sourceThreadId), parentBefore);
 
     yield* orchestrator.dispatch({
@@ -199,7 +196,6 @@ it.effect("a persisted fork leaves PR watching with its parent until explicitly 
     assert.deepEqual(stoppedFork?.pullRequests, [
       { ...forkLink, endedWatch: watchingFork.pullRequests[0].watch },
     ]);
-    assert.deepEqual(stoppedFork?.pendingBackgroundTasks, []);
     assert.deepEqual(yield* orchestrator.getThreadShell(sourceThreadId), parentBefore);
   }).pipe(Effect.provide(forkCases[0]!.layer)),
 );

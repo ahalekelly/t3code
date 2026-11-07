@@ -352,7 +352,9 @@ export const make = Effect.gen(function* () {
   const isDue = (key: string, entries: ReadonlyArray<LinkEntry>, nowMs: number): boolean => {
     if (requested.has(key) || retryStacks.has(key)) return true;
     if (entries.some((entry) => entry.link.snapshot === null)) return true;
-    const active = entries.filter((entry) => isUnsettled(entry.thread));
+    const active = entries.filter(
+      (entry) => isUnsettled(entry.thread) || entry.link.watch !== undefined,
+    );
     // Merged snapshots without mergedAt cannot settle threads; reread slowly until supplied.
     const isFinal = ({ link: { snapshot } }: LinkEntry) =>
       snapshot?.state === "merged"
