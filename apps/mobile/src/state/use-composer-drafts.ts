@@ -1412,33 +1412,52 @@ export function appendComposerDraftText(draftKey: string, value: string): void {
   });
 }
 
+function attachmentDedupKey(attachment: DraftComposerAttachment): string {
+  return `${attachment.mimeType}\u0000${attachment.sizeBytes}\u0000${attachment.name}`;
+}
+
 /**
- * Restore with allowOverflow to preserve every attachment after failed sends.
+ * Restore puts back attachments after failed sends, so it skips the duplicate check and the caps.
  * appendReference chips file attachments into the text; images, like on web, show only in the strip.
+ * Returns how many attachments the caps rejected.
  */
 export function appendComposerDraftAttachments(
   draftKey: string,
-  attachments: ReadonlyArray<DraftComposerAttachment>,
+  incoming: ReadonlyArray<DraftComposerAttachment>,
   options?: {
-    readonly allowOverflow?: boolean;
+    readonly restore?: boolean;
     readonly appendReference?: boolean;
     readonly insertion?: ComposerDraftInsertion;
     readonly maxAttachments?: number;
   },
 ): number {
-  if (attachments.length === 0) {
+  if (incoming.length === 0) {
     return 0;
   }
   let rejected: ReadonlyArray<DraftComposerAttachment> = [];
   let removed: ReadonlyArray<DraftComposerAttachment> = [];
+  let duplicates: ReadonlyArray<DraftComposerAttachment> = [];
   updateComposerDrafts((current) => {
     const existing = normalizeDraft(current[draftKey]);
+    const kept = options?.appendReference
+      ? draftWithoutInsertionSelection(draftKey, existing, options.insertion)
+      : existing;
+    const keys = new Set(kept.attachments.map(attachmentDedupKey));
+    const attachments = options?.restore
+      ? incoming
+      : incoming.filter((attachment) => {
+          const key = attachmentDedupKey(attachment);
+          if (keys.has(key)) return false;
+          keys.add(key);
+          return true;
+        });
+    duplicates = incoming.filter((attachment) => !attachments.includes(attachment));
     const limit = Math.min(
       PROVIDER_SEND_TURN_MAX_ATTACHMENTS,
       options?.maxAttachments ?? PROVIDER_SEND_TURN_MAX_ATTACHMENTS,
     );
     const capacity = (draft: ComposerDraft, wanted: number) =>
-      options?.allowOverflow ? wanted : Math.max(0, limit - draft.attachments.length);
+      options?.restore ? wanted : Math.max(0, limit - draft.attachments.length);
     // Chips replace the selection, so files are placed first and images fill the slots left after.
     const chipped = options?.appendReference
       ? attachments.filter((attachment) => attachment.type !== "image")
@@ -1486,7 +1505,7 @@ export function appendComposerDraftAttachments(
     removed = existing.attachments.filter((attachment) => !draft.attachments.includes(attachment));
     return { ...current, [draftKey]: draft };
   });
-  scheduleUnusedComposerAttachmentCleanup([...rejected, ...removed]);
+  scheduleUnusedComposerAttachmentCleanup([...rejected, ...removed, ...duplicates]);
   return rejected.length;
 }
 
