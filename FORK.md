@@ -10,7 +10,7 @@ Never commit to `main`; it is generated.
 - `~/.agents/linux/t3-fork-main.py`, run every 10 minutes by `t3-fork-main.timer` on akelly-desktop, rebuilds `main` when a branch or the manifest changes, and moves the manifest onto the newest upstream nightly when `main` rebuilds on it cleanly, once a night and on every rebuild. It checks each rebuild with a frozen-lockfile install and the mobile typecheck, and force-pushes it after the manifest's upstream tag, which the workflows read from this repository. Its docstring covers conflicts and the commands:
   - `ship [<branch> <parent>...]` rebuilds `main` now, adding a new branch to the manifest when given one.
   - `rebase <upstream tag>` restacks every branch onto an upstream tag and drops the ones upstream merged.
-- Work in your own worktree (`git -C ~/Git/t3code worktree add ...`), never in `~/Git/t3code`, which the timer owns.
+- Work in your own worktree, never in `~/Git/t3code`, which the timer owns. Create it with `git -C ~/Git/t3code worktree add ../t3code-<name> ...` and run commands that write there with the sandbox disabled, since the Bash sandbox writes only your session's directory. Join `cd` and later commands with `&&`, not `;`, so a failed step can't run the rest in the timer's checkout.
 - Install with `pnpm_config_minimum_release_age=1440 npx corepack pnpm install`. akelly-desktop has no global `vp`, so put the worktree's `node_modules/.bin` on `PATH`.
 
 ## Releases
