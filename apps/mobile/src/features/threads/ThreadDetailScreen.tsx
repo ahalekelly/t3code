@@ -173,6 +173,7 @@ import type {
   ThreadFeedLatestRun,
 } from "../../lib/threadActivity";
 import { PendingApprovalCard } from "./PendingApprovalCard";
+import { SpeechPlaybackBar } from "./SpeechPlaybackBar";
 import { ComposerErrorNotice } from "./ComposerErrorNotice";
 import { ManagedRuntimeModeNotice } from "./ManagedRuntimeModeNotice";
 import { FreshSessionNotice } from "./FreshSessionNotice";
@@ -197,6 +198,7 @@ import {
   ThreadComposer,
 } from "./ThreadComposer";
 import { ComposerPopoverHost } from "./ComposerPopoverHost";
+import { useAutoReadResponse } from "./useAutoReadResponse";
 import { ThreadFeed, type ThreadFeedHandle, type ThreadFeedHistoryControls } from "./ThreadFeed";
 import { WorkspaceMutationIdProvider } from "./WorkspaceMutationIdProvider";
 import { useThreadTurnSubagents } from "./ThreadAgentsSheet";
@@ -483,6 +485,14 @@ function ThreadDetailBody(
     environmentId: props.environmentId,
     threadId: props.selectedThread.id,
   });
+  useAutoReadResponse(
+    selectedThreadKey,
+    props.selectedThread.title,
+    props.selectedThreadFeed,
+    props.selectedThread.latestRun,
+    props.activePendingApproval,
+    props.activePendingUserInput,
+  );
   const composerError = useAtomValue(threadComposerErrorsAtom)[selectedThreadKey]?.message ?? null;
   const preferences = useAtomValue(mobilePreferencesAtom);
   const toolCallVisibility = AsyncResult.isSuccess(preferences)
@@ -1661,6 +1671,7 @@ function ThreadDetailBody(
                     keyboardShouldPersistTaps="handled"
                     nestedScrollEnabled
                   >
+                    <SpeechPlaybackBar scope={selectedThreadKey} />
                     {props.queuedRunEdit !== null ? (
                       <Animated.View
                         className="shrink-0"
