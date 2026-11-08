@@ -5,6 +5,7 @@ import * as Scope from "effect/Scope";
 import { HttpClient } from "effect/http";
 import { OtlpExporter, OtlpSerialization, OtlpTracer } from "effect/observability";
 
+import { ENVIRONMENT_OTLP_TRACES_PATH } from "@t3tools/contracts";
 import { settleAsyncResult, squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
 import { safeErrorLogAttributes } from "@t3tools/client-runtime/errors";
 import { resolvePrimaryEnvironmentHttpUrl } from "../environments/primary";
@@ -82,7 +83,7 @@ export function configureClientTracing(): Promise<void> {
 }
 
 async function applyClientTracingConfig(): Promise<void> {
-  const otlpTracesUrl = resolvePrimaryEnvironmentHttpUrl("/api/observability/v1/traces");
+  const otlpTracesUrl = resolvePrimaryEnvironmentHttpUrl(ENVIRONMENT_OTLP_TRACES_PATH);
   const exportIntervalMs = DEFAULT_EXPORT_INTERVAL_MS;
   const nextConfigKey = `${otlpTracesUrl}|${exportIntervalMs}`;
 
