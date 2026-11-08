@@ -5,5 +5,5 @@ import { supportsAndroidAgentNotifications } from "./androidNotifications";
 export function supportsAgentAwarenessPush() {
   return Platform.OS === "android"
     ? supportsAndroidAgentNotifications()
-    : Platform.OS === "ios" && Constants.expoConfig?.extra?.iosPersonalTeamBuild !== true;
+    : Platform.OS === "ios" && Constants.expoConfig?.extra?.iosPushEnabled !== false;
 }
