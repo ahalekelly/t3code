@@ -3092,109 +3092,100 @@ it.layer(layerTest)("OrchestrationV2LayerLive lifecycle", (it) => {
     }),
   );
 
-  it.effect.each(["manual", "automatic"])("settling ends every pull request watch: %s", (mode) =>
-    Effect.gen(function* () {
-      const orchestrator = yield* Orchestrator.OrchestratorV2;
-      const maintenance = yield* ProjectionReplay.ProjectionReplay;
-      const threadId = ThreadId.make(`pr-watch-settle-${mode}`);
-      yield* orchestrator.dispatch({
-        type: "thread.create",
-        createdBy: "user",
-        creationSource: "web",
-        commandId: CommandId.make(`pr-watch-settle-create-${mode}`),
-        threadId,
-        projectId: ProjectId.make("pr-watch-settle-project"),
-        title: "Settle watched PRs",
-        modelSelection,
-        runtimeMode: "full-access",
-        interactionMode: "default",
-        branch: null,
-        worktreePath: null,
-      });
-      const key = { host: "github.com", repository: "pingdotgg/t3code" };
-      for (const number of [7, 8]) {
+  it.effect.each(["manual", "automatic"])(
+    "settling keeps pull request watches, and a wake un-settles: %s",
+    (mode) =>
+      Effect.gen(function* () {
+        const orchestrator = yield* Orchestrator.OrchestratorV2;
+        const maintenance = yield* ProjectionReplay.ProjectionReplay;
+        const threadId = ThreadId.make(`pr-watch-settle-${mode}`);
+        const projectId = ProjectId.make(`pr-watch-settle-project-${mode}`);
+        yield* seedProject({
+          projectId,
+          title: "Settle watched PRs",
+          workspaceRoot: `/workspace/pr-watch-settle-${mode}`,
+          defaultModelSelection: null,
+          createdAt: "2026-10-01T00:00:00.000Z",
+        });
         yield* orchestrator.dispatch({
-          type: "thread.pull-request.watch",
-          commandId: CommandId.make(`pr-watch-settle-start-${mode}-${number}`),
+          type: "thread.create",
+          createdBy: "user",
+          creationSource: "web",
+          commandId: CommandId.make(`pr-watch-settle-create-${mode}`),
+          threadId,
+          projectId,
+          title: "Settle watched PRs",
+          modelSelection,
+          runtimeMode: "full-access",
+          interactionMode: "default",
+          branch: null,
+          worktreePath: null,
+        });
+        const key = { host: "github.com", repository: "pingdotgg/t3code" };
+        const watchCommand = (number: number, watching: boolean, step: string) => ({
+          type: "thread.pull-request.watch" as const,
+          commandId: CommandId.make(`pr-watch-settle-${step}-${mode}-${number}`),
           threadId,
           ...key,
           number,
-          watching: true,
-          link: { url: `https://github.com/pingdotgg/t3code/pull/${number}`, source: "agent" },
-        });
-      }
-      const before = yield* orchestrator.getThreadShell(threadId);
-      const started = before?.pullRequests?.[0]?.watch;
-      assert.isDefined(started);
-      if (started === undefined || before === null) return;
-      yield* orchestrator.dispatch({
-        ...(mode === "manual"
-          ? { type: "thread.settle" as const }
-          : { type: "thread.auto-settle" as const, snapshotAt: before.updatedAt }),
-        commandId: CommandId.make(`pr-watch-settle-${mode}`),
-        threadId,
-      });
-      const expected = before.pullRequests?.map(({ watch, ...link }) => ({
-        ...link,
-        endedWatch: watch,
-      }));
-      assert.deepEqual((yield* orchestrator.getThreadShell(threadId))?.pullRequests, expected);
-      assert.isTrue((yield* maintenance.rebuild).valid);
-      assert.deepEqual((yield* orchestrator.getThreadShell(threadId))?.pullRequests, expected);
-
-      for (const wake of [
-        undefined,
-        {
-          messageId: MessageId.make(`pr-watch-settle-late-wake-${mode}`),
-          text: "Update",
-          notification: {
-            source: { kind: "monitor" as const },
-            outcome: "updated" as const,
-            summary: "#7",
+          watching,
+          link: {
+            url: `https://github.com/pingdotgg/t3code/pull/${number}`,
+            source: "agent" as const,
           },
-        },
-      ]) {
-        const late = yield* orchestrator
-          .dispatch({
-            type: "thread.pull-request-watch.sync",
-            commandId: CommandId.make(`pr-watch-settle-late-${mode}-${wake !== undefined}`),
-            threadId,
-            ...key,
-            number: 7,
-            startedAt: started.startedAt,
-            watch: { ...started, headSha: "late", wakes: 1 },
-            ...(wake === undefined ? {} : { wake }),
-          })
-          .pipe(Effect.flip);
-        assert.equal(late._tag, "OrchestratorDispatchError");
-      }
-      const restart = {
-        type: "thread.pull-request.watch" as const,
-        threadId,
-        ...key,
-        number: 7,
-        watching: true,
-      };
-      const blocked = yield* orchestrator
-        .dispatch({
-          ...restart,
-          commandId: CommandId.make(`pr-watch-settle-blocked-${mode}`),
-        })
-        .pipe(Effect.flip);
-      assert.equal(blocked._tag, "OrchestratorDispatchError");
-      assert.deepEqual((yield* orchestrator.getThreadRecords(threadId, ["messages"])).messages, []);
-      yield* orchestrator.dispatch({
-        type: "thread.unsettle",
-        commandId: CommandId.make(`pr-watch-settle-unsettle-${mode}`),
-        threadId,
-        reason: "user",
-      });
-      yield* orchestrator.dispatch({
-        ...restart,
-        commandId: CommandId.make(`pr-watch-settle-restart-${mode}`),
-      });
-      assert.isDefined((yield* orchestrator.getThreadShell(threadId))?.pullRequests?.[0]?.watch);
-    }),
+        });
+        yield* orchestrator.dispatch(watchCommand(7, true, "start"));
+        yield* orchestrator.dispatch(watchCommand(8, true, "start"));
+        const before = yield* orchestrator.getThreadShell(threadId);
+        const started = before?.pullRequests?.[0]?.watch;
+        assert.isDefined(started);
+        if (started === undefined || before === null) return;
+        yield* orchestrator.dispatch({
+          ...(mode === "manual"
+            ? { type: "thread.settle" as const }
+            : { type: "thread.auto-settle" as const, snapshotAt: before.updatedAt }),
+          commandId: CommandId.make(`pr-watch-settle-${mode}`),
+          threadId,
+        });
+        const settled = yield* orchestrator.getThreadShell(threadId);
+        assert.equal(settled?.settledOverride, "settled");
+        assert.deepEqual(settled?.pullRequests, before.pullRequests);
+        assert.isTrue((yield* maintenance.rebuild).valid);
+        assert.deepEqual(
+          (yield* orchestrator.getThreadShell(threadId))?.pullRequests,
+          before.pullRequests,
+        );
+
+        yield* orchestrator.dispatch(watchCommand(8, false, "stop"));
+        yield* orchestrator.dispatch(watchCommand(8, true, "restart"));
+        const rewatched = yield* orchestrator.getThreadShell(threadId);
+        assert.equal(rewatched?.settledOverride, "settled");
+        assert.isDefined(rewatched?.pullRequests?.[1]?.watch);
+
+        yield* orchestrator.dispatch({
+          type: "thread.pull-request-watch.sync",
+          commandId: CommandId.make(`pr-watch-settle-wake-${mode}`),
+          threadId,
+          ...key,
+          number: 7,
+          startedAt: started.startedAt,
+          watch: { ...started, headSha: "late", wakes: 1 },
+          wake: {
+            messageId: MessageId.make(`pr-watch-settle-wake-${mode}`),
+            text: "Update",
+            notification: {
+              source: { kind: "monitor" as const },
+              outcome: "updated" as const,
+              summary: "#7",
+            },
+          },
+        });
+        const woken = yield* orchestrator.getThreadShell(threadId);
+        assert.isNull(woken?.settledOverride);
+        assert.isNull(woken?.settledAt);
+        assert.equal(woken?.pullRequests?.[0]?.watch?.headSha, "late");
+        assert.lengthOf((yield* orchestrator.getThreadRecords(threadId, ["messages"])).messages, 1);
+      }),
   );
 
   it.effect("archiving ends watches, and an archived thread cannot start one", () =>
