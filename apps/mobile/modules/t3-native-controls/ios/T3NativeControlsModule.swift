@@ -61,6 +61,17 @@ public final class T3NativeControlsModule: Module {
       )
     }.runOnQueue(.main)
 
+    // How many modals sit above the root, so JS can see a system picker close before it resolves.
+    AsyncFunction("presentationDepth") { () -> Int in
+      var depth = 0
+      var controller = self.appContext?.utilities?.currentViewController()
+      while let presenter = controller?.presentingViewController {
+        depth += 1
+        controller = presenter
+      }
+      return depth
+    }.runOnQueue(.main)
+
     AsyncFunction("presentFile") { (url: URL, title: String, sourceIdentifier: String, identifier: String, promise: Promise) in
       try self.presentFile(url: url, title: title, sourceIdentifier: sourceIdentifier,
                            identifier: identifier, promise: promise)
