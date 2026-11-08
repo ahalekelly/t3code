@@ -28,7 +28,7 @@ index 6c81fce3dd518d3b82e3280940a001c7be84dd0a..16125c679c870e2eae48f8db953dedd3
          checkRecordingPermission()
          if (recorder.isPrepared) {
 diff --git a/android/src/main/java/expo/modules/audio/AudioRecorder.kt b/android/src/main/java/expo/modules/audio/AudioRecorder.kt
-index 2ff4a474fdea3efa652436a8a3960c3669ad298b..1ced279991294d3d81cb20fa339ca73e5d6d6c01 100644
+index 2ff4a474fdea3efa652436a8a3960c3669ad298b..ade9f763f2dd7bd4884c8b99e2833dadc22d6267 100644
 --- a/android/src/main/java/expo/modules/audio/AudioRecorder.kt
 +++ b/android/src/main/java/expo/modules/audio/AudioRecorder.kt
 @@ -19,6 +19,9 @@ import expo.modules.kotlin.exception.CodedException
@@ -69,7 +69,15 @@ index 2ff4a474fdea3efa652436a8a3960c3669ad298b..1ced279991294d3d81cb20fa339ca73e
      val recordingOptions = options ?: this.options
      val mediaRecorder = createRecorder(recordingOptions)
      recorder = mediaRecorder
-@@ -245,10 +256,15 @@ class AudioRecorder(
+@@ -205,6 +216,7 @@ class AudioRecorder(
+ 
+     try {
+       recorder?.stop()
++      if (options.outputFormat == AndroidOutputFormat.OGG) filePath?.let { OggOpusGranules.fix(File(it)) }
+       durationMillis = getAudioRecorderDurationMillis()
+     } catch (e: RuntimeException) {
+       stopFailed = true
+@@ -245,10 +257,15 @@ class AudioRecorder(
    }
  
    private fun reset() {
@@ -86,7 +94,7 @@ index 2ff4a474fdea3efa652436a8a3960c3669ad298b..1ced279991294d3d81cb20fa339ca73e
      recorder = null
      isRecording = false
      isPaused = false
-@@ -468,55 +484,68 @@ class AudioRecorder(
+@@ -468,55 +485,68 @@ class AudioRecorder(
        throw DeviceInfoNotFoundException()
      }
  
@@ -311,6 +319,97 @@ index 81819c1d771bdeec093bb35a65a5e1e1af0cf9d7..b52d0cd0622c233b45115b90057c1765
  @OptIn(UnstableApi::class)
  fun buildBasicMediaSession(context: Context, player: Player, onPlay: () -> Unit): MediaSession {
    return MediaSession.Builder(context, PlayRequestingPlayer(player, onPlay))
+diff --git a/android/src/main/java/expo/modules/audio/OggOpusGranules.kt b/android/src/main/java/expo/modules/audio/OggOpusGranules.kt
+new file mode 100644
+index 0000000000000000000000000000000000000000..38cb7b5c0bb735e4d63723b7043f8c98185d8dd8
+--- /dev/null
++++ b/android/src/main/java/expo/modules/audio/OggOpusGranules.kt
+@@ -0,0 +1,85 @@
++package expo.modules.audio
++
++import java.io.File
++
++/**
++ * Android's Ogg writer gives each page the granule position where its last packet starts, not
++ * where it ends, so the first audio page claims fewer samples than it holds. RFC 7845 §4 makes
++ * decoders reject that, and libsndfile does. Rewrites each page's granule to the samples of the
++ * packets completed through it; page sizes don't change, so the file is patched in place.
++ */
++internal object OggOpusGranules {
++  fun fix(file: File) {
++    val data = file.readBytes()
++    var offset = 0
++    var page = 0
++    var samples = 0L
++    var packetStart = -1
++    while (offset < data.size) {
++      if (offset + 27 > data.size || String(data, offset, 4, Charsets.US_ASCII) != "OggS") {
++        throw IllegalStateException("Malformed Ogg page at byte $offset of ${file.name}")
++      }
++      val segments = data[offset + 26].toInt() and 0xFF
++      var body = offset + 27 + segments
++      var completed = false
++      for (index in 0 until segments) {
++        val lacing = data[offset + 27 + index].toInt() and 0xFF
++        if (packetStart < 0) packetStart = body
++        body += lacing
++        if (lacing < 255) {
++          // Pages 0 and 1 hold OpusHead and OpusTags.
++          if (page >= 2) samples += packetSamples(data, packetStart)
++          packetStart = -1
++          completed = true
++        }
++      }
++      if (page >= 2) {
++        writeLong(data, offset + 6, if (completed) samples else -1L)
++        writeInt(data, offset + 22, 0)
++        writeInt(data, offset + 22, crc(data, offset, body - offset))
++      }
++      offset = body
++      page++
++    }
++    file.writeBytes(data)
++  }
++
++  /** Samples at 48 kHz in one Opus packet, from its TOC byte (RFC 6716 §3.1). */
++  private fun packetSamples(data: ByteArray, start: Int): Int {
++    val toc = data[start].toInt() and 0xFF
++    val config = toc shr 3
++    val frameSamples = when {
++      config < 12 -> intArrayOf(480, 960, 1920, 2880)[config and 3]
++      config < 16 -> intArrayOf(480, 960)[config and 1]
++      else -> intArrayOf(120, 240, 480, 960)[config and 3]
++    }
++    val frames = when (toc and 3) {
++      0 -> 1
++      3 -> data[start + 1].toInt() and 0x3F
++      else -> 2
++    }
++    return frameSamples * frames
++  }
++
++  private val crcTable = IntArray(256) { index ->
++    var value = index shl 24
++    repeat(8) { value = if (value < 0) (value shl 1) xor 0x04C11DB7 else value shl 1 }
++    value
++  }
++
++  private fun crc(data: ByteArray, start: Int, length: Int): Int {
++    var value = 0
++    for (index in start until start + length) {
++      value = (value shl 8) xor crcTable[((value ushr 24) xor (data[index].toInt() and 0xFF))]
++    }
++    return value
++  }
++
++  private fun writeInt(data: ByteArray, at: Int, value: Int) {
++    for (index in 0 until 4) data[at + index] = (value ushr (8 * index)).toByte()
++  }
++
++  private fun writeLong(data: ByteArray, at: Int, value: Long) {
++    for (index in 0 until 8) data[at + index] = (value ushr (8 * index)).toByte()
++  }
++}
 diff --git a/android/src/main/java/expo/modules/audio/RecordingInputRoute.kt b/android/src/main/java/expo/modules/audio/RecordingInputRoute.kt
 new file mode 100644
 index 0000000000000000000000000000000000000000..372ab7554df73f043b9cb832a6b1d769d2ed69bf
@@ -367,6 +466,35 @@ index 0000000000000000000000000000000000000000..372ab7554df73f043b9cb832a6b1d769
 +      manager.clearCommunicationDevice()
 +    } finally {
 +      if (manager.mode == AudioManager.MODE_IN_COMMUNICATION) manager.mode = mode
++    }
++  }
++}
+diff --git a/android/src/test/java/expo/modules/audio/OggOpusGranulesTest.kt b/android/src/test/java/expo/modules/audio/OggOpusGranulesTest.kt
+new file mode 100644
+index 0000000000000000000000000000000000000000..48e1733782a9a362be0b7ef300eafe619b2df2dc
+--- /dev/null
++++ b/android/src/test/java/expo/modules/audio/OggOpusGranulesTest.kt
+@@ -0,0 +1,23 @@
++package expo.modules.audio
++
++import java.io.File
++import java.util.Base64
++import org.junit.Assert.assertArrayEquals
++import org.junit.Test
++
++class OggOpusGranulesTest {
++  @Test
++  fun androidGranulesMoveToTheEndOfEachPage() {
++    // The first four pages of a Pixel 8 MediaRecorder Ogg Opus recording; libsndfile accepts the fix.
++    val recorded = "T2dnUwACAAAAAAAAAADGI3syAAAAAORqCbUBE09wdXNIZWFkAQFoAIA+AAAAAABPZ2dTAAAAAAAAAAAAAMYjezIBAAAAJ09UNQEXT3B1c1RhZ3MHAAAAbGlib3B1cwAAAABPZ2dTAAAAAAAAAAAAAMYjezICAAAAPA5UxAEDuP/+T2dnUwAAwAMAAAAAAADGI3syAwAAAMUFPmEBN0gL5OD649y3/rhAbtGWUocy//4AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
++    val fixed = "T2dnUwACAAAAAAAAAADGI3syAAAAAORqCbUBE09wdXNIZWFkAQFoAIA+AAAAAABPZ2dTAAAAAAAAAAAAAMYjezIBAAAAJ09UNQEXT3B1c1RhZ3MHAAAAbGlib3B1cwAAAABPZ2dTAADAAwAAAAAAAMYjezICAAAARh/J9QEDuP/+T2dnUwAAgAcAAAAAAADGI3syAwAAAExK/RcBN0gL5OD649y3/rhAbtGWUocy//4AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
++    val file = File.createTempFile("recording", ".ogg")
++    try {
++      file.writeBytes(Base64.getDecoder().decode(recorded))
++      OggOpusGranules.fix(file)
++      assertArrayEquals(Base64.getDecoder().decode(fixed), file.readBytes())
++    } finally {
++      file.delete()
 +    }
 +  }
 +}
