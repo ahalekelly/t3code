@@ -22,6 +22,7 @@ import { imageMimeType } from "@t3tools/shared/image";
 import { videoMimeType } from "@t3tools/shared/video";
 import { fitComposerImage, renderPhoto } from "./composerImageFit";
 import { beginForegroundHandoff } from "./foreground-handoff";
+import { startComposerPickTrace, traceNativePicker } from "./composerPickTrace";
 import { uuidv4 } from "./uuid";
 import { writeFileAtomically } from "./atomic-file";
 
@@ -404,6 +405,8 @@ export async function pickComposerMedia(input: {
 
   // Android pickers report background state; guard against deferred restarts mid-pick.
   const endHandoff = beginForegroundHandoff();
+  const trace = startComposerPickTrace(input.source);
+  trace("launch", { existingCount: input.existingCount });
   let result: Awaited<ReturnType<typeof imagePicker.launchImageLibraryAsync>>;
   try {
     if (input.source === "camera") {
@@ -412,17 +415,21 @@ export async function pickComposerMedia(input: {
         return { attachments: [], error: "Allow camera access in Settings to take photos." };
       }
       // Photos only: recording video needs microphone permission, which the app does not request.
-      result = await imagePicker.launchCameraAsync({ mediaTypes: ["images"], quality: 1 });
+      result = await traceNativePicker(trace, () =>
+        imagePicker.launchCameraAsync({ mediaTypes: ["images"], quality: 1 }),
+      );
     } else {
-      result = await imagePicker.launchImageLibraryAsync({
-        mediaTypes: input.maxVideoBytes === undefined ? ["images"] : ["images", "videos"],
-        allowsMultipleSelection: true,
-        selectionLimit: remainingSlots,
-        // Base64 makes iOS decode all full-size photos and stalls JS with large strings; read bytes only as needed.
-        base64: false,
-        quality: 1,
-        shouldDownloadFromNetwork: true,
-      });
+      result = await traceNativePicker(trace, () =>
+        imagePicker.launchImageLibraryAsync({
+          mediaTypes: input.maxVideoBytes === undefined ? ["images"] : ["images", "videos"],
+          allowsMultipleSelection: true,
+          selectionLimit: remainingSlots,
+          // Base64 makes iOS decode all full-size photos and stalls JS with large strings; read bytes only as needed.
+          base64: false,
+          quality: 1,
+          shouldDownloadFromNetwork: true,
+        }),
+      );
     }
   } catch (error) {
     return {
@@ -439,12 +446,18 @@ export async function pickComposerMedia(input: {
   }
 
   if (result.canceled) {
+    trace("canceled");
     return {
       attachments: [],
       error: null,
     };
   }
   const ids = result.assets.map(() => uuidv4());
+  trace("picked", {
+    assets: result.assets.length,
+    attachmentIds: ids.join(","),
+    fileSizes: result.assets.map((asset) => asset.fileSize ?? -1).join(","),
+  });
   input.onPicked?.(
     result.assets.flatMap((asset, index): DraftComposerAttachment[] => {
       const common = {
@@ -577,6 +590,10 @@ export async function pickComposerMedia(input: {
     });
   }
 
+  trace("processed", {
+    attachmentIds: attachments.map(({ id }) => id).join(","),
+    ...(error === null ? {} : { error }),
+  });
   return {
     attachments,
     error,
