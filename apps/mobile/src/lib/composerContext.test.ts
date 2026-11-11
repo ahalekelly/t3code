@@ -1,8 +1,12 @@
 import {
   ComposerContextId,
+  EnvironmentId,
+  MessageId,
+  ThreadId,
   type OrchestrationMessageContext,
   type ServerProviderSkill,
 } from "@t3tools/contracts";
+import { serializeAssistantCitation } from "@t3tools/shared/assistantCitations";
 import { collectComposerInlineTokens } from "@t3tools/shared/composerInlineTokens";
 import {
   ATTACHMENT_ONLY_BOOTSTRAP_PROMPT,
@@ -177,7 +181,18 @@ describe("mobile composer context", () => {
     expect(modelTokens("Use `model:codex/gpt-6.1` then stop")).toEqual([]);
     expect(modelTokens(String.raw`\[\text{use model:codex/gpt-6.1 here}\] then stop`)).toEqual([]);
     const reference = formatComposerContextReference(terminal);
-    const withContext = `${reference} model:codex/gpt-6.1 `;
+    const citation = serializeAssistantCitation({
+      version: 1,
+      environmentId: EnvironmentId.make("environment"),
+      threadId: ThreadId.make("thread"),
+      messageId: MessageId.make("assistant"),
+      text: "Use model:codex/gpt-6.1",
+      start: 0,
+      end: 23,
+      prefix: "",
+      suffix: "",
+    });
+    const withContext = `${reference} model:codex/gpt-6.1 ${citation} `;
     expect(
       composerContextEditorTokens(
         withContext,
@@ -185,7 +200,7 @@ describe("mobile composer context", () => {
         new Set(),
         collectComposerModelTokens(withContext, known),
       ).map((token) => token.type),
-    ).toEqual(["context", "model"]);
+    ).toEqual(["context", "model", "citation"]);
   });
 
   it("keeps a confirmed model chip when backspace removes the space after it", () => {

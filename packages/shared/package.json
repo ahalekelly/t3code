@@ -283,6 +283,10 @@
       "types": "./src/promptLinks.ts",
       "import": "./src/promptLinks.ts"
     },
+    "./markdownPlainText": {
+      "types": "./src/markdownPlainText.ts",
+      "import": "./src/markdownPlainText.ts"
+    },
     "./threadLinks": {
       "types": "./src/threadLinks.ts",
       "import": "./src/threadLinks.ts"
