@@ -367,7 +367,7 @@ function draftWithInsertedContext(
   const { start, end } = contextInsertionRange(draftKey, draft, target);
   const before = draft.text.slice(0, start);
   const after = draft.text.slice(end);
-  const insertion = `${before.length > 0 && !/\s$/.test(before) && !/^\s/.test(content.text) ? " " : ""}${content.text}${!/\s$/.test(content.text) && (after.length === 0 || !/^\s/.test(after)) ? " " : ""}`;
+  const insertion = spacedChipInsertion(before, content.text, after);
   const text = before + insertion + after;
   const records = new Map(draft.context?.records.map((record) => [record.contextId, record]));
   for (const record of content.context.records) records.set(record.contextId, record);
@@ -1358,6 +1358,19 @@ export function insertComposerDraftText(
     start: start + value.length,
     end: start + value.length,
   });
+}
+
+function spacedChipInsertion(before: string, chip: string, after: string): string {
+  return `${before.length > 0 && !/\s$/.test(before) && !/^\s/.test(chip) ? " " : ""}${chip}${!/\s$/.test(chip) && (after.length === 0 || !/^\s/.test(after)) ? " " : ""}`;
+}
+
+/** Inserts a chip's source at the remembered caret, spaced so it parses as its own token. */
+export function insertComposerDraftChip(draftKey: string, chip: string): void {
+  const draft = getComposerDraftSnapshot(draftKey);
+  const { start, end } = contextInsertionRange(draftKey, draft);
+  const before = draft.text.slice(0, start);
+  const insertion = spacedChipInsertion(before, chip, draft.text.slice(end));
+  insertComposerDraftText(draftKey, insertion, { text: draft.text, start, end });
 }
 
 export function appendComposerDraftText(draftKey: string, value: string): void {
