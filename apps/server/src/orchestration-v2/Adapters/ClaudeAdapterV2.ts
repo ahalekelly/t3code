@@ -4854,6 +4854,13 @@ function claudeCreatedTaskFromText(
 }
 
 const CLAUDE_TASK_TOOL_NAMES = new Set(["TaskCreate", "TaskUpdate", "TaskList"]);
+const decodeClaudeForkedSkillResult = Schema.decodeUnknownOption(
+  Schema.Struct({
+    status: Schema.Literal("forked"),
+    agentId: Schema.String,
+    result: Schema.String,
+  }),
+);
 const decodeClaudeTaskFile = Schema.decodeUnknownOption(
   Schema.fromJsonString(
     Schema.Struct({
@@ -6940,8 +6947,15 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
           const model = input.model ?? priorTask?.model ?? null;
           const handbackText =
             input.reopen === true ? null : (existingSubagent?.handbackText ?? null);
+          // A forked skill's notification summary is only its name; its Skill call's result is the report.
+          const reportedResult =
+            input.nativeOutcome !== undefined &&
+            existingSubagent?.runToolUseId != null &&
+            findToolCall(input.context, existingSubagent.runToolUseId)?.toolName === "Skill"
+              ? undefined
+              : input.result;
           const result =
-            input.status === "completed" && handbackText !== null ? handbackText : input.result;
+            input.status === "completed" && handbackText !== null ? handbackText : reportedResult;
           const task = {
             ...(priorTask ?? {
               id: nodeId,
@@ -9924,6 +9938,27 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
                 status: isClaudeToolResultError(toolResult) ? "failed" : "completed",
               });
               continue;
+            }
+            const forkedSkill =
+              subagent !== undefined && output.type === "structured_tool_use_result"
+                ? decodeClaudeForkedSkillResult(output.value)
+                : Option.none();
+            if (
+              subagent !== undefined &&
+              Option.isSome(forkedSkill) &&
+              forkedSkill.value.agentId === subagent.task.nativeTaskRef?.nativeId
+            ) {
+              yield* updateClaudeSubagentNode({
+                context,
+                taskId: forkedSkill.value.agentId,
+                toolUseId: toolResult.tool_use_id,
+                result: forkedSkill.value.result,
+                // The notification, when it came first, already settled the outcome.
+                status:
+                  subagent.task.status === "failed" || subagent.task.status === "cancelled"
+                    ? subagent.task.status
+                    : "completed",
+              });
             }
             const parentToolUseId = parentToolUseIdFromSdkMessage(message);
             const toolCall =
