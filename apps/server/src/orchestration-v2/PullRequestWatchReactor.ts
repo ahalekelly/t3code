@@ -646,18 +646,21 @@ export const make = Effect.gen(function* () {
     const { state } = detail;
     if (state !== "open") {
       lastReads.delete(group.key);
-      return yield* eachTarget(group, (target) => {
-        const wake = pullRequestWatchEndMessage({
-          number: target.link.number,
-          url: target.link.url,
-          baseBranch: detail.baseBranch,
-          state,
-          remarks: unreportedRemarks(target.watch, detail, remarks ?? []),
-        });
-        return wake === null
-          ? record(target, null).pipe(Effect.tap(() => ended(target, state)))
-          : hold({ groupKey: group.key, target, next: null, wake, reason: state });
-      });
+      return yield* eachTarget(group, (target) =>
+        hold({
+          groupKey: group.key,
+          target,
+          next: null,
+          wake: pullRequestWatchEndMessage({
+            number: target.link.number,
+            url: target.link.url,
+            baseBranch: detail.baseBranch,
+            state,
+            remarks: unreportedRemarks(target.watch, detail, remarks ?? []),
+          }),
+          reason: state,
+        }),
+      );
     }
     lastReads.set(group.key, {
       at:
