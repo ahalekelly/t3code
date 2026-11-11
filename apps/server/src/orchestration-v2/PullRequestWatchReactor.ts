@@ -41,7 +41,9 @@ import {
   combinePullRequestWatchWakes,
   evaluatePullRequestWatch,
   PULL_REQUEST_WATCH_NO_CHECKS_MS,
+  pullRequestWatchEndMessage,
   pullRequestWatchMessage,
+  unreportedRemarks,
 } from "./pullRequestWatch.ts";
 
 /** Checks take minutes; faster sweeps waste the account's shared host quota. */
@@ -517,29 +519,6 @@ export const make = Effect.gen(function* () {
     );
   });
 
-  const closed = (groupKey: string, target: WatchTarget) =>
-    hold({
-      groupKey,
-      target,
-      next: null,
-      wake: {
-        text: `Pull request #${target.link.number} (${target.link.url}) was closed, so T3 Code stopped watching it. Call watch_pull_request if it reopens.`,
-        notification: {
-          source: { kind: "monitor" },
-          outcome: "updated",
-          summary: `#${target.link.number}: closed, stopped watching`,
-        },
-      },
-      reason: "closed",
-    });
-
-  const endsWithoutRead = ({ thread, link }: WatchTarget): WatchEndReason | undefined =>
-    link.snapshot?.state === "merged"
-      ? "merged"
-      : thread.lineage.relationshipToParent === "subagent"
-        ? "subagent"
-        : undefined;
-
   const eachTarget = <E>(
     group: WatchGroup,
     step: (target: WatchTarget) => Effect.Effect<void, E>,
@@ -640,15 +619,6 @@ export const make = Effect.gen(function* () {
           : {}),
       });
     }
-    if (detail.state !== "open") {
-      lastReads.delete(group.key);
-      return yield* eachTarget(group, (target) =>
-        detail.state === "closed"
-          ? closed(group.key, target)
-          : record(target, null).pipe(Effect.tap(() => ended(target, "merged"))),
-      );
-    }
-
     // A failed comments read leaves remarks incomplete, so the next pass reads them again;
     // checks, head and conflicts from the detail still reach the evaluator.
     if (Exit.isFailure(activityRead)) {
@@ -673,6 +643,22 @@ export const make = Effect.gen(function* () {
           fingerprint === null ? QUIET_REREAD_MS : FINGERPRINT_REREAD_MS,
         )
       : null;
+    const { state } = detail;
+    if (state !== "open") {
+      lastReads.delete(group.key);
+      return yield* eachTarget(group, (target) => {
+        const wake = pullRequestWatchEndMessage({
+          number: target.link.number,
+          url: target.link.url,
+          baseBranch: detail.baseBranch,
+          state,
+          remarks: unreportedRemarks(target.watch, detail, remarks ?? []),
+        });
+        return wake === null
+          ? record(target, null).pipe(Effect.tap(() => ended(target, state)))
+          : hold({ groupKey: group.key, target, next: null, wake, reason: state });
+      });
+    }
     lastReads.set(group.key, {
       at:
         plan.activity || last === undefined
@@ -741,11 +727,10 @@ export const make = Effect.gen(function* () {
     }
     for (const target of targets) lifeOf(target);
     const byPullRequest = new Map<string, Array<WatchTarget>>();
-    const ending: Array<readonly [WatchTarget, WatchEndReason]> = [];
+    const ending: Array<WatchTarget> = [];
     for (const target of targets) {
-      const reason = endsWithoutRead(target);
-      if (reason !== undefined) {
-        ending.push([target, reason]);
+      if (target.thread.lineage.relationshipToParent === "subagent") {
+        ending.push(target);
         continue;
       }
       // Group by project because checkout access differs; one failure must not end another project's watches.
@@ -765,9 +750,9 @@ export const make = Effect.gen(function* () {
     }
     yield* Effect.forEach(
       ending,
-      ([target, reason]) =>
+      (target) =>
         record(target, null).pipe(
-          Effect.tap(() => ended(target, reason)),
+          Effect.tap(() => ended(target, "subagent")),
           Effect.catchCause(
             logFailure("pull request watch stop failed", {
               threadId: target.thread.id,
