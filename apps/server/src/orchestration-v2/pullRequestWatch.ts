@@ -35,6 +35,26 @@ const isFailedCheck = (check: PullRequestCheck) =>
 const workflowRunOf = (url: string | null) => url?.match(/^.*\/actions\/runs\/\d+/)?.[0] ?? null;
 const approvalKey = (check: PullRequestCheck) => workflowRunOf(check.url) ?? check.name;
 
+const activeAt = (remark: PullRequestComment) => remark.editedAt ?? remark.createdAt;
+
+/** Remarks from others that the watch has not reported yet. */
+export function unreportedRemarks(
+  watch: Pick<ThreadPullRequestWatch, "remarksThrough" | "remarkIds">,
+  detail: Pick<PullRequestDetail, "viewer" | "author">,
+  remarks: ReadonlyArray<PullRequestComment>,
+): Array<PullRequestComment> {
+  const own = (detail.viewer ?? detail.author?.login)?.toLowerCase();
+  const through = Date.parse(watch.remarksThrough);
+  // Hosts can stamp remarks to the second, so remarks at the boundary time are told apart by ID.
+  return remarks.filter((remark) => {
+    const at = Date.parse(activeAt(remark));
+    return (
+      (at > through || (at === through && !watch.remarkIds.includes(remark.id))) &&
+      remark.author?.login.toLowerCase() !== own
+    );
+  });
+}
+
 export function evaluatePullRequestWatch(
   watch: ThreadPullRequestWatch,
   detail: Pick<
@@ -157,17 +177,8 @@ export function evaluatePullRequestWatch(
     }
   }
 
-  const own = (detail.viewer ?? detail.author?.login)?.toLowerCase();
   const through = Date.parse(watch.remarksThrough);
-  const activeAt = (remark: PullRequestComment) => remark.editedAt ?? remark.createdAt;
-  // Hosts can stamp remarks to the second, so remarks at the boundary time are told apart by ID.
-  const fresh = (remarks ?? []).filter((remark) => {
-    const at = Date.parse(activeAt(remark));
-    return (
-      (at > through || (at === through && !watch.remarkIds.includes(remark.id))) &&
-      remark.author?.login.toLowerCase() !== own
-    );
-  });
+  const fresh = unreportedRemarks(watch, detail, remarks ?? []);
   if (fresh.length > 0) changes.push({ kind: "remarks", remarks: fresh });
   const latest = Math.max(through, ...fresh.map((remark) => Date.parse(activeAt(remark))));
   const atLatest = fresh.filter((remark) => Date.parse(activeAt(remark)) === latest);
@@ -314,6 +325,32 @@ export function pullRequestWatchMessage(input: {
           ? "completed"
           : "updated",
       summary: `#${input.number}: ${summary.join(", ")}`,
+    },
+  };
+}
+
+/** The wake for a watch its pull request's merge or close ended, or null for a quiet merge. */
+export function pullRequestWatchEndMessage(input: {
+  readonly number: number;
+  readonly url: string;
+  readonly baseBranch: string;
+  readonly state: "merged" | "closed";
+  readonly remarks: ReadonlyArray<PullRequestComment>;
+}): { readonly text: string; readonly notification: OrchestrationV2Notification } | null {
+  const { number, url, baseBranch, state, remarks } = input;
+  if (state === "merged" && remarks.length === 0) return null;
+  const told = remarks.length > 0;
+  return {
+    text: [
+      state === "merged"
+        ? `Pull request #${number} (${url}) was merged into ${baseBranch}, so T3 Code stopped watching it.`
+        : `Pull request #${number} (${url}) was closed, so T3 Code stopped watching it. Call watch_pull_request if it reopens.`,
+      ...(told ? changeLines({ kind: "remarks", remarks }, { baseBranch, commit: "" }) : []),
+    ].join("\n"),
+    notification: {
+      source: { kind: "monitor" },
+      outcome: "updated",
+      summary: `#${number}: ${[state, ...(told ? [SUMMARY.remarks] : []), "stopped watching"].join(", ")}`,
     },
   };
 }

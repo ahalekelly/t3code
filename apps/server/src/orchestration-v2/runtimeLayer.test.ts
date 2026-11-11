@@ -3775,6 +3775,130 @@ it.layer(layerTest)("OrchestrationV2LayerLive lifecycle", (it) => {
     }),
   );
 
+  // regression: a maintainer commented and merged between two sweeps, and the agent never saw it
+  it.effect.each([
+    { state: "merged", comment: true, summaries: ["#14: merged, new comments, stopped watching"] },
+    { state: "merged", comment: false, summaries: [] },
+    { state: "closed", comment: true, summaries: ["#14: closed, new comments, stopped watching"] },
+  ] as const)(
+    "a watch that ends on $state delivers comments it had not reported (comment: $comment)",
+    ({ state, comment, summaries }) =>
+      Effect.gen(function* () {
+        const orchestrator = yield* Orchestrator.OrchestratorV2;
+        const threadId = ThreadId.make(`runtime-pull-request-watch-${state}-${comment}`);
+        const projectId = ProjectId.make(`pr-watch-${state}-${comment}-project`);
+        yield* seedProject({
+          projectId,
+          title: "Watch end",
+          workspaceRoot: "/workspace/watch-end",
+          defaultModelSelection: null,
+          createdAt: "2026-10-01T00:00:00.000Z",
+        });
+        yield* orchestrator.dispatch({
+          type: "thread.create",
+          createdBy: "user",
+          creationSource: "web",
+          commandId: CommandId.make(`pr-watch-${state}-${comment}-create`),
+          threadId,
+          projectId,
+          title: "Watch end",
+          modelSelection,
+          runtimeMode: "full-access",
+          interactionMode: "default",
+          branch: null,
+          worktreePath: null,
+        });
+        const key = { host: "github.com", repository: "pingdotgg/t3code", number: 14 };
+        yield* orchestrator.dispatch({
+          type: "thread.pull-request.watch",
+          commandId: CommandId.make(`pr-watch-${state}-${comment}-start`),
+          threadId,
+          ...key,
+          watching: true,
+          link: { url: "https://github.com/pingdotgg/t3code/pull/14", source: "agent" },
+        });
+        const started = (yield* orchestrator.getThreadShell(threadId))?.pullRequests?.[0]?.watch;
+        assert.isDefined(started);
+        if (started === undefined) return;
+
+        let ended = false;
+        const commentAt = DateTime.formatIso(
+          DateTime.add(DateTime.makeUnsafe(started.startedAt), { minutes: 1 }),
+        );
+        const host = Layer.mergeAll(
+          NodeServices.layer,
+          NodeCrypto.layer,
+          Layer.mock(PullRequestService.PullRequestService)({
+            detail: () =>
+              Effect.sync(() => ({
+                ...watchedPullRequestDetail({ projectId, number: 14, at: started.startedAt }),
+                state: ended ? state : "open",
+                checks: [],
+              })),
+            activity: () =>
+              Effect.sync(() => ({
+                comments:
+                  ended && comment
+                    ? [
+                        {
+                          id: "maintainer-thanks",
+                          kind: "issue-comment" as const,
+                          author: { login: "maintainer", name: null, avatarUrl: null },
+                          body: "Thank you!",
+                          createdAt: commentAt,
+                          url: "https://github.com/pingdotgg/t3code/pull/14#thanks",
+                          path: null,
+                          reviewState: null,
+                        },
+                      ]
+                    : [],
+                commentCount: ended && comment ? 1 : 0,
+                commentsTruncated: false,
+                reviewThreads: [],
+                commits: [],
+              })),
+          }),
+        );
+        const reactor = yield* PullRequestWatchReactor.make.pipe(Effect.provide(host));
+        yield* reactor.sweep;
+        ended = true;
+        yield* orchestrator.dispatch({
+          type: "thread.pull-request-link.sync",
+          commandId: CommandId.make(`pr-watch-${state}-${comment}-snapshot`),
+          threadId,
+          ...key,
+          snapshot: {
+            state,
+            title: "Watched pull request",
+            headBranch: "feature",
+            baseBranch: "main",
+            isDraft: false,
+            updatedAt: commentAt,
+            syncedAt: commentAt,
+          },
+          stack: null,
+        });
+        yield* TestClock.adjust("2 minutes");
+        yield* reactor.sweep;
+
+        assert.isUndefined(
+          (yield* orchestrator.getThreadShell(threadId))?.pullRequests?.[0]?.watch,
+        );
+        const { messages } = yield* orchestrator.getThreadRecords(threadId, ["messages"]);
+        assert.deepEqual(
+          messages.flatMap((message) => message.notification?.summary ?? []),
+          [...summaries],
+        );
+        if (state === "merged" && comment) {
+          assert.include(
+            messages[0]?.text,
+            "#14 (https://github.com/pingdotgg/t3code/pull/14) was merged into main",
+          );
+        }
+        if (comment) assert.include(messages[0]?.text, 'maintainer: "Thank you!"');
+      }),
+  );
+
   // regression: #23701 a head no check runs on never woke the watch
   it.effect("wakes once when no checks report on the head, without saying they passed", () =>
     Effect.gen(function* () {
