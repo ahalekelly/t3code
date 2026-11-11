@@ -16034,6 +16034,85 @@ describe("ClaudeAdapterV2 background wake turns", () => {
     ),
   );
 
+  it.effect("shows a SubagentHandback report instead of the Agent result's pointer", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const harness = yield* makeWakeHarness;
+        yield* harness.runtime.startTurn(
+          makeClaudeTestTurnInput({
+            threadId: harness.threadId,
+            providerThread: harness.providerThread,
+            now: yield* DateTime.now,
+            attemptId: RunAttemptId.make("attempt-claude-handback"),
+            text: "Delegate this task.",
+            attachments: [],
+          }),
+        );
+        yield* harness.offerAndWait(
+          makeSubagentTaskStartedFrame({
+            taskId: "agent-handback",
+            toolUseId: "toolu-handback-launch",
+            uuid: "00000000-0000-4000-8000-000000000911",
+          }),
+        );
+        yield* harness.offerAndWait(
+          claudeSdkFrame({
+            type: "assistant",
+            uuid: "00000000-0000-4000-8000-000000000912",
+            session_id: WAKE_NATIVE_SESSION,
+            parent_tool_use_id: "toolu-handback-launch",
+            message: {
+              id: "handback-message",
+              type: "message",
+              role: "assistant",
+              model: "claude-sonnet-4-6",
+              content: [
+                {
+                  type: "tool_use",
+                  id: "toolu-handback",
+                  name: "SubagentHandback",
+                  input: { message: "## Report\n\nAll done." },
+                },
+              ],
+            },
+          }),
+        );
+        yield* harness.offerAndWait(
+          claudeSdkFrame({
+            type: "user",
+            message: {
+              role: "user",
+              content: [
+                {
+                  type: "tool_result",
+                  tool_use_id: "toolu-handback-launch",
+                  content: `This agent's report was delivered to you as a message from "agent-handback" (its SubagentHandback call). Read it there; it is not repeated here.`,
+                },
+              ],
+            },
+            parent_tool_use_id: null,
+            uuid: "00000000-0000-4000-8000-000000000913",
+            session_id: WAKE_NATIVE_SESSION,
+          }),
+        );
+        let settled = yield* Queue.take(harness.subagentReceipts);
+        while (settled.subagent.status === "running") {
+          settled = yield* Queue.take(harness.subagentReceipts);
+        }
+        assert.equal(settled.subagent.result, "## Report\n\nAll done.");
+      }).pipe(
+        Effect.provide(
+          Layer.mergeAll(
+            IdAllocator.layer,
+            McpProviderSessions.layer,
+            NodeServices.layer,
+            NodeCrypto.layer,
+          ),
+        ),
+      ),
+    ),
+  );
+
   it.effect("keeps a foreground fork running past the placeholder result for its own launch", () =>
     Effect.scoped(
       Effect.gen(function* () {
