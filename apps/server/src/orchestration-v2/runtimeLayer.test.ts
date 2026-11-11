@@ -6345,7 +6345,7 @@ it.layer(layerTest)("OrchestrationV2LayerLive lifecycle", (it) => {
     { state: "merged", comment: false, summaries: ["#14: merged, stopped watching"] },
     { state: "closed", comment: true, summaries: ["#14: closed, new comments, stopped watching"] },
   ] as const)(
-    "a watch that ends on $state delivers comments it had not reported (comment: $comment)",
+    "a watch that ends on $state wakes with comments it had not reported (comment: $comment)",
     ({ state, comment, summaries }) =>
       Effect.gen(function* () {
         const orchestrator = yield* Orchestrator.OrchestratorV2;
@@ -6453,7 +6453,7 @@ it.layer(layerTest)("OrchestrationV2LayerLive lifecycle", (it) => {
           messages.flatMap((message) => message.notification?.summary ?? []),
           [...summaries],
         );
-        if (state === "merged" && comment) {
+        if (state === "merged") {
           assert.include(
             messages[0]?.text,
             "#14 (https://github.com/pingdotgg/t3code/pull/14) was merged into main",
