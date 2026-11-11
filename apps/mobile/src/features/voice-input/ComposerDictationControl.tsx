@@ -322,6 +322,7 @@ function VoiceActionButton(props: {
 export function ComposerDictationError(props: {
   readonly error: string | null;
   readonly onDismiss: () => void;
+  readonly onTranscribeAgain: (() => void) | null;
 }) {
   if (!props.error) return null;
   return (
@@ -329,6 +330,22 @@ export function ComposerDictationError(props: {
       <Text accessibilityRole="alert" className="min-w-0 flex-1 text-sm text-danger-foreground">
         {props.error}
       </Text>
+      {props.onTranscribeAgain ? (
+        <Pressable
+          accessibilityLabel="Transcribe the recording again"
+          accessibilityRole="button"
+          className="size-7 items-center justify-center active:opacity-70"
+          hitSlop={8}
+          onPress={props.onTranscribeAgain}
+        >
+          <SymbolView
+            name="arrow.clockwise"
+            size={14}
+            tintColorClassName="accent-icon"
+            type="monochrome"
+          />
+        </Pressable>
+      ) : null}
       <Pressable
         accessibilityLabel="Dismiss voice input error"
         accessibilityRole="button"
@@ -432,6 +449,22 @@ export function ComposerDictationPrimaryAction(props: {
   }
 
   return <ComposerDictationStartAction {...props} />;
+}
+
+export function ComposerDictationSendAction(props: {
+  readonly presentation: VoiceComposerPresentation;
+  readonly onSend: () => void;
+}) {
+  if (props.presentation.trailingAction !== "confirm") return null;
+  return (
+    <VoiceActionButton
+      accessibilityLabel="Finish dictation and send"
+      disabled={!props.presentation.confirmationEnabled}
+      icon="arrow.up"
+      onPress={props.onSend}
+      variant="primary"
+    />
+  );
 }
 
 export function ComposerDictationStartAction(props: {
