@@ -16361,6 +16361,106 @@ describe("ClaudeAdapterV2 background wake turns", () => {
     ),
   );
 
+  it.effect("takes a forked skill's result from its Skill call, not the notification", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        for (const notificationFirst of [true, false]) {
+          const harness = yield* makeWakeHarness;
+          const id = notificationFirst ? "a" : "b";
+          const subagentResults = () =>
+            harness.events.flatMap((event) =>
+              event.type === "subagent.updated" ? [event.subagent.result] : [],
+            );
+          yield* harness.runtime.startTurn(
+            makeClaudeTestTurnInput({
+              threadId: harness.threadId,
+              providerThread: harness.providerThread,
+              now: yield* DateTime.now,
+              attemptId: RunAttemptId.make(`attempt-claude-forked-skill-${id}`),
+              text: "/code-review",
+              attachments: [],
+            }),
+          );
+          yield* harness.offerAndWait(
+            claudeSdkFrame({
+              type: "assistant",
+              uuid: `00000000-0000-4000-8000-0000000009${id}1`,
+              session_id: WAKE_NATIVE_SESSION,
+              parent_tool_use_id: null,
+              message: {
+                id: `forked-skill-message-${id}`,
+                type: "message",
+                role: "assistant",
+                model: "claude-sonnet-4-6",
+                content: [
+                  {
+                    type: "tool_use",
+                    id: `toolu-skill-${id}`,
+                    name: "Skill",
+                    input: { skill: "code-review" },
+                  },
+                ],
+              },
+            }),
+          );
+          yield* harness.offerAndWait(
+            makeSubagentTaskStartedFrame({
+              taskId: `agent-forked-skill-${id}`,
+              toolUseId: `toolu-skill-${id}`,
+              uuid: `00000000-0000-4000-8000-0000000009${id}2`,
+            }),
+          );
+          const notification = makeSubagentNotificationFrame({
+            taskId: `agent-forked-skill-${id}`,
+            toolUseId: `toolu-skill-${id}`,
+            summary: "/code-review",
+            uuid: `00000000-0000-4000-8000-0000000009${id}3`,
+          });
+          const skillResult = claudeSdkFrame({
+            type: "user",
+            message: {
+              role: "user",
+              content: [
+                {
+                  type: "tool_result",
+                  tool_use_id: `toolu-skill-${id}`,
+                  content:
+                    'Skill "code-review" completed (forked execution).\n\nResult:\nNo findings.',
+                },
+              ],
+            },
+            tool_use_result: {
+              success: true,
+              commandName: "code-review",
+              status: "forked",
+              agentId: `agent-forked-skill-${id}`,
+              result: "No findings.",
+            },
+            parent_tool_use_id: null,
+            uuid: `00000000-0000-4000-8000-0000000009${id}4`,
+            session_id: WAKE_NATIVE_SESSION,
+          });
+          for (const frame of notificationFirst
+            ? [notification, skillResult]
+            : [skillResult, notification]) {
+            yield* harness.offerAndWait(frame);
+          }
+          yield* harness.until(() => subagentResults().at(-1) === "No findings.");
+          assert.notInclude(subagentResults(), "/code-review");
+        }
+      }).pipe(
+        Effect.provide(
+          Layer.mergeAll(
+            IdAllocator.layer,
+            McpProviderSessions.layer,
+            NodeServices.layer,
+            NodeCrypto.layer,
+          ),
+        ),
+      ),
+    ),
+  );
+
   it.effect("keeps a foreground fork running past the placeholder result for its own launch", () =>
     Effect.scoped(
       Effect.gen(function* () {
