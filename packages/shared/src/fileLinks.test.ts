@@ -85,9 +85,9 @@ describe("resolvePathLinkTarget", () => {
 
 describe("fileLinkLabel", () => {
   it.each([
-    [{ path: "/repo/src/http.ts", line: 42, column: 7 }, "http.ts · L42:C7"],
-    [{ path: "/repo/src/http.ts", line: 42, endLine: 64 }, "http.ts · L42–64"],
+    [{ path: "src/http.ts", line: 42, column: 7 }, "src/http.ts · L42:C7"],
+    [{ path: "src/http.ts", line: 42, endLine: 64 }, "src/http.ts · L42–64"],
   ])("labels %o", (file, label) => {
-    expect(fileLinkLabel(file, new Map())).toBe(label);
+    expect(fileLinkLabel(file)).toBe(label);
   });
 });
