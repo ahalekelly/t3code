@@ -51,7 +51,9 @@ import {
   evaluatePullRequestWatch,
   PULL_REQUEST_WATCH_NO_CHECKS_MS,
   pullRequestWatchEndMessage,
+  isReviewAcknowledgement,
   pullRequestWatchMessage,
+  unreportedRemarks,
 } from "./pullRequestWatch.ts";
 
 /** Checks take minutes; faster sweeps waste the account's shared host quota. */
@@ -553,9 +555,11 @@ export const make = Effect.gen(function* () {
     groupKey: string,
     target: WatchTarget,
     detail: Pick<PullRequestDetail, "state" | "baseBranch" | "mergeCommitSha" | "mergedBy">,
+    remarks: ReadonlyArray<PullRequestComment>,
   ) => {
     const reason = detail.state === "merged" ? "merged" : "closed";
-    return endedByAgent(target)
+    // An agent that merged or closed the pull request itself still hears comments it has not seen.
+    return endedByAgent(target) && remarks.length === 0
       ? record(target, null).pipe(Effect.tap(() => ended(target, reason)))
       : hold({
           groupKey,
@@ -565,14 +569,11 @@ export const make = Effect.gen(function* () {
             number: target.link.number,
             url: target.link.url,
             detail,
+            remarks,
           }),
           reason,
         });
   };
-
-  // A merged snapshot still gets one read, so the wake can name the merge commit.
-  const endsWithoutRead = ({ thread }: WatchTarget): WatchEndReason | undefined =>
-    thread.lineage.relationshipToParent === "subagent" ? "subagent" : undefined;
 
   const eachTarget = <E>(
     group: WatchGroup,
@@ -595,7 +596,7 @@ export const make = Effect.gen(function* () {
   const endMergedSnapshots = (group: WatchGroup) => {
     const merged = group.targets.filter((target) => target.link.snapshot?.state === "merged");
     return eachTarget({ ...group, targets: merged }, (target) =>
-      target.link.snapshot ? finished(group.key, target, target.link.snapshot) : Effect.void,
+      target.link.snapshot ? finished(group.key, target, target.link.snapshot, []) : Effect.void,
     ).pipe(
       Effect.as({ ...group, targets: group.targets.filter((target) => !merged.includes(target)) }),
     );
@@ -692,11 +693,6 @@ export const make = Effect.gen(function* () {
           : {}),
       });
     }
-    if (detail.state !== "open") {
-      lastReads.delete(group.key);
-      return yield* eachTarget(group, (target) => finished(group.key, target, detail));
-    }
-
     // A failed comments read leaves remarks incomplete, so the next pass reads them again;
     // checks, head and conflicts from the detail still reach the evaluator.
     if (Exit.isFailure(activityRead)) {
@@ -721,6 +717,19 @@ export const make = Effect.gen(function* () {
           fingerprint === null ? QUIET_REREAD_MS : FINGERPRINT_REREAD_MS,
         )
       : null;
+    if (detail.state !== "open") {
+      lastReads.delete(group.key);
+      return yield* eachTarget(group, (target) =>
+        finished(
+          group.key,
+          target,
+          detail,
+          unreportedRemarks(target.watch, detail, remarks ?? []).filter(
+            (remark) => !isReviewAcknowledgement(remark),
+          ),
+        ),
+      );
+    }
     lastReads.set(group.key, {
       at:
         plan.activity || last === undefined
@@ -789,11 +798,10 @@ export const make = Effect.gen(function* () {
     }
     for (const target of targets) lifeOf(target);
     const byPullRequest = new Map<string, Array<WatchTarget>>();
-    const ending: Array<readonly [WatchTarget, WatchEndReason]> = [];
+    const ending: Array<WatchTarget> = [];
     for (const target of targets) {
-      const reason = endsWithoutRead(target);
-      if (reason !== undefined) {
-        ending.push([target, reason]);
+      if (target.thread.lineage.relationshipToParent === "subagent") {
+        ending.push(target);
         continue;
       }
       // Group by project because checkout access differs; one failure must not end another project's watches.
@@ -813,9 +821,9 @@ export const make = Effect.gen(function* () {
     }
     yield* Effect.forEach(
       ending,
-      ([target, reason]) =>
+      (target) =>
         record(target, null).pipe(
-          Effect.tap(() => ended(target, reason)),
+          Effect.tap(() => ended(target, "subagent")),
           Effect.catchCause(
             logFailure("pull request watch stop failed", {
               threadId: target.thread.id,

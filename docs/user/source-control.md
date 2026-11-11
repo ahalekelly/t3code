@@ -67,7 +67,7 @@ Threads can link multiple PRs (even across repos on the same host). Creating a P
 - **Agent PR tools**: Agents can read, open, update, comment on, and merge PRs in the thread's repo using your configured sign-in (refusing merges if the head moved since last read).
 - **Watch / babysit a PR**: Ask an agent to watch or babysit a PR (or toggle it in **Linked items** / click the eye icon in thread details). The server polls every 2 minutes and wakes the agent on failed checks, passed required checks, new comments/reviews from others, conflicts, merge-queue drops, or merge/close.
   - Watched threads stay in the **Working** section while checks run (or until merge/close if the agent is waiting to act).
-  - Watching stops automatically on merge/close, Stop, archive, 10 comment-only wakes in a row, or 8 consecutive read failures. Subagents cannot watch PRs—the parent thread watches instead.
+  - Watching stops automatically on merge/close, Stop, archive, 10 comment-only wakes in a row, or 8 consecutive read failures. The merge/close wake includes any comments the agent had not yet seen. Subagents cannot watch PRs—the parent thread watches instead.
   - Settling keeps a thread's watches, and a settled thread can start one. A wake moves it back to your active threads as unread.
 
 ## GitHub stacks
