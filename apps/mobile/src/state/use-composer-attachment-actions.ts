@@ -26,6 +26,7 @@ import {
 } from "./use-composer-drafts";
 import { appAtomRegistry } from "./atom-registry";
 import { startComposerDraftOperation } from "./composerDraftOperations";
+import { traceComposerPickLanded } from "../lib/composerPickTrace";
 
 export function useComposerAttachmentActions(props: {
   readonly draftKey: string | null;
@@ -87,11 +88,13 @@ export function useComposerAttachmentActions(props: {
           scheduleUnusedComposerAttachmentCleanup(
             result.attachments.filter((attachment) => !kept.includes(attachment)),
           );
-          report(
-            "Could not attach photo or video",
-            result.error,
-            await append(key, signal, kept, insertion),
+          const rejected = await append(key, signal, kept, insertion);
+          const draftIds = getComposerDraftSnapshot(key).attachments.map(({ id }) => id);
+          traceComposerPickLanded(
+            result.attachments.map(({ id }) => id),
+            kept.flatMap(({ id }) => (draftIds.includes(id) ? [id] : [])),
           );
+          report("Could not attach photo or video", result.error, rejected);
         })
         .finally(() => removeComposerPendingMedia(key, placeholderIds));
     });
