@@ -8140,7 +8140,7 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
           const handbackText =
             input.reopen === true ? null : (existingSubagent?.handbackText ?? null);
           const result =
-            input.result === undefined || handbackText === null ? input.result : handbackText;
+            input.status === "completed" && handbackText !== null ? handbackText : input.result;
           const task = {
             ...(priorTask ?? {
               id: nodeId,
@@ -11727,6 +11727,7 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
           }
 
           const toolPresentations = claudeToolPresentationsFromAssistantMessage(message);
+          const messageParentToolUseId = parentToolUseIdFromSdkMessage(message);
           for (const toolUse of claudeToolUseBlocksFromAssistantMessage(message)) {
             const nativeToolInput = claudeNativeToolInputFromUnknown(toolUse.input);
             if (toolUse.name === "Agent") {
@@ -11736,20 +11737,19 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
                 pendingSubagentLaunchesByToolUseId,
                 toolUse.id,
                 nativeToolInput,
-                parentToolUseIdFromSdkMessage(message),
+                messageParentToolUseId,
               );
               continue;
             }
-            const handbackOwnerToolUseId = parentToolUseIdFromSdkMessage(message);
-            if (toolUse.name === "SubagentHandback" && handbackOwnerToolUseId !== null) {
+            if (toolUse.name === "SubagentHandback" && messageParentToolUseId !== null) {
               const report =
                 nativeToolInput.type === "record" ? nativeToolInput.value.message : undefined;
-              const subagent = yield* resolveSubagentByToolUseId(context, handbackOwnerToolUseId);
+              const subagent = yield* resolveSubagentByToolUseId(context, messageParentToolUseId);
               if (subagent !== undefined && typeof report === "string") {
                 subagent.handbackText = report;
               }
             }
-            if (toolUse.name === "TodoWrite" && parentToolUseIdFromSdkMessage(message) === null) {
+            if (toolUse.name === "TodoWrite" && messageParentToolUseId === null) {
               yield* emitClaudePlanProjection({
                 context,
                 nativeItemId: toolUse.id,
@@ -11762,7 +11762,7 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
               nativeItemId: toolUse.id,
               toolName: toolUse.name,
               toolInput: nativeToolInput,
-              parentToolUseId: parentToolUseIdFromSdkMessage(message),
+              parentToolUseId: messageParentToolUseId,
               presentation:
                 toolPresentations.get(toolUse.id) ??
                 mcpToolPresentation({
@@ -11822,6 +11822,15 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
                 toolInput: EMPTY_CLAUDE_NATIVE_TOOL_INPUT,
                 parentToolUseId,
               }));
+            // A refused handback delivered nothing; the subagent's later result stands.
+            if (
+              toolCall.toolName === "SubagentHandback" &&
+              parentToolUseId !== null &&
+              isClaudeToolResultError(toolResult)
+            ) {
+              const subagent = yield* resolveSubagentByToolUseId(context, parentToolUseId);
+              if (subagent !== undefined) subagent.handbackText = null;
+            }
             const appOutput =
               parentToolUseId === null &&
               toolCall.runId !== null &&
