@@ -11,6 +11,7 @@ import {
 import * as Cause from "effect/Cause";
 import * as Clock from "effect/Clock";
 import * as Effect from "effect/Effect";
+import * as Exit from "effect/Exit";
 import * as Fiber from "effect/Fiber";
 import * as Option from "effect/Option";
 import * as Queue from "effect/Queue";
@@ -18,10 +19,11 @@ import * as Ref from "effect/Ref";
 import * as Semaphore from "effect/Semaphore";
 import * as Stream from "effect/Stream";
 import * as SubscriptionRef from "effect/SubscriptionRef";
+import * as SynchronizedRef from "effect/SynchronizedRef";
 import { AsyncResult, Atom } from "effect/reactivity";
 
 import * as EnvironmentRegistry from "../connection/registry.ts";
-import { connectionProjectionPhase } from "../connection/model.ts";
+import { connectionProjectionPhase, type PreparedConnection } from "../connection/model.ts";
 import * as EnvironmentSupervisor from "../connection/supervisor.ts";
 import * as ConnectionWakeups from "../connection/wakeups.ts";
 import { safeErrorLogAttributes } from "../errors/safeLog.ts";
@@ -118,6 +120,34 @@ interface LiveShell {
   readonly snapshot: OrchestrationV2ShellSnapshot;
   // Read together with the rows, so a save never pairs them with another snapshot's origin.
   readonly origin: Persistence.ShellCacheOrigin | undefined;
+}
+
+type ShellSnapshotLoadOptions = Pick<ShellOriginIdentity, "omitIdleSubagents" | "omitOlderSettled">;
+
+function shellSnapshotLoadOptions(identity: ShellOriginIdentity | null): ShellSnapshotLoadOptions {
+  return {
+    omitIdleSubagents: identity?.omitIdleSubagents ?? false,
+    omitOlderSettled: identity?.omitOlderSettled ?? false,
+  };
+}
+
+function shellOriginIdentity(config: ServerConfig): ShellOriginIdentity {
+  const omitIdleSubagents = config.shellThreadFamilies === true;
+  return {
+    serverVersion: config.environment.serverVersion,
+    // Migrations rewrite projections without events, so a migrated server reloads.
+    databaseMigration: config.environment.databaseMigration ?? null,
+    omitIdleSubagents,
+    omitOlderSettled: config.shellOlderSettled === true && omitIdleSubagents,
+  };
+}
+
+interface ShellSnapshotLoad {
+  readonly prepared: PreparedConnection;
+  readonly options: ShellSnapshotLoadOptions;
+  readonly fiber: Fiber.Fiber<Option.Option<DeferredShellSnapshot>>;
+  // A load is used by at most one session; later sessions load again.
+  readonly claimed: boolean;
 }
 
 export const makeEnvironmentShellState = Effect.fn("EnvironmentShellState.make")(function* () {
@@ -446,28 +476,83 @@ export const makeEnvironmentShellState = Effect.fn("EnvironmentShellState.make")
     }),
   );
 
+  // Starts the HTTP snapshot load once a connection is prepared, overlapping the socket handshake;
+  // a superseded connection interrupts it. The live server config arrives over the socket, so the
+  // early load uses the cached config, and the subscription reloads if the live one differs.
+  const scope = yield* Effect.scope;
+  const snapshotLoad = yield* SynchronizedRef.make<ShellSnapshotLoad | null>(null);
+  const cachedIdentity = cache.loadServerConfig(environmentId).pipe(
+    Effect.map((config) => Option.getOrNull(Option.map(config, shellOriginIdentity))),
+    Effect.orElseSucceed(() => null),
+  );
+  const interruptSnapshotLoad = (current: ShellSnapshotLoad | null) =>
+    current === null ? Effect.void : Fiber.interrupt(current.fiber);
+  const startSnapshotLoad = (
+    current: ShellSnapshotLoad | null,
+    prepared: PreparedConnection,
+    options: ShellSnapshotLoadOptions,
+    claimed: boolean,
+  ) =>
+    interruptSnapshotLoad(current).pipe(
+      Effect.andThen(Effect.forkIn(snapshotLoader.load(prepared, options), scope)),
+      Effect.map((fiber): ShellSnapshotLoad => ({ prepared, options, fiber, claimed })),
+      Effect.uninterruptible,
+    );
+  yield* SubscriptionRef.changes(supervisor.prepared).pipe(
+    Stream.map(Option.getOrNull),
+    Stream.runForEach((prepared) =>
+      SynchronizedRef.updateEffect(snapshotLoad, (current) =>
+        Effect.gen(function* () {
+          if ((current?.prepared ?? null) === prepared) return current;
+          if (prepared === null) {
+            yield* interruptSnapshotLoad(current);
+            return null;
+          }
+          // Rows the subscription will resume from their cursor need no snapshot. The last
+          // session's identity predicts the next one; a cold start has only the cached config.
+          const identity =
+            (yield* Ref.get(activeSubscription))?.identity ?? (yield* cachedIdentity);
+          if (
+            Option.isSome((yield* SubscriptionRef.get(state)).snapshot) &&
+            canResumeFrom(yield* Ref.get(origin), identity, yield* Clock.currentTimeMillis)
+          ) {
+            yield* interruptSnapshotLoad(current);
+            return null;
+          }
+          return yield* startSnapshotLoad(
+            current,
+            prepared,
+            shellSnapshotLoadOptions(identity),
+            false,
+          );
+        }),
+      ),
+    ),
+    Effect.forkScoped,
+  );
+  const claimSnapshotLoad = (prepared: PreparedConnection, options: ShellSnapshotLoadOptions) =>
+    SynchronizedRef.modifyEffect(snapshotLoad, (current) =>
+      current?.prepared === prepared &&
+      !current.claimed &&
+      current.options.omitIdleSubagents === options.omitIdleSubagents &&
+      current.options.omitOlderSettled === options.omitOlderSettled
+        ? Effect.succeed([current.fiber, { ...current, claimed: true }] as const)
+        : startSnapshotLoad(current, prepared, options, true).pipe(
+            Effect.map((next) => [next.fiber, next] as const),
+          ),
+    );
+
   yield* setSynchronizing;
   yield* Effect.forkScoped(
     subscribeDynamicWithSession(
       ORCHESTRATION_V2_WS_METHODS.subscribeShell,
       Effect.fn("EnvironmentShellState.makeSubscribeInput")(function* (session) {
         const identity = yield* session.initialConfig.pipe(
-          Effect.map((config): ShellOriginIdentity => {
-            const omitIdleSubagents = config.shellThreadFamilies === true;
-            return {
-              serverVersion: config.environment.serverVersion,
-              // Migrations rewrite projections without events, so a migrated server reloads.
-              databaseMigration: config.environment.databaseMigration ?? null,
-              omitIdleSubagents,
-              omitOlderSettled: config.shellOlderSettled === true && omitIdleSubagents,
-            };
-          }),
+          Effect.map(shellOriginIdentity),
           Effect.orElseSucceed(() => null),
         );
-        const { omitIdleSubagents, omitOlderSettled } = identity ?? {
-          omitIdleSubagents: false,
-          omitOlderSettled: false,
-        };
+        const loadOptions = shellSnapshotLoadOptions(identity);
+        const { omitIdleSubagents, omitOlderSettled } = loadOptions;
         yield* Ref.set(activeSubscription, { session, identity });
         yield* Ref.set(awaitingCompletion, true);
         yield* setSynchronizing;
@@ -497,11 +582,10 @@ export const makeEnvironmentShellState = Effect.fn("EnvironmentShellState.make")
               }),
             ),
           );
-          // HTTP and the socket must agree, or omitted children would return through the socket.
-          const httpSnapshot = yield* snapshotLoader.load(prepared, {
-            omitIdleSubagents,
-            omitOlderSettled,
-          });
+          // An interrupted load belongs to a superseded connection; fall back to the socket snapshot.
+          const httpSnapshot = Option.flatten(
+            Exit.getSuccess(yield* Fiber.await(yield* claimSnapshotLoad(prepared, loadOptions))),
+          );
           if (Option.isSome(httpSnapshot)) {
             yield* cancelActiveFill;
             const previous = yield* SubscriptionRef.get(state);
