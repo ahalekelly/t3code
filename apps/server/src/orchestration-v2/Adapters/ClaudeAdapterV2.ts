@@ -4811,6 +4811,9 @@ function claudeCreatedTaskFromText(
 }
 
 const CLAUDE_TASK_TOOL_NAMES = new Set(["TaskCreate", "TaskUpdate", "TaskList"]);
+const decodeClaudeForkedSkillResult = Schema.decodeUnknownOption(
+  Schema.Struct({ status: Schema.Literal("forked"), result: Schema.String }),
+);
 const decodeClaudeTaskFile = Schema.decodeUnknownOption(
   Schema.fromJsonString(
     Schema.Struct({
@@ -9866,6 +9869,20 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
                 status: isClaudeToolResultError(toolResult) ? "failed" : "completed",
               });
               continue;
+            }
+            // A forked skill's task_notification summary is only its name; the report is here.
+            const forkedSkill =
+              subagent !== undefined && output.type === "structured_tool_use_result"
+                ? decodeClaudeForkedSkillResult(output.value)
+                : Option.none();
+            if (subagent !== undefined && Option.isSome(forkedSkill)) {
+              yield* updateClaudeSubagentNode({
+                context,
+                taskId: subagent.task.nativeTaskRef?.nativeId ?? String(subagent.task.id),
+                toolUseId: toolResult.tool_use_id,
+                result: forkedSkill.value.result,
+                status: "completed",
+              });
             }
             const parentToolUseId = parentToolUseIdFromSdkMessage(message);
             const toolCall =
