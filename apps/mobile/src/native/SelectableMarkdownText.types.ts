@@ -94,6 +94,8 @@ export interface SelectableMarkdownTextProps {
     readonly checked: boolean;
     readonly text: string;
   }) => void;
+  /** Adds Cite to the text selection menu; `start` counts UTF-16 units into this block's text. */
+  readonly onCite?: (selection: { readonly text: string; readonly start: number }) => void;
   readonly marginTop?: number;
   readonly marginBottom?: number;
   readonly writingDirection?: "ltr" | "rtl";

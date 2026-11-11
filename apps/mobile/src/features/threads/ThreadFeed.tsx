@@ -50,6 +50,7 @@ import type { ThreadCheckpointSummary } from "@t3tools/client-runtime/state/thre
 import { formatDiffCount } from "@t3tools/client-runtime/diff-count";
 import type { WorkflowOpening } from "@t3tools/client-runtime/state/subagentRuntime";
 import {
+  ASSISTANT_CITATION_MAX_TEXT_LENGTH,
   AuthFilesystemReadScope,
   idleCompactionOf,
   type OrchestrationMessageContext,
@@ -65,7 +66,10 @@ import {
   type ScopedThreadRef,
 } from "@t3tools/contracts";
 import type { ToolCallVisibility } from "@t3tools/contracts/settings";
-import { renderAssistantCitationsAsText } from "@t3tools/shared/assistantCitations";
+import {
+  renderAssistantCitationsAsText,
+  serializeAssistantCitation,
+} from "@t3tools/shared/assistantCitations";
 import { encodeComposerContextFragment } from "@t3tools/shared/composerContextClipboard";
 import { hostedThreadLink, parseThreadLinkHref } from "@t3tools/shared/threadLinks";
 import { PROMPT_LINK_MAX_PROMPT_LENGTH } from "@t3tools/shared/promptLinks";
@@ -165,6 +169,8 @@ import Animated, { FadeIn, FadeInDown, type SharedValue } from "react-native-rea
 import { useUniwindTheme } from "../../lib/useUniwindTheme";
 import { FONT_FAMILIES } from "../../lib/fontFamilies";
 import { scopedThreadKey } from "../../lib/scopedEntities";
+import { insertComposerDraftChip } from "../../state/use-composer-drafts";
+import { assistantSelectionCitation } from "./assistantSelectionCitation";
 import { copyTextWithHaptic } from "../../lib/copyTextWithHaptic";
 import { downloadAndShareAttachment } from "../../lib/attachmentDownload";
 import { splitMarkdownDetails } from "../../lib/markdownDetails";
@@ -1277,6 +1283,7 @@ function ArtifactTemplateCard(props: {
 const AssistantMarkdownContent = memo(function AssistantMarkdownContent(props: {
   readonly markdown: string;
   readonly environmentId: EnvironmentId;
+  readonly citeSource?: { readonly threadId: ThreadId; readonly messageId: MessageId };
   readonly markdownStyles: MarkdownStyleSet;
   readonly linkHandlers: MarkdownLinkHandlers;
   readonly reply?: MarkdownLinkReply | undefined;
@@ -1299,9 +1306,37 @@ const AssistantMarkdownContent = memo(function AssistantMarkdownContent(props: {
       withChipIcon(props.linkHandlers.linkCustomization?.(href), threadIcons.get(href)),
   };
 
+  const { citeSource, environmentId } = props;
+  const onCite = citeSource
+    ? (selection: { readonly text: string; readonly start: number }, blockOffset: number) => {
+        const citation = assistantSelectionCitation({
+          environmentId,
+          ...citeSource,
+          markdown: liveMarkdown,
+          blockOffset,
+          selection,
+        });
+        if (!citation) return;
+        if (citation.text.length > ASSISTANT_CITATION_MAX_TEXT_LENGTH) {
+          Dialog.alert(
+            "Selection too long",
+            `Cite up to ${ASSISTANT_CITATION_MAX_TEXT_LENGTH.toLocaleString()} characters.`,
+          );
+          return;
+        }
+        void Haptics.selectionAsync();
+        insertComposerDraftChip(
+          scopedThreadKey(environmentId, citeSource.threadId),
+          serializeAssistantCitation(citation),
+        );
+      }
+    : undefined;
+
   return (
     <AssistantMarkdownBlocks
       markdown={liveMarkdown}
+      sourceOffset={0}
+      onCite={onCite}
       markdownStyles={props.markdownStyles}
       linkHandlers={linkHandlers}
       onUseArtifactTemplate={props.onUseArtifactTemplate}
@@ -1317,6 +1352,10 @@ function AssistantMarkdownBlocks(props: {
   readonly markdown: string;
   /** The reply's reference definitions, passed down by the enclosing fold. */
   readonly definitions?: ReadonlyArray<string> | undefined;
+  readonly sourceOffset: number;
+  readonly onCite:
+    | ((selection: { readonly text: string; readonly start: number }, blockOffset: number) => void)
+    | undefined;
   readonly markdownStyles: MarkdownStyleSet;
   readonly linkHandlers: MarkdownLinkHandlers;
   readonly onUseArtifactTemplate?: ((template: CodexArtifactTemplate) => void) | undefined;
@@ -1346,12 +1385,18 @@ function AssistantMarkdownBlocks(props: {
           summary={block.summary}
           initiallyOpen={block.open}
         >
-          <AssistantMarkdownBlocks {...props} markdown={block.body} definitions={definitions} />
+          <AssistantMarkdownBlocks
+            {...props}
+            markdown={block.body}
+            definitions={definitions}
+            sourceOffset={props.sourceOffset + block.sourceOffset}
+          />
         </MarkdownDetailsFold>
       );
     }
     return block.segments.map((segment) => {
       const offset = block.sourceOffset + segment.sourceOffset;
+      const { onCite } = props;
       if (segment.kind === "artifact-template") {
         return (
           <ArtifactTemplateCard
@@ -1373,6 +1418,7 @@ function AssistantMarkdownBlocks(props: {
           textStyle={props.markdownStyles.nativeTextStyle}
           {...props.linkHandlers}
           renderImage={props.renderImage}
+          onCite={onCite && ((selection) => onCite(selection, props.sourceOffset + offset))}
         />
       );
     });
@@ -2429,6 +2475,7 @@ function renderFeedEntry(
             <AssistantMarkdownContent
               markdown={renderedText}
               environmentId={props.environmentId}
+              citeSource={{ threadId: props.threadId, messageId: message.id }}
               markdownStyles={styles}
               linkHandlers={props.markdownLinkHandlers}
               reply={message.projectedItem}
