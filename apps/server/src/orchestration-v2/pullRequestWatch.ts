@@ -329,16 +329,15 @@ export function pullRequestWatchMessage(input: {
   };
 }
 
-/** The wake for a watch its pull request's merge or close ended, or null for a quiet merge. */
+/** The wake for a watch its pull request's merge or close ended. */
 export function pullRequestWatchEndMessage(input: {
   readonly number: number;
   readonly url: string;
   readonly baseBranch: string;
   readonly state: "merged" | "closed";
   readonly remarks: ReadonlyArray<PullRequestComment>;
-}): { readonly text: string; readonly notification: OrchestrationV2Notification } | null {
+}): { readonly text: string; readonly notification: OrchestrationV2Notification } {
   const { number, url, baseBranch, state, remarks } = input;
-  if (state === "merged" && remarks.length === 0) return null;
   const told = remarks.length > 0;
   return {
     text: [

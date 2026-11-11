@@ -520,20 +520,22 @@ export const make = Effect.gen(function* () {
     const { state } = detail;
     if (state !== "open") {
       lastReads.delete(group.key);
-      return yield* eachTarget(group, (target) => {
-        const wake = pullRequestWatchEndMessage({
-          number: target.link.number,
-          url: target.link.url,
-          baseBranch: detail.baseBranch,
-          state,
-          remarks: unreportedRemarks(target.watch, detail, remarks ?? []),
-        });
-        return (
-          wake === null
-            ? record(target, null)
-            : record(target, null, wake).pipe(Effect.tap(() => woke(target)))
-        ).pipe(Effect.tap(() => ended(target, state)));
-      });
+      return yield* eachTarget(group, (target) =>
+        record(
+          target,
+          null,
+          pullRequestWatchEndMessage({
+            number: target.link.number,
+            url: target.link.url,
+            baseBranch: detail.baseBranch,
+            state,
+            remarks: unreportedRemarks(target.watch, detail, remarks ?? []),
+          }),
+        ).pipe(
+          Effect.tap(() => woke(target)),
+          Effect.tap(() => ended(target, state)),
+        ),
+      );
     }
     lastReads.set(group.key, {
       at:
