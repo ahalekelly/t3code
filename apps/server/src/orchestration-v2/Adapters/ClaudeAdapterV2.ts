@@ -6897,8 +6897,7 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
                   .effort)
               : existingSubagent.effort;
           const model = input.model ?? priorTask?.model ?? null;
-          const handbackText =
-            input.reopen === true ? null : (existingSubagent?.handbackText ?? null);
+          const handbackText = isReopen ? null : (existingSubagent?.handbackText ?? null);
           const result =
             input.status === "completed" && handbackText !== null ? handbackText : input.result;
           const task = {
@@ -9899,7 +9898,8 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
             if (
               toolCall.toolName === "SubagentHandback" &&
               parentToolUseId !== null &&
-              isClaudeToolResultError(toolResult)
+              (isClaudeToolResultError(toolResult) ||
+                claudeToolNonExecutionKind(message, toolResult.tool_use_id) === "cancelled")
             ) {
               const subagent = yield* resolveSubagentByToolUseId(context, parentToolUseId);
               if (subagent !== undefined) subagent.handbackText = null;
