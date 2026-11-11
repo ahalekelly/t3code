@@ -24,7 +24,6 @@ import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 import * as SqlError from "effect/sql/SqlError";
 
-import { AgentScope } from "@t3tools/shared/AgentScope";
 import { isTemporaryWorktreeBranch } from "@t3tools/shared/git";
 import { modelSelectionsEqual } from "@t3tools/shared/model";
 import {
@@ -253,7 +252,6 @@ export const layer: Layer.Layer<
     const idAllocator = yield* IdAllocator.IdAllocatorV2;
     const threadCommands = yield* ThreadCommandExecutor.ThreadCommandExecutor;
     const analytics = yield* ProviderTurnAnalytics;
-    const agentScope = yield* AgentScope;
     const instances = yield* ProviderInstanceRegistry.ProviderInstanceRegistry;
     const scope = yield* Effect.scope;
     const completedTurnAnalytics = new Set<string>();
@@ -657,9 +655,6 @@ export const layer: Layer.Layer<
                 return dismissed;
               }
               const occurredAt = yield* DateTime.now;
-              const failure = (yield* agentScope.oomKilled(input.threadId))
-                ? { ...input.event.failure, message: "Killed: out of memory.", code: "oom_kill" }
-                : input.event.failure;
               return [
                 ...dismissed,
                 yield* makeDomainEvent(input, {
@@ -672,7 +667,7 @@ export const layer: Layer.Layer<
                     providerThreadId: input.event.providerThreadId,
                     providerTurnId: input.event.providerTurnId,
                     itemOrdinal: input.event.failureItemOrdinal,
-                    failure,
+                    failure: input.event.failure,
                     ...(input.event.retry === undefined ? {} : { retry: input.event.retry }),
                     ...(input.event.retryStartedAt === undefined
                       ? {}
