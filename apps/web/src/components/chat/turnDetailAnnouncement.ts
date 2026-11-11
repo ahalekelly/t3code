@@ -7,7 +7,7 @@ import {
   timelineEntryRunId,
   timelineEntryStartsResponse,
 } from "./MessagesTimeline.logic";
-import { markdownPlainText } from "./timelineMinimapItems";
+import { markdownPlainText } from "@t3tools/shared/markdownPlainText";
 
 export interface TurnMessage {
   readonly id: string;
