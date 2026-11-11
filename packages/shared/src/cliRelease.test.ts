@@ -39,4 +39,21 @@ describe("cliRelease", () => {
     expect(newestCliReleaseVersion(releases, "stable")).toBe("1.2.3");
     expect(newestCliReleaseVersion([{ tag_name: "v1.2.3" }], "preview")).toBeUndefined();
   });
+
+  it("compares versions instead of trusting GitHub's list order", () => {
+    const releases = [
+      { tag_name: "v0.1.6-fork.9" },
+      { tag_name: "v0.1.6-fork.8" },
+      { tag_name: "v0.1.6-fork.24" },
+      { tag_name: "v0.1.6-fork.10" },
+      { tag_name: "v0.1.9" },
+      { tag_name: "v0.1.10" },
+      { tag_name: "v0.1.6-nightly.20260912.9" },
+      { tag_name: "v0.1.6-nightly.20260912.10" },
+      { tag_name: "v0.1.6-nightly.20260913.1" },
+    ];
+    expect(newestCliReleaseVersion(releases, "stable")).toBe("0.1.10");
+    expect(newestCliReleaseVersion(releases, "nightly")).toBe("0.1.6-nightly.20260913.1");
+    expect(newestCliReleaseVersion(releases.slice(0, 4), "stable")).toBe("0.1.6-fork.24");
+  });
 });
