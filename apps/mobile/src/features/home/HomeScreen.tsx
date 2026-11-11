@@ -65,6 +65,7 @@ import { useQueuedThreadKeys } from "../../state/use-thread-outbox";
 import {
   ThreadListV2PendingRow,
   ThreadListV2Row,
+  ThreadListV2ProjectFolderHeader,
   ThreadListV2SettledShelfHeader,
   ThreadListV2ShowMoreRow,
   ThreadListV2SnoozedShelfHeader,
@@ -442,6 +443,10 @@ export function HomeScreen(props: HomeScreenProps) {
     toggleSettledShelf,
     toggleSnoozedShelf,
     toggleWorkingShelf,
+    projectFoldersEnabled,
+    activeReorderable,
+    collapsedProjectFolders,
+    toggleProjectFolder,
   } = useThreadListV2ShelfPreferences();
   const now = useThreadListNow(props.threads);
   const listEnvironments = useAtomValue(threadListEnvironmentsAtom);
@@ -484,6 +489,8 @@ export function HomeScreen(props: HomeScreenProps) {
     workingShelfExpanded,
     snoozedShelfExpanded,
     settledShelfExpanded,
+    projectFolderScopes: projectFoldersEnabled ? projectScopes : null,
+    collapsedProjectFolders,
     selectedThreadKey,
   });
   // Called as `props.onSelectThread(...)`, the compiler would cache this handler on the whole
@@ -564,6 +571,17 @@ export function HomeScreen(props: HomeScreenProps) {
         />
       );
     }
+    if (item.type === "v2-project-folder") {
+      return (
+        <ThreadListV2ProjectFolderHeader
+          folder={item.folder}
+          hiddenCount={item.hiddenCount}
+          dot={item.dot}
+          onToggle={toggleProjectFolder}
+          pane={primaryColumn ? "sidebar" : "screen"}
+        />
+      );
+    }
     if (item.type === "v2-settled-shelf") {
       return (
         <ThreadListV2SettledShelfHeader
@@ -592,6 +610,7 @@ export function HomeScreen(props: HomeScreenProps) {
         timeLabel={item.timeLabel}
         showTrailingDivider={item.showTrailingDivider}
         project={projectByKey.get(scopedProjectKey(thread.environmentId, thread.projectId)) ?? null}
+        inFolder={item.item.inFolder}
         providerInstance={resolveProviderInstance(thread)}
         providers={providersByEnvironmentId.get(thread.environmentId)}
         environmentLabel={
@@ -627,7 +646,7 @@ export function HomeScreen(props: HomeScreenProps) {
         reorderSupported={
           item.item.pinned
             ? pinReorderEnvironmentIds.has(thread.environmentId)
-            : !workingShelfEnabled && activeReorderEnvironmentIds.has(thread.environmentId)
+            : activeReorderable && activeReorderEnvironmentIds.has(thread.environmentId)
         }
         canMoveUp={item.canMoveUp}
         canMoveDown={item.canMoveDown}
@@ -657,7 +676,7 @@ export function HomeScreen(props: HomeScreenProps) {
     searchQuery: props.searchQuery,
     selectedThreadKey,
     threadSearchMatchByKey,
-    workingShelfEnabled,
+    activeReorderable,
   };
 
   const hasAnyThreads =
