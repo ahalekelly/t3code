@@ -223,9 +223,9 @@ jobs:
     steps:
       - run: "true"
 
-  # Each lockfile leaves about 1 GB of pnpm stores behind, and at the repository's 10 GB cache limit
-  # GitHub evicts the least recently used caches, often Android's. Pruned once the tests have
-  # saved this lockfile's stores, which setup-ci-deps restores before any older one.
+  # Each lockfile leaves about 1 GB of Linux pnpm stores behind, and at the repository's 10 GB cache
+  # limit GitHub evicts the least recently used caches, often Android's. Pruned once the tests have
+  # saved this lockfile's store; the macOS stores stay for the Mac and iPhone builds that follow.
   prune_pnpm_stores:
     name: Prune superseded pnpm stores
     needs: [preflight, gate]
@@ -240,8 +240,13 @@ jobs:
     steps:
       - run: |
           set -euo pipefail
+          current=$(gh cache list -R "$GITHUB_REPOSITORY" --ref refs/heads/main --key "pnpm-full-v1-Linux-X64-$LOCK" --json id --jq length)
+          if [[ $current == 0 ]]; then
+            echo "::warning::No pnpm store was saved for this lockfile, so the older ones stay"
+            exit 0
+          fi
           gh cache list -R "$GITHUB_REPOSITORY" --ref refs/heads/main --key pnpm- --limit 100 --json id,key \
-            --jq '.[] | select(.key | endswith(env.LOCK) | not) | "\(.id) \(.key)"' |
+            --jq '.[] | select((.key | endswith(env.LOCK) | not) and (.key | contains("macOS") | not)) | "\(.id) \(.key)"' |
             while read -r id key; do
               echo "Deleting $key"
               gh cache delete "$id" -R "$GITHUB_REPOSITORY"

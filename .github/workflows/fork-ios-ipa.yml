@@ -133,15 +133,16 @@ jobs:
           mv "$RUNNER_TEMP"/export/*.ipa "$GITHUB_WORKSPACE/release-ios/T3-Code-$VERSION.ipa"
 
       # At 1.3 GB each, superseded caches would crowd the repository's 10 GB limit and evict live
-      # ones; deleting first keeps the save from evicting another. A rerun restores its own key,
-      # and other branches restore main's, so both keep theirs.
+      # ones; deleting first keeps the save from evicting another. Only main saves; other branches
+      # restore main's.
       - name: Delete the replaced compilation cache
-        if: github.ref == 'refs/heads/main' && steps.compilation-cache.outputs.cache-matched-key != '' && steps.compilation-cache.outputs.cache-hit != 'true'
+        if: github.ref == 'refs/heads/main' && steps.compilation-cache.outputs.cache-matched-key != ''
         env:
           GH_TOKEN: ${{ github.token }}
           OLD_KEY: ${{ steps.compilation-cache.outputs.cache-matched-key }}
         run: gh cache delete "$OLD_KEY" -R "$GITHUB_REPOSITORY"
       - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        if: github.ref == 'refs/heads/main'
         with:
           path: ~/Library/Developer/Xcode/DerivedData/CompilationCache.noindex
           key: ios-compilation-cache-${{ github.run_id }}
