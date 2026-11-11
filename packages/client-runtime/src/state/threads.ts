@@ -626,10 +626,13 @@ export const makeEnvironmentThreadState = Effect.fn("EnvironmentThreadState.make
   ) {
     if (item.kind === "synchronized") {
       yield* Ref.set(awaitingCompletion, false);
-      yield* SubscriptionRef.update(state, (current) =>
-        Option.isSome(current.data) && current.status !== "deleted" && Option.isNone(current.error)
-          ? { ...current, status: "live" as const, error: Option.none() }
-          : current,
+      yield* SubscriptionRef.updateSome(state, (current) =>
+        Option.isSome(current.data) &&
+        current.status !== "deleted" &&
+        current.status !== "live" &&
+        Option.isNone(current.error)
+          ? Option.some({ ...current, status: "live" as const })
+          : Option.none(),
       );
       return;
     }
@@ -661,12 +664,35 @@ export const makeEnvironmentThreadState = Effect.fn("EnvironmentThreadState.make
     yield* applyEventsLocked([item]);
   });
 
+  // Items a resume receives before the completion marker apply together, so a replayed resume
+  // renders its final state once; a cold open applies its snapshot as it arrives. A restarted
+  // attempt keeps held items: its replay repeats them from the unmoved cursor, and already
+  // applied sequences are skipped.
+  let catchUp: OrchestrationV2ThreadStreamItem[] = [];
   // Keep this per-batch streaming path untraced for the same reason as applyEventsLocked.
-  const applyItems = Effect.fnUntraced(function* (
-    items: ReadonlyArray<OrchestrationV2ThreadStreamItem>,
+  const receiveItems = Effect.fnUntraced(function* (
+    received: ReadonlyArray<OrchestrationV2ThreadStreamItem>,
   ) {
     yield* applyLock.withPermits(1)(
       Effect.gen(function* () {
+        catchUp.push(...received);
+        const completes = received.some((item) => item.kind === "synchronized");
+        if (catchUp.length === 0) return;
+        if (
+          !completes &&
+          (yield* Ref.get(awaitingCompletion)) &&
+          Option.isSome((yield* SubscriptionRef.get(state)).data)
+        ) {
+          // A warm resume keeps its "live" status until it learns it is behind.
+          yield* SubscriptionRef.updateSome(state, (current) =>
+            current.status === "live"
+              ? Option.some({ ...current, status: "synchronizing" as const })
+              : Option.none(),
+          );
+          return;
+        }
+        const items = catchUp;
+        catchUp = [];
         let events: SequencedItem[] = [];
         for (const item of items) {
           if (
@@ -676,6 +702,9 @@ export const makeEnvironmentThreadState = Effect.fn("EnvironmentThreadState.make
             events.push(item);
             continue;
           }
+          // Clearing the flag first lets the events before the marker publish
+          // "live", so a catch-up ending in the marker is one state change.
+          if (item.kind === "synchronized") yield* Ref.set(awaitingCompletion, false);
           yield* applyEventsLocked(events);
           events = [];
           yield* applyItemLocked(item);
@@ -1090,7 +1119,7 @@ export const makeEnvironmentThreadState = Effect.fn("EnvironmentThreadState.make
         retryExpectedFailureAfter: "250 millis",
         resubscribe: Stream.merge(foregroundResubscriptions, Stream.fromQueue(httpRetries)),
       },
-    ).pipe(Stream.runForEachArray(applyItems)),
+    ).pipe(Stream.runForEachArray(receiveItems)),
   );
 
   return state;
