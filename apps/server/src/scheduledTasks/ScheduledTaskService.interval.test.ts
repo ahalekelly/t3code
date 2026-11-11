@@ -1,6 +1,6 @@
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import { expect, it } from "@effect/vitest";
-import { ScheduledTaskUpsertInput } from "@t3tools/contracts";
+import { ScheduledTaskUpsertInput, ThreadId } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
@@ -139,13 +139,19 @@ const slowLaunchLayer = ScheduledTaskService.layer.pipe(
     Layer.merge(
       dependencies,
       Layer.mock(ThreadLaunchService.ThreadLaunchService)({
-        launch: () => TestClock.adjust("2 minutes").pipe(Effect.andThen(Effect.die("synthetic"))),
+        launch: () =>
+          TestClock.adjust("2 minutes").pipe(
+            Effect.as({
+              threadId: ThreadId.make("thread-once"),
+              resumed: false,
+            } as unknown as ThreadLaunchService.ThreadLaunchResult),
+          ),
       }),
     ),
   ),
 );
 
-it.effect("runs a one-time schedule once and rejects past times", () =>
+it.effect("deletes a one-time task once its run is sent and rejects past times", () =>
   Effect.gen(function* () {
     yield* TestClock.setTime(Date.parse("2026-11-01T07:59:00.000Z"));
     yield* Effect.gen(function* () {
@@ -158,19 +164,18 @@ it.effect("runs a one-time schedule once and rejects past times", () =>
       expect(created.task.schedule).toEqual({ type: "once", runAt: "2026-11-01T08:00:00.000Z" });
       expect(created.task.nextRunAt).toBe("2026-11-01T08:00:00.000Z");
 
-      // A manual run that starts before the time keeps the scheduled run, even if it ends after.
-      const early = yield* service.runNow({ id: created.task.id });
-      expect(early.task.nextRunAt).toBe("2026-11-01T08:00:00.000Z");
-
-      const due = yield* service.runNow({ id: created.task.id });
-      expect(due.task.nextRunAt).toBeNull();
-      expect((yield* service.list()).tasks[0]?.nextRunAt).toBeNull();
-
+      // A paused task's manual run that starts before the time keeps it, even if it ends after.
       yield* service.setEnabled({ id: created.task.id, enabled: false });
+      yield* service.runNow({ id: created.task.id });
+      expect((yield* service.list()).tasks).toHaveLength(1);
+
       const resumed = yield* service
         .setEnabled({ id: created.task.id, enabled: true })
         .pipe(Effect.flip);
       expect(resumed.message).toBe("The run time has passed. Pick a time in the future.");
+
+      yield* service.runNow({ id: created.task.id });
+      expect((yield* service.list()).tasks).toEqual([]);
 
       const past = yield* service
         .upsert({ ...decoded, commandId: undefined, title: "Late" })

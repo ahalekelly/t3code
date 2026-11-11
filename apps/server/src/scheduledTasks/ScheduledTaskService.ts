@@ -1036,6 +1036,24 @@ export const layer = Layer.effect(
             runCount: scheduleSource.runCount + 1,
           };
           if (current === null) return { recorded: completed, written: false };
+          // A one-off whose time has come is done once its prompt is sent. A manual run
+          // that starts before that time, paused or not, must not use it up.
+          if (
+            runSucceeded &&
+            current.schedule.type === "once" &&
+            nextScheduledRunAt(current.schedule, startedAt) === null
+          ) {
+            const removed = yield* sql`DELETE FROM scheduled_tasks
+              WHERE task_id = ${task.id} AND last_run_status = 'running' AND last_run_at = ${startedAtIso}
+              RETURNING task_id`;
+            if (removed.length > 0) {
+              yield* sql`DELETE FROM scheduled_task_webhook_deliveries WHERE task_id = ${task.id}`;
+            }
+            return {
+              recorded: removed.length > 0 ? completed : current,
+              written: removed.length > 0,
+            };
+          }
           // startedAtIso in the guard ensures this writes only to the row this
           // run marked as running — a task deleted mid-run and recreated with
           // the same id (idempotent commandId replay) must not be stamped.
