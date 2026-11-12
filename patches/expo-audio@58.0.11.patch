@@ -28,7 +28,7 @@ index 6c81fce3dd518d3b82e3280940a001c7be84dd0a..16125c679c870e2eae48f8db953dedd3
          checkRecordingPermission()
          if (recorder.isPrepared) {
 diff --git a/android/src/main/java/expo/modules/audio/AudioRecorder.kt b/android/src/main/java/expo/modules/audio/AudioRecorder.kt
-index 2ff4a474fdea3efa652436a8a3960c3669ad298b..1ced279991294d3d81cb20fa339ca73e5d6d6c01 100644
+index 2ff4a474fdea3efa652436a8a3960c3669ad298b..ade9f763f2dd7bd4884c8b99e2833dadc22d6267 100644
 --- a/android/src/main/java/expo/modules/audio/AudioRecorder.kt
 +++ b/android/src/main/java/expo/modules/audio/AudioRecorder.kt
 @@ -19,6 +19,9 @@ import expo.modules.kotlin.exception.CodedException
@@ -69,7 +69,15 @@ index 2ff4a474fdea3efa652436a8a3960c3669ad298b..1ced279991294d3d81cb20fa339ca73e
      val recordingOptions = options ?: this.options
      val mediaRecorder = createRecorder(recordingOptions)
      recorder = mediaRecorder
-@@ -245,10 +256,15 @@ class AudioRecorder(
+@@ -205,6 +216,7 @@ class AudioRecorder(
+ 
+     try {
+       recorder?.stop()
++      if (options.outputFormat == AndroidOutputFormat.OGG) filePath?.let { OggOpusGranules.fix(File(it)) }
+       durationMillis = getAudioRecorderDurationMillis()
+     } catch (e: RuntimeException) {
+       stopFailed = true
+@@ -245,10 +257,15 @@ class AudioRecorder(
    }
  
    private fun reset() {
@@ -86,7 +94,7 @@ index 2ff4a474fdea3efa652436a8a3960c3669ad298b..1ced279991294d3d81cb20fa339ca73e
      recorder = null
      isRecording = false
      isPaused = false
-@@ -468,55 +484,68 @@ class AudioRecorder(
+@@ -468,55 +485,68 @@ class AudioRecorder(
        throw DeviceInfoNotFoundException()
      }
  
@@ -182,6 +190,54 @@ index 2ff4a474fdea3efa652436a8a3960c3669ad298b..1ced279991294d3d81cb20fa339ca73e
          return device
        }
      }
+diff --git a/android/src/main/java/expo/modules/audio/AudioRecords.kt b/android/src/main/java/expo/modules/audio/AudioRecords.kt
+index b6b3b73c3d1422a8023e2d943c54d7714c6354b6..78f02a627393e8d7083890d5b5d012d7988a23e8 100644
+--- a/android/src/main/java/expo/modules/audio/AudioRecords.kt
++++ b/android/src/main/java/expo/modules/audio/AudioRecords.kt
+@@ -68,7 +68,8 @@ enum class AndroidOutputFormat(val value: String) : Enumerable {
+   AMR_WB("amrwb"),
+   AAC_ADTS("aac_adts"),
+   MPEG2TS("mpeg2ts"),
+-  WEBM("webm");
++  WEBM("webm"),
++  OGG("ogg");
+ 
+   fun toMediaOutputFormat(): Int {
+     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+@@ -85,6 +86,11 @@ enum class AndroidOutputFormat(val value: String) : Enumerable {
+       AMR_WB -> MediaRecorder.OutputFormat.AMR_WB
+       AAC_ADTS -> MediaRecorder.OutputFormat.AAC_ADTS
+       WEBM -> MediaRecorder.OutputFormat.WEBM
++      OGG -> if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
++        MediaRecorder.OutputFormat.OGG
++      } else {
++        throw IllegalArgumentException("Ogg recording needs Android 10 or later")
++      }
+       else -> MediaRecorder.OutputFormat.DEFAULT
+     }
+   }
+@@ -96,7 +102,8 @@ enum class AndroidAudioEncoder(val value: String) : Enumerable {
+   AMR_WB("amr_wb"),
+   AAC("aac"),
+   HE_AAC("he_aac"),
+-  AAC_ELD("aac_eld");
++  AAC_ELD("aac_eld"),
++  OPUS("opus");
+ 
+   fun toMediaEncoding() = when (this) {
+     DEFAULT -> MediaRecorder.AudioEncoder.DEFAULT
+@@ -105,6 +112,11 @@ enum class AndroidAudioEncoder(val value: String) : Enumerable {
+     AAC -> MediaRecorder.AudioEncoder.AAC
+     HE_AAC -> MediaRecorder.AudioEncoder.HE_AAC
+     AAC_ELD -> MediaRecorder.AudioEncoder.AAC_ELD
++    OPUS -> if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
++      MediaRecorder.AudioEncoder.OPUS
++    } else {
++      throw IllegalArgumentException("Opus recording needs Android 10 or later")
++    }
+   }
+ }
+ 
 diff --git a/android/src/main/java/expo/modules/audio/AudioUtils.kt b/android/src/main/java/expo/modules/audio/AudioUtils.kt
 index 81819c1d771bdeec093bb35a65a5e1e1af0cf9d7..b52d0cd0622c233b45115b90057c1765337e4297 100644
 --- a/android/src/main/java/expo/modules/audio/AudioUtils.kt
@@ -263,6 +319,97 @@ index 81819c1d771bdeec093bb35a65a5e1e1af0cf9d7..b52d0cd0622c233b45115b90057c1765
  @OptIn(UnstableApi::class)
  fun buildBasicMediaSession(context: Context, player: Player, onPlay: () -> Unit): MediaSession {
    return MediaSession.Builder(context, PlayRequestingPlayer(player, onPlay))
+diff --git a/android/src/main/java/expo/modules/audio/OggOpusGranules.kt b/android/src/main/java/expo/modules/audio/OggOpusGranules.kt
+new file mode 100644
+index 0000000000000000000000000000000000000000..38cb7b5c0bb735e4d63723b7043f8c98185d8dd8
+--- /dev/null
++++ b/android/src/main/java/expo/modules/audio/OggOpusGranules.kt
+@@ -0,0 +1,85 @@
++package expo.modules.audio
++
++import java.io.File
++
++/**
++ * Android's Ogg writer gives each page the granule position where its last packet starts, not
++ * where it ends, so the first audio page claims fewer samples than it holds. RFC 7845 §4 makes
++ * decoders reject that, and libsndfile does. Rewrites each page's granule to the samples of the
++ * packets completed through it; page sizes don't change, so the file is patched in place.
++ */
++internal object OggOpusGranules {
++  fun fix(file: File) {
++    val data = file.readBytes()
++    var offset = 0
++    var page = 0
++    var samples = 0L
++    var packetStart = -1
++    while (offset < data.size) {
++      if (offset + 27 > data.size || String(data, offset, 4, Charsets.US_ASCII) != "OggS") {
++        throw IllegalStateException("Malformed Ogg page at byte $offset of ${file.name}")
++      }
++      val segments = data[offset + 26].toInt() and 0xFF
++      var body = offset + 27 + segments
++      var completed = false
++      for (index in 0 until segments) {
++        val lacing = data[offset + 27 + index].toInt() and 0xFF
++        if (packetStart < 0) packetStart = body
++        body += lacing
++        if (lacing < 255) {
++          // Pages 0 and 1 hold OpusHead and OpusTags.
++          if (page >= 2) samples += packetSamples(data, packetStart)
++          packetStart = -1
++          completed = true
++        }
++      }
++      if (page >= 2) {
++        writeLong(data, offset + 6, if (completed) samples else -1L)
++        writeInt(data, offset + 22, 0)
++        writeInt(data, offset + 22, crc(data, offset, body - offset))
++      }
++      offset = body
++      page++
++    }
++    file.writeBytes(data)
++  }
++
++  /** Samples at 48 kHz in one Opus packet, from its TOC byte (RFC 6716 §3.1). */
++  private fun packetSamples(data: ByteArray, start: Int): Int {
++    val toc = data[start].toInt() and 0xFF
++    val config = toc shr 3
++    val frameSamples = when {
++      config < 12 -> intArrayOf(480, 960, 1920, 2880)[config and 3]
++      config < 16 -> intArrayOf(480, 960)[config and 1]
++      else -> intArrayOf(120, 240, 480, 960)[config and 3]
++    }
++    val frames = when (toc and 3) {
++      0 -> 1
++      3 -> data[start + 1].toInt() and 0x3F
++      else -> 2
++    }
++    return frameSamples * frames
++  }
++
++  private val crcTable = IntArray(256) { index ->
++    var value = index shl 24
++    repeat(8) { value = if (value < 0) (value shl 1) xor 0x04C11DB7 else value shl 1 }
++    value
++  }
++
++  private fun crc(data: ByteArray, start: Int, length: Int): Int {
++    var value = 0
++    for (index in start until start + length) {
++      value = (value shl 8) xor crcTable[((value ushr 24) xor (data[index].toInt() and 0xFF))]
++    }
++    return value
++  }
++
++  private fun writeInt(data: ByteArray, at: Int, value: Int) {
++    for (index in 0 until 4) data[at + index] = (value ushr (8 * index)).toByte()
++  }
++
++  private fun writeLong(data: ByteArray, at: Int, value: Long) {
++    for (index in 0 until 8) data[at + index] = (value ushr (8 * index)).toByte()
++  }
++}
 diff --git a/android/src/main/java/expo/modules/audio/RecordingInputRoute.kt b/android/src/main/java/expo/modules/audio/RecordingInputRoute.kt
 new file mode 100644
 index 0000000000000000000000000000000000000000..372ab7554df73f043b9cb832a6b1d769d2ed69bf
@@ -322,6 +469,35 @@ index 0000000000000000000000000000000000000000..372ab7554df73f043b9cb832a6b1d769
 +    }
 +  }
 +}
+diff --git a/android/src/test/java/expo/modules/audio/OggOpusGranulesTest.kt b/android/src/test/java/expo/modules/audio/OggOpusGranulesTest.kt
+new file mode 100644
+index 0000000000000000000000000000000000000000..48e1733782a9a362be0b7ef300eafe619b2df2dc
+--- /dev/null
++++ b/android/src/test/java/expo/modules/audio/OggOpusGranulesTest.kt
+@@ -0,0 +1,23 @@
++package expo.modules.audio
++
++import java.io.File
++import java.util.Base64
++import org.junit.Assert.assertArrayEquals
++import org.junit.Test
++
++class OggOpusGranulesTest {
++  @Test
++  fun androidGranulesMoveToTheEndOfEachPage() {
++    // The first four pages of a Pixel 8 MediaRecorder Ogg Opus recording; libsndfile accepts the fix.
++    val recorded = "T2dnUwACAAAAAAAAAADGI3syAAAAAORqCbUBE09wdXNIZWFkAQFoAIA+AAAAAABPZ2dTAAAAAAAAAAAAAMYjezIBAAAAJ09UNQEXT3B1c1RhZ3MHAAAAbGlib3B1cwAAAABPZ2dTAAAAAAAAAAAAAMYjezICAAAAPA5UxAEDuP/+T2dnUwAAwAMAAAAAAADGI3syAwAAAMUFPmEBN0gL5OD649y3/rhAbtGWUocy//4AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
++    val fixed = "T2dnUwACAAAAAAAAAADGI3syAAAAAORqCbUBE09wdXNIZWFkAQFoAIA+AAAAAABPZ2dTAAAAAAAAAAAAAMYjezIBAAAAJ09UNQEXT3B1c1RhZ3MHAAAAbGlib3B1cwAAAABPZ2dTAADAAwAAAAAAAMYjezICAAAARh/J9QEDuP/+T2dnUwAAgAcAAAAAAADGI3syAwAAAExK/RcBN0gL5OD649y3/rhAbtGWUocy//4AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
++    val file = File.createTempFile("recording", ".ogg")
++    try {
++      file.writeBytes(Base64.getDecoder().decode(recorded))
++      OggOpusGranules.fix(file)
++      assertArrayEquals(Base64.getDecoder().decode(fixed), file.readBytes())
++    } finally {
++      file.delete()
++    }
++  }
++}
 diff --git a/android/src/test/java/expo/modules/audio/RecordingInputIdentityTest.kt b/android/src/test/java/expo/modules/audio/RecordingInputIdentityTest.kt
 new file mode 100644
 index 0000000000000000000000000000000000000000..4dd0567e2170770e9b0f6a17dc4581bc769d5c6a
@@ -363,6 +539,41 @@ index 0000000000000000000000000000000000000000..4dd0567e2170770e9b0f6a17dc4581bc
 +    assertEquals(recordingInputUid(first, listOf(first)), recordingInputUid(reconnected, listOf(reconnected)))
 +  }
 +}
+diff --git a/build/Audio.types.d.ts b/build/Audio.types.d.ts
+index 332b0c2f38310616c6bff64cb86fc8d5688d1280..50f3bd99db7fbca9eaf0de0d3980ef72ec3902b1 100644
+--- a/build/Audio.types.d.ts
++++ b/build/Audio.types.d.ts
+@@ -282,6 +282,12 @@ export type RecordingStatus = {
+      * @platform ios
+      */
+     mediaServicesDidReset?: boolean;
++    /**
++     * Whether an audio session interruption (a call, Siri, an alarm) stopped the recording.
++     * The file at `url` holds the audio captured before the interruption.
++     * @platform ios
++     */
++    interrupted?: boolean;
+ };
+ /**
+  * Current state information for an `AudioRecorder`.
+@@ -321,7 +327,7 @@ export type RecorderState = {
+  *
+  * @platform android
+  */
+-export type AndroidOutputFormat = 'default' | '3gp' | 'mpeg4' | 'amrnb' | 'amrwb' | 'aac_adts' | 'mpeg2ts' | 'webm';
++export type AndroidOutputFormat = 'default' | '3gp' | 'mpeg4' | 'amrnb' | 'amrwb' | 'aac_adts' | 'mpeg2ts' | 'webm' | 'ogg';
+ /**
+  * Audio encoder options for Android recording.
+  *
+@@ -330,7 +336,7 @@ export type AndroidOutputFormat = 'default' | '3gp' | 'mpeg4' | 'amrnb' | 'amrwb
+  *
+  * @platform android
+  */
+-export type AndroidAudioEncoder = 'default' | 'amr_nb' | 'amr_wb' | 'aac' | 'he_aac' | 'aac_eld';
++export type AndroidAudioEncoder = 'default' | 'amr_nb' | 'amr_wb' | 'aac' | 'he_aac' | 'aac_eld' | 'opus';
+ /**
+  * Bit rate strategies for audio encoding.
+  *
 diff --git a/build/AudioModule.types.d.ts b/build/AudioModule.types.d.ts
 index 0d63c9b949cfae7a101902fc3bb70fcf46094f68..a312b8fcdaf728220db3d6c04d92fd78a4aa101c 100644
 --- a/build/AudioModule.types.d.ts
@@ -388,7 +599,7 @@ index 0d63c9b949cfae7a101902fc3bb70fcf46094f68..a312b8fcdaf728220db3d6c04d92fd78
       * Replaces the current audio source with a new one.
       */
 diff --git a/ios/AudioModule.swift b/ios/AudioModule.swift
-index 42ce9e8f213ebc243db25ef836456757b0daeb09..b422c3c10349b14803d5e9d7afeed617e76e09af 100644
+index 42ce9e8f213ebc243db25ef836456757b0daeb09..ef18ef4fc25da29dee09f81d31c493519f8e3328 100644
 --- a/ios/AudioModule.swift
 +++ b/ios/AudioModule.swift
 @@ -6,6 +6,7 @@ public class AudioModule: Module {
@@ -428,6 +639,15 @@ index 42ce9e8f213ebc243db25ef836456757b0daeb09..b422c3c10349b14803d5e9d7afeed617
            self.deactivateSession()
          }
        }
+@@ -684,7 +695,7 @@ public class AudioModule: Module {
+ 
+ #if os(iOS)
+     registry.allRecorders.values.forEach { recorder in
+-      recorder.pauseForSystem()
++      recorder.interrupt()
+     }
+ #endif
+ 
 @@ -957,6 +968,7 @@ public class AudioModule: Module {
      sessionQueue.asyncAfter(deadline: .now() + .milliseconds(100)) { [weak self] in
        guard let self,
@@ -437,10 +657,41 @@ index 42ce9e8f213ebc243db25ef836456757b0daeb09..b422c3c10349b14803d5e9d7afeed617
          !self.isSessionInUse else {
          return
 diff --git a/ios/AudioRecorder.swift b/ios/AudioRecorder.swift
-index 198fe6dc95b564ff3916657f14ea67fc44d2e424..5b396114bbeb5e1c99da54f4e6d2376ad978dfa0 100644
+index 198fe6dc95b564ff3916657f14ea67fc44d2e424..41b0fdb1b4997c45ea08b0582e5bad54dc4fd4b1 100644
 --- a/ios/AudioRecorder.swift
 +++ b/ios/AudioRecorder.swift
-@@ -285,16 +285,16 @@ class AudioRecorder: SharedRef<AVAudioRecorder>, RecordingResultHandler {
+@@ -210,6 +210,30 @@ class AudioRecorder: SharedRef<AVAudioRecorder>, RecordingResultHandler {
+     durationLimitSeconds = nil
+   }
+ 
++  /// Stops and finalizes the file right away, since JS may be suspended during a call.
++  func interrupt() {
++    guard currentState == .recording else {
++      return
++    }
++
++    // The delegate would report an ordinary finish; this status reports the interruption instead.
++    ref.delegate = nil
++    ref.stop()
++    ref.delegate = recordingDelegate
++    currentState = .stopped
++    resetDurationTracking()
++    durationLimitSeconds = nil
++
++    emit(event: recordingStatus, payload: [
++      "id": id,
++      "isFinished": true,
++      "hasError": false,
++      "error": nil,
++      "url": ref.url.absoluteString,
++      "interrupted": true
++    ])
++  }
++
+   func pauseRecording() {
+     isPausedBySystem = false
+     guard currentState == .recording else {
+@@ -285,16 +309,16 @@ class AudioRecorder: SharedRef<AVAudioRecorder>, RecordingResultHandler {
    }
  
    func didFinish(_ recorder: AVAudioRecorder, successfully flag: Bool) {
@@ -461,6 +712,29 @@ index 198fe6dc95b564ff3916657f14ea67fc44d2e424..5b396114bbeb5e1c99da54f4e6d2376a
        "url": recorder.url.absoluteString
      ])
    }
+diff --git a/src/Audio.types.ts b/src/Audio.types.ts
+index fe5f5c3a08d2be39b0fdb1da6ae6b158931cac4c..134c19bac13a2b4d679d627597365d2b4ecc610d 100644
+--- a/src/Audio.types.ts
++++ b/src/Audio.types.ts
+@@ -345,7 +345,8 @@ export type AndroidOutputFormat =
+   | 'amrwb'
+   | 'aac_adts'
+   | 'mpeg2ts'
+-  | 'webm';
++  | 'webm'
++  | 'ogg';
+ 
+ /**
+  * Audio encoder options for Android recording.
+@@ -355,7 +356,7 @@ export type AndroidOutputFormat =
+  *
+  * @platform android
+  */
+-export type AndroidAudioEncoder = 'default' | 'amr_nb' | 'amr_wb' | 'aac' | 'he_aac' | 'aac_eld';
++export type AndroidAudioEncoder = 'default' | 'amr_nb' | 'amr_wb' | 'aac' | 'he_aac' | 'aac_eld' | 'opus';
+ 
+ /**
+  * Bit rate strategies for audio encoding.
 diff --git a/src/AudioModule.types.ts b/src/AudioModule.types.ts
 index 3194a8ebd1b91793d03a1692c563b5d2e83c2738..d8822a6c2ad8a581275e2ca428f4b5d0ed961be2 100644
 --- a/src/AudioModule.types.ts
