@@ -46,6 +46,13 @@ const pullRequestInput = { cwd: "/w", repository: "acme/web", host: "github.com"
 type PullRequestRead = (
   input: typeof pullRequestInput,
 ) => Effect.Effect<unknown, GitHubPullRequestApi.GitHubPullRequestApiError>;
+// GitHub's answer for a pull request whose `refs/pull/<number>/head` it never created.
+const missingPullRef = {
+  type: "NOT_FOUND",
+  path: ["repository", "pullRequest", "baseRef", "compare"],
+  locations: [{ line: 1, column: 127 }],
+  message: "Could not resolve head ref 'refs/pull/7/head'.",
+};
 const refusedReviewerResponse = () =>
   Effect.succeed(output(encodeJson({ ...coreResponse(), errors: [refusedReviewer] })));
 
@@ -2550,6 +2557,20 @@ layer("GitHubPullRequestApi.layer", (it) => {
     }),
   );
 
+  it.effect("updates the branch of a pull request without its pull ref", () =>
+    Effect.gen(function* () {
+      route([
+        "query PullRequestActionState",
+        { ...actionState({ baseRef: { compare: null } }), errors: [missingPullRef] },
+      ]);
+      const cli = yield* GitHubPullRequestApi.GitHubPullRequestApi;
+      yield* cli.runPullRequestAction({ ...pullRequestInput, action: "update-branch" });
+      expect(variablesOf("updatePullRequestBranch(")).toEqual([
+        { pullRequestId: "PR_7", expectedHeadOid: "abc123", updateMethod: "MERGE" },
+      ]);
+    }),
+  );
+
   it.effect("merges at once when auto-merge is asked of a pull request that is ready now", () =>
     Effect.gen(function* () {
       route(["query PullRequestActionState", actionState({ mergeStateStatus: "CLEAN" })]);
@@ -3677,6 +3698,26 @@ layer("GitHubPullRequestApi.layer", (it) => {
         );
         expect(error._tag).toBe("GitHubPullRequestReadError");
       }),
+  );
+
+  it.effect("reads a pull request without its pull ref as having no base comparison", () =>
+    Effect.gen(function* () {
+      mockedExecute.mockReturnValueOnce(
+        Effect.succeed(
+          output(
+            encodeJson({
+              ...coreResponse({ baseRef: { compare: null } }),
+              errors: [missingPullRef],
+            }),
+          ),
+        ),
+      );
+      const cli = yield* GitHubPullRequestApi.GitHubPullRequestApi;
+      const detail = yield* cli.getPullRequestDetail(pullRequestInput);
+      expect(detail.number).toBe(7);
+      expect(detail.comparison).toBeNull();
+      expect(mockedExecute).toHaveBeenCalledOnce();
+    }),
   );
 
   it.effect("preserves the reserve for automatic detail reads and allows manual checks", () =>
