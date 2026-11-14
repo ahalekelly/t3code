@@ -339,6 +339,39 @@ const isRefusedRequestedReviewersOnly = (error: unknown): boolean =>
       path[5] === "requestedReviewer",
   );
 
+/**
+ * GitHub does not always create `refs/pull/<number>/head`. Comparing the base with a missing one
+ * fails only that field, so keep the rest of the answer and read the comparison as null.
+ */
+const withoutPullRefComparison =
+  <A>(result: Schema.Decoder<A>) =>
+  <E, R>(effect: Effect.Effect<A, E, R>) =>
+    effect.pipe(
+      Effect.catchIf(
+        (
+          error,
+        ): error is E &
+          GraphQLClientError.GraphQLClientError & { reason: GraphQLClientError.ResponseError } =>
+          isGraphQlClientError(error) &&
+          error.reason._tag === "ResponseError" &&
+          error.reason.status === 200 &&
+          error.reason.errors.every(
+            ({ path, type }) =>
+              type === "NOT_FOUND" && path?.join(".") === "repository.pullRequest.baseRef.compare",
+          ),
+        (error) =>
+          Schema.decodeEffect(result)(error.reason.data).pipe(
+            Effect.mapError(
+              (cause) =>
+                new GraphQLClientError.GraphQLClientError({
+                  operation: error.operation,
+                  reason: new GraphQLClientError.DecodeError({ description: cause.message }),
+                }),
+            ),
+          ),
+      ),
+    );
+
 /** A large pull request can produce a multi-megabyte patch; past this it is truncated. */
 const DIFF_MAX_OUTPUT_BYTES = 8 * 1024 * 1024;
 const DIFF_TIMEOUT = Duration.seconds(60);
@@ -1457,14 +1490,16 @@ export const make = Effect.gen(function* () {
     const { owner, name } = parseRepositorySelector(input.repository);
     const operation = "getPullRequestDetail";
     const read = (requestedReviewers: number) =>
-      client.PullRequestCore({
-        owner,
-        name,
-        number: input.number,
-        headRef: `refs/pull/${input.number}/head`,
-        required: asksRequired(input.host),
-        requestedReviewers,
-      });
+      client
+        .PullRequestCore({
+          owner,
+          name,
+          number: input.number,
+          headRef: `refs/pull/${input.number}/head`,
+          required: asksRequired(input.host),
+          requestedReviewers,
+        })
+        .pipe(withoutPullRefComparison(client.PullRequestCore.operation.result));
     return SourceControlRateLimit.Interactive.pipe(
       Effect.flatMap((allowReserve) =>
         readRequestedReviewers(input, 100, read).pipe(
@@ -2637,6 +2672,7 @@ export const make = Effect.gen(function* () {
             headRef: `refs/pull/${input.number}/head`,
           })
           .pipe(
+            withoutPullRefComparison(client.PullRequestActionState.operation.result),
             graphql({ ...target, allowReserve: true }),
             Effect.map((result) => result.repository?.pullRequest ?? null),
             Effect.flatMap(found(target)),

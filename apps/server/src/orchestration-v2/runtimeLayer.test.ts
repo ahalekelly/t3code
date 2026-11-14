@@ -3326,12 +3326,13 @@ it.layer(layerTest)("OrchestrationV2LayerLive lifecycle", (it) => {
         const readFailure = (operation: string, failure: "failed" | "not-found" | "forbidden") =>
           new PullRequestOperationError({
             operation,
-            detail: "host read failed",
+            detail: "Host read failed.",
             cause: new PullRequestProviderError({
               provider: SourceControlProviderKind.make("github"),
               operation,
               reason: failure,
-              detail: "host read failed",
+              detail: "Host read failed.",
+              accessHint: "Give the token access.",
             }),
           });
         const reactor = yield* PullRequestWatchReactor.make.pipe(
@@ -3400,6 +3401,11 @@ it.layer(layerTest)("OrchestrationV2LayerLive lifecycle", (it) => {
         if (reason !== "failed") {
           assert.isUndefined(thread?.pullRequests?.[0]?.watch);
           assert.deepEqual(yield* summaries, ["#8: stopped watching, could not read it"]);
+          const { messages } = yield* orchestrator.getThreadRecords(threadId, ["messages"]);
+          assert.include(
+            messages.at(-1)?.text,
+            "8 times in a row: Host read failed. Give the token access. Check it yourself,",
+          );
           return;
         }
         assert.isDefined(thread?.pullRequests?.[0]?.watch);
