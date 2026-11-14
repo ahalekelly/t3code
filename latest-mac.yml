@@ -1,0 +1,11 @@
+version: 0.1.10-akelly-0125
+files:
+  - url: https://github.com/ahalekelly/t3code/releases/download/mac-0.1.10-akelly-0125/T3-Code-0.1.10-akelly-0125-arm64.zip
+    sha512: kWCbU1oIMPa9t/8qF2gwfQCgJtHO9+KXLmjyXetldCkcKra6CTywYgIjqOmnmusN/lM0FGOURBnLPE/0Lybqfw==
+    size: 187924786
+  - url: https://github.com/ahalekelly/t3code/releases/download/mac-0.1.10-akelly-0125/T3-Code-0.1.10-akelly-0125-arm64.dmg
+    sha512: yVeTRPryEFy/FPeFjNFzd3tEk6+ii1wMDjk+TmNOvN0yZWD6/DyyBR7EFRhdsbzuTjvLSBdG0ZKxpVz445zBoQ==
+    size: 195369850
+path: https://github.com/ahalekelly/t3code/releases/download/mac-0.1.10-akelly-0125/T3-Code-0.1.10-akelly-0125-arm64.zip
+sha512: kWCbU1oIMPa9t/8qF2gwfQCgJtHO9+KXLmjyXetldCkcKra6CTywYgIjqOmnmusN/lM0FGOURBnLPE/0Lybqfw==
+releaseDate: '2026-11-14T20:35:49.061Z'
