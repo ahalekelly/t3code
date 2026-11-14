@@ -5733,6 +5733,8 @@ interface ActiveClaudeSubagent {
   // Clients group cards by launching turn; later updates can arrive during another turn.
   readonly providerTurnId: OrchestrationV2ProviderTurn["id"];
   readonly runToolUseId: string | null;
+  // A Skill launch: its notification summary is only the skill's name.
+  readonly forkedSkill: boolean;
   readonly effort: string | undefined;
   nextChildItemOrdinal: number;
   // Keyed on Claude's per-run id so a resumed run's result never replaces an earlier one.
@@ -8134,6 +8136,7 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
             ),
             providerTurnId: resume.context.providerTurnId,
             runToolUseId: launchToolUseId,
+            forkedSkill: false,
             effort: undefined,
             nextChildItemOrdinal: 100,
             resultNativeItemId: `task:${resume.taskId}:result`,
@@ -8794,11 +8797,9 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
           const model = input.model ?? priorTask?.model ?? null;
           const movesToCurrentRun =
             input.reopen === true && input.status === "running" && existingSubagent !== undefined;
-          // A forked skill's notification summary is only its name; its Skill call's result is the report.
+          // A forked skill's report arrives in its Skill call's result, not its notification.
           const result =
-            input.nativeOutcome !== undefined &&
-            existingSubagent?.runToolUseId != null &&
-            findToolCall(input.context, existingSubagent.runToolUseId)?.toolName === "Skill"
+            input.nativeOutcome !== undefined && existingSubagent?.forkedSkill === true
               ? undefined
               : input.result;
           const task = {
@@ -8868,6 +8869,10 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
               existingSubagent === undefined
                 ? (input.toolUseId ?? null)
                 : (resumeToolUseId ?? existingSubagent.runToolUseId),
+            forkedSkill:
+              existingSubagent?.forkedSkill ??
+              (input.toolUseId !== undefined &&
+                findToolCall(input.context, input.toolUseId)?.toolName === "Skill"),
             childThread: existingSubagent?.childThread ?? null,
             effort,
             nextChildItemOrdinal: existingSubagent?.nextChildItemOrdinal ?? 100,
