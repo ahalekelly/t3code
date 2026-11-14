@@ -5,7 +5,6 @@ import type {
   OrchestrationV2ThreadShell,
   OrchestrationV2TurnItem,
   ThreadId,
-  ThreadPullRequestLink,
 } from "@t3tools/contracts";
 import { isOrchestrationV2WorkActive } from "@t3tools/contracts";
 import * as Predicate from "effect/Predicate";
@@ -119,13 +118,6 @@ export function monitorHoldsWakeCompletion(
 }
 
 type PendingBackgroundWorkRun = Pick<OrchestrationV2Run, "id" | "ordinal" | "status">;
-
-type PendingBackgroundWorkPullRequest = Pick<
-  ThreadPullRequestLink,
-  "host" | "repository" | "number" | "url" | "source" | "watch"
-> & {
-  readonly snapshot: Pick<NonNullable<ThreadPullRequestLink["snapshot"]>, "state"> | null;
-};
 
 type PendingBackgroundWorkProviderThread = Pick<
   OrchestrationV2ProviderThread,
@@ -244,7 +236,6 @@ export function derivePendingBackgroundWork(input: {
   readonly hasActiveRun?: boolean;
   /** Excludes rolled-back runs; optional only when the caller already filtered them, as SQL shell reads do. */
   readonly runs?: ReadonlyArray<PendingBackgroundWorkRun>;
-  readonly pullRequests?: ReadonlyArray<PendingBackgroundWorkPullRequest> | undefined;
 }): ReadonlyArray<PendingBackgroundWorkTask> {
   const hasActiveRun =
     input.hasActiveRun ??
@@ -254,9 +245,6 @@ export function derivePendingBackgroundWork(input: {
     false;
   if (hasActiveRun) {
     return [];
-  }
-  if (input.latestRun == null) {
-    return pullRequestWatchTasks(input.pullRequests);
   }
   if (!isLatestRunSettledForBackgroundWait(input.latestRun)) {
     return [];
@@ -295,29 +283,5 @@ export function derivePendingBackgroundWork(input: {
     byTaskId.set(taskId, pendingTaskFromTurnItem(taskId, item));
   }
 
-  for (const task of pullRequestWatchTasks(input.pullRequests)) byTaskId.set(task.taskId, task);
-
   return Array.from(byTaskId.values());
-}
-
-function pullRequestWatchTasks(
-  pullRequests: ReadonlyArray<PendingBackgroundWorkPullRequest> | undefined,
-): Array<PendingBackgroundWorkTask> {
-  return (pullRequests ?? []).flatMap((link) =>
-    // The watch reactor ends a merged PR's watch without waking the agent, so it holds nothing.
-    link.watch === undefined ||
-    link.source === "stack-dismissed" ||
-    link.snapshot?.state === "merged"
-      ? []
-      : [
-          {
-            // Links store their normalized identity, and this id only has to be unique within the
-            // thread, so it reads those fields instead of parsing the URL.
-            taskId: `pull-request-watch:${link.host.toLowerCase()}/${link.repository.toLowerCase()}#${link.number}`,
-            description: `Watching pull request #${link.number}`,
-            kind: "monitor" as const,
-            awaited: true as const,
-          },
-        ],
-  );
 }
