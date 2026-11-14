@@ -16118,7 +16118,8 @@ describe("ClaudeAdapterV2 background wake turns", () => {
             : [skillResult, notification]) {
             yield* harness.offerAndWait(frame);
           }
-          yield* harness.until(() => subagentResults().at(-1) === "No findings.");
+          yield* harness.until(() => subagentResults().length === 3);
+          assert.equal(subagentResults().at(-1), "No findings.");
           assert.notInclude(subagentResults(), "/code-review");
         }
       }).pipe(
