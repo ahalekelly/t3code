@@ -67,6 +67,17 @@ const providerFailureReason = (cause: Cause.Cause<PullRequestService.PullRequest
         : null,
   });
 
+const failureDetail = (cause: Cause.Cause<PullRequestService.PullRequestError>) =>
+  Option.match(Cause.findErrorOption(cause), {
+    onNone: () => null,
+    onSome: (error) =>
+      error._tag !== "PullRequestOperationError"
+        ? error.message
+        : isProviderError(error.cause) && error.cause.accessHint !== undefined
+          ? `${error.detail} ${error.cause.accessHint}`
+          : error.detail,
+  });
+
 const logFailure =
   (message: string, fields: Record<string, unknown>) =>
   <E>(cause: Cause.Cause<E>): Effect.Effect<void> =>
@@ -331,9 +342,9 @@ export const make = Effect.gen(function* () {
     });
   });
 
-  const giveUp = (target: WatchTarget) =>
+  const giveUp = (target: WatchTarget, detail: string | null) =>
     record(target, null, {
-      text: `T3 Code stopped watching pull request #${target.link.number} (${target.link.url}) because it failed to read it from the host ${READ_FAILURE_LIMIT} times in a row. Check it yourself, and call watch_pull_request only if it is still open.`,
+      text: `T3 Code stopped watching pull request #${target.link.number} (${target.link.url}) because it failed to read it from the host ${READ_FAILURE_LIMIT} times in a row${detail === null ? "." : `: ${detail}`} Check it yourself, and call watch_pull_request only if it is still open.`,
       notification: {
         source: { kind: "monitor" },
         outcome: "failed",
@@ -599,7 +610,10 @@ export const make = Effect.gen(function* () {
       }
       const failures = (readFailures.get(group.key) ?? 0) + 1;
       readFailures.set(group.key, failures);
-      if (failures >= READ_FAILURE_LIMIT && (yield* eachTarget(group, giveUp))) {
+      if (
+        failures >= READ_FAILURE_LIMIT &&
+        (yield* eachTarget(group, (target) => giveUp(target, failureDetail(detailRead.cause))))
+      ) {
         readFailures.delete(group.key);
       }
       return yield* Effect.failCause(detailRead.cause);
