@@ -474,7 +474,8 @@ describe("RemoteEnvironmentAuthorization", () => {
   it.effect("gives up on a silent loopback or LAN address sooner than on a remote one", () =>
     Effect.gen(function* () {
       const silent = () => new Promise<Response>(() => {});
-      const harness = yield* makeHarness({ responses: [silent, silent, silent] });
+      // Each address is fetched twice: the hedge starts a second attempt at 2 s.
+      const harness = yield* makeHarness({ responses: Array.from({ length: 6 }, () => silent) });
 
       yield* Effect.gen(function* () {
         const remote = yield* RemoteEnvironmentAuthorization.RemoteEnvironmentAuthorization;
