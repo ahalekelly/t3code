@@ -109,11 +109,24 @@ it("retains all PCM until stop, retries batch audio, and captures preferences be
   const pendingStatus = new Promise<Response>((resolve) => {
     resolveStatus = resolve;
   });
+  const sockets: string[] = [];
+  using _socket = stubGlobal(
+    "WebSocket",
+    class extends EventTarget {
+      constructor(url: string) {
+        super();
+        sockets.push(url);
+      }
+      close() {}
+    },
+  );
   const fetch = globalThis.fetch;
   using _network = vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
     const request = new Request(input, init);
     if (request.url === `${prepared.httpBaseUrl}/api/voice/status`)
       return (await pendingStatus).clone();
+    if (request.url.includes("/api/auth/websocket-ticket/"))
+      return Response.json({ ticket: "stream-ticket", expiresAt: "2030-01-01T00:00:00.000Z" });
     if (request.url === `${prepared.httpBaseUrl}/api/voice/transcribe`) {
       expect(request.headers.get("authorization")).toBe("Bearer audio-grant");
       requests.push(decodeSpeechPcmRequest(new Uint8Array(await request.arrayBuffer())));
@@ -177,8 +190,11 @@ it("retains all PCM until stop, retries batch audio, and captures preferences be
       Math.fround(0.2),
       Math.fround(0.3),
     ]);
-    expect(request.options.speechLanguage).toBe("fr");
   }
+  // The retry prepares again: it takes the language chosen since the failure, and sends the
+  // kept recording as a file even though the new preparation streams.
+  expect(requests.map((request) => request.options.speechLanguage)).toEqual(["fr", "en"]);
+  expect(sockets).toHaveLength(1);
   expect(platform.recorder.uri).toBeNull();
   expect(microphone.stopTrack).toHaveBeenCalledOnce();
   expect(onError).not.toHaveBeenCalled();
