@@ -1456,7 +1456,7 @@ describe("PullRequestSyncReactor", () => {
     }),
   );
 
-  it.effect("reads a settled thread's links once when it settles, then only watched until unsettled", () =>
+  it.effect("reads a settled thread's watched links, and the rest once when it settles", () =>
     Effect.gen(function* () {
       yield* TestClock.setTime(Date.parse(NOW));
       const watch = {
