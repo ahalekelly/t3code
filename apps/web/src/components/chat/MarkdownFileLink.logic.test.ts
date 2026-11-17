@@ -5,7 +5,7 @@ import { shouldUseMarkdownFileBrowserPrimaryAction } from "./MarkdownFileLink.lo
 it("uses the browser for other files only when no other destination exists", () => {
   expect(
     shouldUseMarkdownFileBrowserPrimaryAction({
-      iconPath: "notes.md",
+      iconPath: "notes.txt",
       line: undefined,
       canOpenInEditor: true,
       canOpenInBrowser: true,
@@ -14,7 +14,7 @@ it("uses the browser for other files only when no other destination exists", () 
   ).toBe(false);
   expect(
     shouldUseMarkdownFileBrowserPrimaryAction({
-      iconPath: "notes.md",
+      iconPath: "notes.txt",
       line: undefined,
       canOpenInEditor: false,
       canOpenInBrowser: true,
@@ -23,7 +23,7 @@ it("uses the browser for other files only when no other destination exists", () 
   ).toBe(false);
   expect(
     shouldUseMarkdownFileBrowserPrimaryAction({
-      iconPath: "notes.md",
+      iconPath: "notes.txt",
       line: undefined,
       canOpenInEditor: false,
       canOpenInBrowser: true,
