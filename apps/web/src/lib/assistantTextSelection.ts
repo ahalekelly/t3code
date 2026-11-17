@@ -2,6 +2,7 @@ import type { AssistantCitation } from "@t3tools/contracts";
 import {
   createAssistantTextSelector,
   findAssistantCitationText,
+  splitsSurrogatePair,
   type AssistantTextSelector,
 } from "@t3tools/shared/assistantCitations";
 
