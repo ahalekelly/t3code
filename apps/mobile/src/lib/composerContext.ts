@@ -4,6 +4,7 @@ import {
 } from "@t3tools/client-runtime/composer-model-mentions";
 import { isProviderSkillUserInvocable } from "@t3tools/client-runtime/providerSkills";
 import { sourceControlClients } from "@t3tools/client-runtime/source-control-clients";
+import { collectAssistantCitations } from "@t3tools/shared/assistantCitations";
 import { filePreviewKind } from "@t3tools/shared/filePreview";
 import { videoMimeType } from "@t3tools/shared/video";
 import {
@@ -194,13 +195,15 @@ export function composerContextEditorTokens(
   modelTokens: ReadonlyArray<ComposerModelMentionOccurrence> = [],
 ) {
   const references = collectComposerContextReferences(text);
+  const citations = collectAssistantCitations(text);
+  const links = [...references, ...citations];
   const inlineTokens = tokens.filter(
     (token) =>
       // `$HOME` and other `$name` text that is not one of the provider's skills stays prose.
       (token.type !== "skill" || knownSkills.has(token.value)) &&
-      !references.some((ref) => token.start < ref.end && token.end > ref.start),
+      !links.some((link) => token.start < link.end && token.end > link.start),
   );
-  const taken = [...inlineTokens, ...references, ...composerMathRanges(text)];
+  const taken = [...inlineTokens, ...links, ...composerMathRanges(text)];
   const models = modelTokens.filter(
     (mention) => !taken.some((range) => mention.start < range.end && mention.end > range.start),
   );
@@ -210,6 +213,11 @@ export function composerContextEditorTokens(
       type: "context" as const,
       value: ref.label,
       ...ref,
+    })),
+    ...citations.map((match) => ({
+      type: "citation" as const,
+      value: match.citation.text,
+      ...match,
     })),
     ...models.map((mention) => ({
       type: "model" as const,
