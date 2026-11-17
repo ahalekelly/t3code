@@ -72,7 +72,6 @@ import {
   resolveDisclosureRevealScrollDelta,
 } from "./timelineScrollAnchoring";
 import { AssistantSelectionToolbar } from "./AssistantSelectionToolbar";
-import type { AssistantCitationSourceAnchor } from "~/lib/assistantTextSelection";
 import { type AssistantCitationRequest } from "./AssistantCitationSource";
 import { useAssistantCitationTarget } from "./useAssistantCitationTarget";
 import { worktreeSetupAgentStarted } from "@t3tools/client-runtime/worktree-setup";
@@ -226,10 +225,7 @@ interface MessagesTimelineProps {
   onRespondToApproval?: TimelineRowSharedState["onRespondToApproval"];
   citationRequest?: AssistantCitationRequest | null;
   citationHistory?: CitedHistory;
-  onCiteAssistantText?: (
-    citation: AssistantCitation,
-    sourceAnchor: AssistantCitationSourceAnchor,
-  ) => boolean;
+  onCiteAssistantText?: (citation: AssistantCitation) => boolean;
   onReplyToResponse?: TimelineRowSharedState["onReplyToResponse"];
   isWorking: boolean;
   runlessWorkActive?: boolean;

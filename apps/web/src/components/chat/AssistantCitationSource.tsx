@@ -20,11 +20,9 @@ const COMMENT_HIGHLIGHT_NAME = "t3-assistant-citation-comment";
 export function observeAssistantCitationCommentSource({
   anchor,
   citation,
-  onUnavailable,
 }: {
   anchor: AssistantCitationSourceAnchor;
   citation: AssistantCitation;
-  onUnavailable: () => void;
 }): () => void {
   const { source, range, viewport } = anchor;
   const registry = typeof CSS !== "undefined" ? CSS.highlights : undefined;
@@ -45,14 +43,9 @@ export function observeAssistantCitationCommentSource({
       registry.delete(COMMENT_HIGHLIGHT_NAME);
     }
   };
-  const unavailable = () => {
-    if (stopped) return;
-    dispose();
-    onUnavailable();
-  };
   const validate = (sourceChanged: boolean): boolean => {
     if (!source.isConnected || !viewport.contains(source)) {
-      unavailable();
+      dispose();
       return false;
     }
     if (
@@ -63,7 +56,7 @@ export function observeAssistantCitationCommentSource({
     ) {
       const repaired = resolveAssistantCitationRange(source, citation);
       if (!repaired) {
-        unavailable();
+        dispose();
         return false;
       }
       range.setStart(repaired.startContainer, repaired.startOffset);
