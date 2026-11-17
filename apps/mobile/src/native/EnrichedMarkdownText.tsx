@@ -217,7 +217,11 @@ function codeBlockElement(
   return undefined;
 }
 
-export function MobileEnrichedMarkdownText(props: SelectableMarkdownTextProps) {
+export function MobileEnrichedMarkdownText(
+  props: SelectableMarkdownTextProps & {
+    readonly allowTrailingMargin?: boolean;
+  },
+) {
   const { renderImage, resolveImageSource, fileEmbedLabel } = props;
   const { themeAppearance, mathRenderingEnabled } = useAppearancePreferences();
   const { markdown, fileHrefs } = useMemo(() => {
@@ -432,6 +436,7 @@ export function MobileEnrichedMarkdownText(props: SelectableMarkdownTextProps) {
           enableTaskListItemToggle={props.onTaskListItemPress !== undefined}
           onTaskListItemPress={props.onTaskListItemPress}
           enableCodeBlockWrapToggle
+          allowTrailingMargin={props.allowTrailingMargin}
           spoilerOverlay="solid"
           onLinkPress={
             props.onLinkPress || props.onImagePress ? ({ url }) => onLinkPress(url) : undefined
