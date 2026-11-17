@@ -286,7 +286,7 @@ describe("global voice input", () => {
       .mockResolvedValue("spoken text");
     prepare.mockImplementation(async () => ({ locale: "en-US", transcribe }));
     const commit = vi.fn();
-    const target = createTarget("first", () => "first", commit, { start: 5, end: 5 });
+    const target = createVoiceInputTarget("first", () => "first", commit, { start: 5, end: 5 });
     await session.start(target);
     await session.controller.stop();
     expect(session.getSnapshot().canTranscribeAgain).toBe(true);
