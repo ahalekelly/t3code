@@ -3,23 +3,15 @@ import {
   formatProviderSkillDisplayName,
   type InlineSkill,
 } from "./inlineSkills.ts";
-import {
-  artifactTemplateFromHastProperties,
-  renderCodexInlineDirectivesAsMarkdown,
-} from "./codexMarkdownDirectives.ts";
+import { artifactTemplateFromHastProperties } from "./codexMarkdownDirectives.ts";
 import { codexArtifactTemplatePresentationLabel } from "./codexArtifactTemplates.ts";
-import {
-  buildFileLinkParentSuffixByPath,
-  splitFilePathPosition,
-  fileLinkLabel,
-} from "./fileLinks.ts";
+import { splitFilePathPosition, fileLinkLabel } from "./fileLinks.ts";
 import {
   isMarkdownFileLinkLabel,
-  extractMarkdownLinkHrefs,
-  extractInlineCodeSpans,
   inlineCodeFilePathCandidate,
   resolveMarkdownFileLinkTarget,
 } from "./markdownLinks.ts";
+import { workspaceRelativeFilePath } from "./path.ts";
 import { upgradeLegacyContextMessage } from "./composerContextLegacy.ts";
 import {
   isAttachmentOnlyBootstrapPrompt,
@@ -38,7 +30,6 @@ import {
   CHAT_MARKDOWN_REMARK_PLUGINS,
   CHAT_MARKDOWN_REMARK_PLUGINS_WITH_BREAKS,
   CHAT_USER_MARKDOWN_REMARK_PLUGINS,
-  decodeMarkdownLinkEscapes,
 } from "./markdownPipeline.ts";
 
 // Inline wrappers (including Shiki token spans) must not split a search phrase.
@@ -130,16 +121,6 @@ function markdownThreadFindText(
       : insightProcessor
     : processor;
   const tree = renderer.runSync(renderer.parse(markdown), markdown);
-  const paths = [
-    ...extractMarkdownLinkHrefs(renderCodexInlineDirectivesAsMarkdown(markdown)).map(
-      decodeMarkdownLinkEscapes,
-    ),
-    ...extractInlineCodeSpans(markdown).flatMap((span) => inlineCodeFilePathCandidate(span) ?? []),
-  ].flatMap((href) => {
-    const target = resolveMarkdownFileLinkTarget(href, cwd);
-    return target ? [splitFilePathPosition(target).path] : [];
-  });
-  const parentSuffixes = buildFileLinkParentSuffixByPath(paths);
   const segments: string[] = [];
   let text = "";
   const flush = () => {
@@ -180,7 +161,11 @@ function markdownThreadFindText(
         const label = labelText(node);
         if (node.tagName === "a" && candidate && !isMarkdownFileLinkLabel(label, candidate))
           text += `${label} `;
-        text += fileLinkLabel(splitFilePathPosition(target), parentSuffixes);
+        const position = splitFilePathPosition(target);
+        text += fileLinkLabel({
+          ...position,
+          path: workspaceRelativeFilePath(position.path, cwd) ?? position.path,
+        });
         return;
       }
     }
