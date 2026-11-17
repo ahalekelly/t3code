@@ -27,6 +27,10 @@ describe("promptLinkSearchFromParams", () => {
       },
     });
   });
+
+  it("carries the New Chat control's scratch and dictate params", () => {
+    expect(promptLinkSearchFromParams({ scratch: "1", dictate: "1" })).toBe("scratch=1&dictate=1");
+  });
 });
 
 describe("stepPendingPromptLink", () => {
