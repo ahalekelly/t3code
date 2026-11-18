@@ -31,7 +31,7 @@ function deferred<T>() {
 
 async function transcribe(signal: AbortSignal, source: "openai" | "azure" = "openai") {
   const transcriber = createCloudVoiceTranscriber(source, ["sk-test"]);
-  const prepared = await transcriber.prepare({ signal });
+  const prepared = await transcriber.prepare({ signal, audio: "live" });
   return prepared.transcribe("file:///voice.ogg", { signal });
 }
 
@@ -94,7 +94,7 @@ describe("createCloudVoiceTranscriber", () => {
       .mockResolvedValueOnce(response(200, { combinedPhrases: [{ text: "Hej." }] }));
     const transcriber = createCloudVoiceTranscriber("azure", ["free", "paid"]);
     const { signal } = new AbortController();
-    const prepared = await transcriber.prepare({ signal });
+    const prepared = await transcriber.prepare({ signal, audio: "live" });
 
     await expect(prepared.transcribe("file:///voice.ogg", { signal })).resolves.toBe("Hej.");
     expect(mocks.upload.mock.calls.map(([, options]) => options.headers)).toEqual([
@@ -112,7 +112,9 @@ describe("createCloudVoiceTranscriber", () => {
       const transcriber = createCloudVoiceTranscriber("azure", ["spent", "paid"]);
       const { signal } = new AbortController();
       const transcribeOnce = async () =>
-        (await transcriber.prepare({ signal })).transcribe("file:///voice.ogg", { signal });
+        (await transcriber.prepare({ signal, audio: "live" })).transcribe("file:///voice.ogg", {
+          signal,
+        });
       const keysUsed = () =>
         mocks.upload.mock.calls.map(
           ([, options]) => options.headers?.["Ocp-Apim-Subscription-Key"],
@@ -139,7 +141,9 @@ describe("createCloudVoiceTranscriber", () => {
       const transcriber = createCloudVoiceTranscriber("azure", ["early", "paid"]);
       const { signal } = new AbortController();
       const transcribeOnce = async () =>
-        (await transcriber.prepare({ signal })).transcribe("file:///voice.ogg", { signal });
+        (await transcriber.prepare({ signal, audio: "live" })).transcribe("file:///voice.ogg", {
+          signal,
+        });
       const keysUsed = () =>
         mocks.upload.mock.calls.map(
           ([, options]) => options.headers?.["Ocp-Apim-Subscription-Key"],

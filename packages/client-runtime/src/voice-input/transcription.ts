@@ -26,8 +26,13 @@ export type PreparedVoiceTranscription = {
   readonly streaming?: VoiceStreamingSession | undefined;
 };
 
+export type VoicePreparationOptions = VoiceTranscriptionOptions & {
+  /** A kept recording already exists, so it transcribes as a file and nothing streams. */
+  readonly audio: "live" | "kept";
+};
+
 export type VoiceTranscriber = {
-  readonly prepare: (options: VoiceTranscriptionOptions) => Promise<PreparedVoiceTranscription>;
+  readonly prepare: (options: VoicePreparationOptions) => Promise<PreparedVoiceTranscription>;
 };
 
 const VoiceTranscriptionErrorCode = Schema.Literals([

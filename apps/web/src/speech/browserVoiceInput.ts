@@ -120,11 +120,13 @@ export function createBrowserVoiceInputPlatform(input: {
           recordingOptions.speechLanguage,
         )
       : "auto";
-    const nativeStreaming = status.supportsStreaming && streamingEnabled;
+    const nativeStreaming =
+      options.audio === "live" && status.supportsStreaming && streamingEnabled;
     const batchLocale =
       status.supportsTranslation && recordingOptions.speechTranslateToEnglish ? "en" : language;
     const batch = { locale: batchLocale, transcribe: transcribeRecording };
     if (
+      options.audio === "kept" ||
       !canStream() ||
       (status.supportsStreaming ? !nativeStreaming : !status.supportsBufferedStreaming)
     ) {
