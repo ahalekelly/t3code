@@ -1,5 +1,6 @@
 import { PASTED_TEXT_ATTACHMENT_THRESHOLD_BYTES } from "@t3tools/client-runtime/text-paste";
 import { PROVIDER_SEND_TURN_MAX_INPUT_CHARS } from "@t3tools/contracts";
+import { assistantCitationLabel } from "@t3tools/shared/assistantCitations";
 import { collectComposerInlineTokens } from "@t3tools/shared/composerInlineTokens";
 import { composerContextEditorTokens, composerSkillLabels } from "../lib/composerContext";
 import { DEFAULT_COMPOSER_ENTER_BEHAVIOR } from "../lib/composerEnterBehavior";
@@ -215,9 +216,11 @@ export function ComposerEditor({
               ? (skillLabels.get(token.value) ?? token.value)
               : model
                 ? model.label
-                : token.type === "context"
-                  ? `${token.label}${props.context?.records.some((record) => record.contextId === token.contextId) ? "" : " · unavailable"}`
-                  : basename(token.value),
+                : token.type === "citation"
+                  ? assistantCitationLabel(token.citation)
+                  : token.type === "context"
+                    ? `${token.label}${props.context?.records.some((record) => record.contextId === token.contextId) ? "" : " · unavailable"}`
+                    : basename(token.value),
           detail: token.type === "context" ? composerChipSizeSuffix(record) : "",
           iconUri: model ? modelChipIconUri(model) : contextChipIconUri(icon),
           tintsIcon: model ? modelChipIcon(model).tintsIcon : icon.kind === "chip",
