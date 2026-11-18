@@ -106,12 +106,16 @@ export function createBrowserVoiceInputPlatform(input: {
           recordingOptions.speechLanguage,
         )
       : "auto";
-    const nativeStreaming = status.supportsStreaming && streamingEnabled;
+    const nativeStreaming =
+      options.audio === "live" && status.supportsStreaming && streamingEnabled;
     const locale =
       !nativeStreaming && status.supportsTranslation && recordingOptions.speechTranslateToEnglish
         ? "en"
         : language;
-    if (status.supportsStreaming ? !nativeStreaming : !status.supportsBufferedStreaming) {
+    if (
+      options.audio === "kept" ||
+      (status.supportsStreaming ? !nativeStreaming : !status.supportsBufferedStreaming)
+    ) {
       return { locale, transcribe: transcribeRecording };
     }
     const url = await runEnvironmentSpeech(getEnvironmentSpeechStreamUrl(input.prepared), options);
