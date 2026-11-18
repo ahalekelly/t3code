@@ -11,6 +11,8 @@ export type VoiceStreamingSession = {
 
 export type PreparedVoiceTranscription = {
   readonly locale: string;
+  /** Defaults to `VOICE_RECORDING_LIMIT_SECONDS`. */
+  readonly recordingLimitSeconds?: number;
   /**
    * Runs alongside capture once recording starts. Resolves with the transcript when it
    * transcribed live, or null when `transcribe` still runs after the recording stops.
@@ -22,8 +24,13 @@ export type PreparedVoiceTranscription = {
   readonly streaming?: VoiceStreamingSession;
 };
 
+export type VoicePreparationOptions = VoiceTranscriptionOptions & {
+  /** A kept recording already exists, so it transcribes as a file and nothing streams. */
+  readonly audio: "live" | "kept";
+};
+
 export type VoiceTranscriber = {
-  readonly prepare: (options: VoiceTranscriptionOptions) => Promise<PreparedVoiceTranscription>;
+  readonly prepare: (options: VoicePreparationOptions) => Promise<PreparedVoiceTranscription>;
 };
 
 const VoiceTranscriptionErrorCode = Schema.Literals([

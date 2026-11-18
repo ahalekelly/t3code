@@ -1,5 +1,4 @@
 import {
-  VOICE_RECORDING_LIMIT_SECONDS,
   VoiceInputController,
   voiceInputBlocksSubmission,
   type VoiceDraftSnapshot,
@@ -27,6 +26,8 @@ export type VoiceInputSnapshot = {
   readonly label: string | null;
   readonly elapsedSeconds: number;
   readonly focusedOwners: ReadonlySet<string>;
+  /** The failed recording is kept, so `retry()` transcribes it again. */
+  readonly canTranscribeAgain: boolean;
 };
 
 export type VoiceRecordingSample = {
@@ -77,6 +78,7 @@ export class VoiceInputSession {
     label: null,
     elapsedSeconds: 0,
     focusedOwners: new Set(),
+    canTranscribeAgain: false,
   };
   private readonly listeners = new Set<() => void>();
   private audioLevels = SILENT_LEVELS;
@@ -87,6 +89,7 @@ export class VoiceInputSession {
     this.dependencies = dependencies;
     this.controller = new VoiceInputController({
       ...dependencies,
+      retryFailedRecording: true,
       onStateChange: (state) => this.handleStateChange(state),
       // The target's selection is fixed at start, so a draft changed since refuses the transcript.
       readDraft: () => {
@@ -125,10 +128,16 @@ export class VoiceInputSession {
   }
 
   retry(): Promise<void> {
-    return this.target ? this.start(this.target) : Promise.resolve();
+    return this.target ? this.begin(this.target) : Promise.resolve();
   }
 
+  /** A new recording replaces a failed one kept for `retry()`. */
   start(target: VoiceInputTarget): Promise<void> {
+    if (this.controller.hasRetryRecording) this.controller.cancel();
+    return this.begin(target);
+  }
+
+  private begin(target: VoiceInputTarget): Promise<void> {
     if (voiceInputBlocksSubmission(this.controller.currentState)) return Promise.resolve();
     this.target = target;
     this.startText = target.readDraft()?.text ?? null;
@@ -157,6 +166,7 @@ export class VoiceInputSession {
       ownerKey: this.ownerKey,
       label: this.label,
       elapsedSeconds,
+      canTranscribeAgain: this.controller.hasRetryRecording,
     });
     if (state.phase === "recording" && previousPhase !== "recording") {
       this.startRecordingActivity();
@@ -187,7 +197,7 @@ export class VoiceInputSession {
     }
 
     const elapsedSeconds = Math.min(
-      VOICE_RECORDING_LIMIT_SECONDS,
+      this.controller.recordingLimitSeconds,
       Math.max(0, Math.floor(sample.durationMillis / 1_000)),
     );
     if (elapsedSeconds !== this.snapshot.elapsedSeconds) {

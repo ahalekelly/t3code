@@ -57,6 +57,8 @@ export type VoiceRecorderStatus = {
   readonly hasError: boolean;
   readonly error: string | null;
   readonly url: string | null;
+  /** A call, Siri, or an alarm stopped the recording; `url` holds what was captured. */
+  readonly interrupted: boolean;
 };
 
 export interface VoiceRecorder {
@@ -95,6 +97,9 @@ export type VoiceInputControllerDependencies = {
     selection: { readonly start: number; readonly end: number },
   ) => void;
   readonly onStateChange: (state: VoiceInputState) => void;
+  readonly onRecordingInterrupted?: () => void;
+  /** Keeps a backgrounded app running until the transcript lands; returns the release. */
+  readonly holdBackgroundTime?: () => Promise<() => void>;
 };
 
 type TranscriptCommitResult =
@@ -268,11 +273,7 @@ export class VoiceInputController {
   private readonly ownedRecordingUris = new Set<string>();
   private recordingConfigured = false;
   private finishing = false;
-  private retryRecording: {
-    uri: string;
-    ownerKey: string;
-    transcription: PreparedVoiceTranscription;
-  } | null = null;
+  private retryRecording: { uri: string; ownerKey: string } | null = null;
 
   constructor(dependencies: VoiceInputControllerDependencies) {
     this.dependencies = dependencies;
@@ -280,6 +281,15 @@ export class VoiceInputController {
 
   get currentState(): VoiceInputState {
     return this.state;
+  }
+
+  /** The failed recording `start()` transcribes again instead of recording anew. */
+  get hasRetryRecording(): boolean {
+    return this.retryRecording !== null;
+  }
+
+  get recordingLimitSeconds(): number {
+    return this.transcription?.recordingLimitSeconds ?? VOICE_RECORDING_LIMIT_SECONDS;
   }
 
   async start(): Promise<void> {
@@ -315,39 +325,45 @@ export class VoiceInputController {
         this.retryRecording = null;
         this.deleteOwnedRecordings();
       }
-      if (this.retryRecording) {
-        this.recordingUri = this.retryRecording.uri;
-        this.capturedDraft = initiatingDraft;
-        this.transcription = this.retryRecording.transcription;
-        this.retryRecording = null;
-        await this.finishRecording(true, this.recordingUri);
-        return;
-      }
       const transcriber = this.dependencies.getTranscriber();
       if (!transcriber) {
         this.setError("Voice transcription is not available.", null);
         return;
       }
 
-      const permission = await this.dependencies.requestPermission();
-      if (!this.isCurrent(operationToken)) return;
-      if (!permission.granted) {
-        this.setError(
-          "Microphone access is required for voice input.",
-          permission.canAskAgain ? "retry" : "settings",
-        );
-        return;
+      if (!this.retryRecording) {
+        const permission = await this.dependencies.requestPermission();
+        if (!this.isCurrent(operationToken)) return;
+        if (!permission.granted) {
+          this.setError(
+            "Microphone access is required for voice input.",
+            permission.canAskAgain ? "retry" : "settings",
+          );
+          return;
+        }
       }
 
+      // A retry prepares again so it uses the transcription source chosen since the failure.
       try {
         this.transcription = await runTranscriptionOperation(() =>
-          transcriber.prepare({ signal: abortController.signal }),
+          transcriber.prepare({
+            signal: abortController.signal,
+            audio: this.retryRecording ? "kept" : "live",
+          }),
         );
       } catch (error) {
         if (this.isCurrent(operationToken)) this.setError(preparationErrorMessage(error), "retry");
         return;
       }
       if (!this.isCurrent(operationToken)) return;
+
+      if (this.retryRecording) {
+        this.recordingUri = this.retryRecording.uri;
+        this.capturedDraft = initiatingDraft;
+        this.retryRecording = null;
+        await this.finishRecording("kept");
+        return;
+      }
 
       await this.dependencies.configureRecording();
       this.recordingConfigured = true;
@@ -378,7 +394,7 @@ export class VoiceInputController {
           },
         );
       }
-      this.dependencies.recorder.record({ forDuration: VOICE_RECORDING_LIMIT_SECONDS });
+      this.dependencies.recorder.record({ forDuration: this.recordingLimitSeconds });
       this.setState({ phase: "recording", error: null, errorAction: null });
     } catch (error) {
       if (this.isCurrent(operationToken))
@@ -401,7 +417,7 @@ export class VoiceInputController {
 
   stop(): Promise<void> {
     if (this.state.phase !== "recording") return Promise.resolve();
-    return this.finishRecording(false, null);
+    return this.finishRecording("stopped");
   }
 
   cancel(): void {
@@ -449,29 +465,18 @@ export class VoiceInputController {
     return this.discardRecording(message);
   }
 
-  appMovedToBackground(): Promise<void> | void {
-    return this.interruptRecording(
-      this.state.phase === "preparing"
-        ? "Voice input stopped when the app moved to the background."
-        : undefined,
-    );
+  /** Recording continues in the background; preparation does not. */
+  appMovedToBackground(): void {
+    if (this.state.phase !== "preparing") return;
+    this.invalidateOperation();
+    this.setError("Voice input stopped when the app moved to the background.", "retry");
   }
 
+  /** A recorder that stops on its own, even after an error or interruption, keeps what it captured. */
   handleRecorderStatus(status: VoiceRecorderStatus): Promise<void> | void {
-    if (this.state.phase !== "recording") return;
+    if (this.state.phase !== "recording" || !status.isFinished) return;
     if (status.url && this.recordingUri && status.url !== this.recordingUri) return;
-    if (status.hasError) {
-      return this.interruptRecording(
-        status.error ?? "Voice recording was interrupted.",
-        status.url,
-      );
-    }
-    if (status.isFinished) {
-      if (!status.url) {
-        return this.interruptRecording();
-      }
-      return this.finishRecording(true, status.url);
-    }
+    return this.finishRecording(status);
   }
 
   ownerChanged(): void {
@@ -495,31 +500,46 @@ export class VoiceInputController {
     }
   }
 
-  private async finishRecording(
-    alreadyStopped: boolean,
-    completedUri: string | null,
-  ): Promise<void> {
+  /** `stopped` follows `stop()`, a status means the recorder stopped, `kept` retries a failed recording. */
+  private async finishRecording(ending: "stopped" | "kept" | VoiceRecorderStatus): Promise<void> {
     if (this.finishing || (this.state.phase !== "recording" && this.state.phase !== "preparing"))
       return;
     this.finishing = true;
     const operationToken = this.operationToken;
+    const status = typeof ending === "object" ? ending : null;
+    const interrupted =
+      status !== null && (status.interrupted || status.hasError || status.url === null);
     this.setState({ phase: "transcribing", error: null, errorAction: null });
+    let releaseBackgroundTime: (() => void) | null = null;
 
     try {
-      if (!alreadyStopped) await this.dependencies.recorder.stop();
+      // Held before the microphone is released, which would otherwise let iOS
+      // suspend a backgrounded app before the transcript lands.
+      releaseBackgroundTime = (await this.dependencies.holdBackgroundTime?.()) ?? null;
+      if (ending === "stopped") await this.dependencies.recorder.stop();
       await this.releaseAudioSession();
-      this.recordingUri = completedUri ?? this.dependencies.recorder.uri ?? this.recordingUri;
+      if (interrupted) this.dependencies.onRecordingInterrupted?.();
+      // A status without a URL means the recorder kept no audio, as after a media services reset.
+      if (status) this.recordingUri = status.url;
+      else if (ending === "stopped")
+        this.recordingUri = this.dependencies.recorder.uri ?? this.recordingUri;
       this.rememberRecordingUri(this.recordingUri);
       if (!this.isCurrent(operationToken)) return;
       const transcription = this.transcription;
       const recordingUri = this.recordingUri;
+      const streaming = transcription?.streaming;
       if (
         !transcription ||
-        (!transcription.streaming && !recordingUri) ||
+        (!streaming && !recordingUri) ||
         !this.transcriptionAbortController ||
         !this.capturedDraft
       ) {
-        this.setError("Could not finish voice recording.", "retry");
+        this.setError(
+          status && !recordingUri
+            ? (status.error ?? "Voice recording was interrupted.")
+            : "Could not finish voice recording.",
+          "retry",
+        );
         return;
       }
 
@@ -532,8 +552,8 @@ export class VoiceInputController {
         transcript =
           live?.text ??
           (await runTranscriptionOperation(() =>
-            transcription.streaming
-              ? transcription.streaming.finish({ signal })
+            streaming
+              ? streaming.finish({ signal })
               : transcription.transcribe(recordingUri!, { signal }),
           ));
       } catch (error) {
@@ -541,16 +561,17 @@ export class VoiceInputController {
           if (
             this.dependencies.retryFailedRecording &&
             !this.liveTranscription &&
-            !transcription.streaming &&
+            !streaming &&
             recordingUri
           ) {
-            this.retryRecording = {
-              uri: recordingUri,
-              ownerKey: capturedDraft.ownerKey,
-              transcription,
-            };
+            this.retryRecording = { uri: recordingUri, ownerKey: capturedDraft.ownerKey };
           }
-          this.setError(transcriptionErrorMessage(error), "retry");
+          this.setError(
+            interrupted
+              ? "The recording was interrupted and could not be transcribed."
+              : transcriptionErrorMessage(error),
+            "retry",
+          );
         }
         return;
       }
@@ -617,6 +638,7 @@ export class VoiceInputController {
     } finally {
       this.finishing = false;
       await this.releaseResources();
+      releaseBackgroundTime?.();
     }
   }
 

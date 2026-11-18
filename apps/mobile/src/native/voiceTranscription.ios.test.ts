@@ -58,7 +58,7 @@ function useLanguages(preferred: ReadonlyArray<string>, appLocale: string) {
 async function transcribeOnce(signal = new AbortController().signal) {
   const transcriber = (await getLocalVoiceTranscriber())!;
   return transcriber
-    .prepare({ signal })
+    .prepare({ signal, audio: "live" })
     .then(async (prepared) => {
       const text = await prepared.transcribe("file:///voice.m4a", { signal });
       return { text, locale: prepared.locale };
@@ -248,7 +248,7 @@ describe("getLocalVoiceTranscriber", () => {
       return readResult.promise;
     });
     const controller = new AbortController();
-    const options = { signal: controller.signal };
+    const options = { signal: controller.signal, audio: "live" as const };
     const prepared = await (await getLocalVoiceTranscriber())!.prepare(options);
     const result = prepared
       .transcribe("file:///voice.m4a", options)
