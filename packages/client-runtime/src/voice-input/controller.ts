@@ -346,7 +346,10 @@ export class VoiceInputController {
       // A retry prepares again so it uses the transcription source chosen since the failure.
       try {
         this.transcription = await runTranscriptionOperation(() =>
-          transcriber.prepare({ signal: abortController.signal }),
+          transcriber.prepare({
+            signal: abortController.signal,
+            audio: this.retryRecording ? "kept" : "live",
+          }),
         );
       } catch (error) {
         if (this.isCurrent(operationToken)) this.setError(preparationErrorMessage(error), "retry");
@@ -524,8 +527,7 @@ export class VoiceInputController {
       if (!this.isCurrent(operationToken)) return;
       const transcription = this.transcription;
       const recordingUri = this.recordingUri;
-      // A kept recording is a file even when the new preparation would stream.
-      const streaming = ending === "kept" ? undefined : transcription?.streaming;
+      const streaming = transcription?.streaming;
       if (
         !transcription ||
         (!streaming && !recordingUri) ||

@@ -12,7 +12,7 @@ it("never uploads a recording whose grant changed while the phone decoded it", a
     decode: () => decoded.promise,
     upload,
   });
-  const options = { signal: new AbortController().signal };
+  const options = { signal: new AbortController().signal, audio: "live" as const };
   const recording = await transcriber.prepare(options);
   const transcription = recording.transcribe("file:///draft.m4a", options);
   grant++;
@@ -32,7 +32,7 @@ it("uploads normalized mono samples only after the recording is finished", async
     decode: async () => new Uint8Array([255, 0, 128, 0, 64, 255]).subarray(1, 5),
     upload,
   });
-  const options = { signal: new AbortController().signal };
+  const options = { signal: new AbortController().signal, audio: "live" as const };
   const recording = await transcriber.prepare(options);
   expect(upload).not.toHaveBeenCalled();
   await expect(recording.transcribe("file:///draft.m4a", options)).resolves.toBe("hello");
@@ -53,7 +53,7 @@ it("trims at most one second of recorder padding and rejects longer recordings",
     ).toBe(0.5);
     return "hello";
   });
-  const options = { signal: new AbortController().signal };
+  const options = { signal: new AbortController().signal, audio: "live" as const };
   const recording = await createEnvironmentTranscriber({
     canSend: () => true,
     prepare: async () => "en",
