@@ -1,6 +1,5 @@
 import type { EnvironmentId } from "@t3tools/contracts";
 import { requireNativeModule } from "expo";
-import Constants from "expo-constants";
 import { Atom } from "effect/reactivity";
 
 import { environmentCatalog } from "../connection/catalog";
@@ -36,7 +35,6 @@ const controlProjectsAtom = Atom.make((get) => {
 });
 
 export function installNewChatControlSync(): () => void {
-  if (Constants.expoConfig?.extra?.iosPersonalTeamBuild) return () => {};
   return appAtomRegistry.subscribe(
     controlProjectsAtom,
     (projects) => {
