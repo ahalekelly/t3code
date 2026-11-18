@@ -3,7 +3,7 @@ import { installComposerAttachmentUploads } from "./state/composer-attachment-up
 import { installThreadOutboxDelivery } from "./state/threadOutboxDelivery";
 import * as Linking from "expo-linking";
 import * as SplashScreen from "expo-splash-screen";
-import { requireNativeModule } from "expo";
+import { NativeModule, requireNativeModule } from "expo";
 import { useEffect, useRef, useState } from "react";
 import { Platform, StatusBar } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
@@ -74,9 +74,11 @@ import {
 } from "./lib/foundation-fast-refresh";
 import { useMobileNavigationTheme } from "./lib/useMobileNavigationTheme";
 import { installUiRuntimeMemoryWarningGc } from "./lib/useUiRuntimeMemoryWarningGc";
+import { freshDraftLinkState } from "./lib/freshDraftLinkState";
 import { SubscriptionUsageCoordinator } from "./widgets/SubscriptionUsageCoordinator";
 import { ConnectDeviceApprovalCoordinator } from "./features/connection/ConnectDeviceApprovalCoordinator";
 import { installSubscriptionUsageRefresh } from "./widgets/useSubscriptionUsage";
+import { installNewChatControlSync } from "./widgets/newChatControlSync";
 import { GlobalVoiceInputControl } from "./features/voice-input/GlobalVoiceInputControl";
 import {
   launchSplashHomeRowsPending,
@@ -133,6 +135,13 @@ function getAppStateFromPath(path: string, options: Parameters<typeof getStateFr
   );
 }
 
+// In a scene-based app RN's Linking ignores URLs handed to the app delegate, which is how the New
+// Chat control's App Intent opens links. expo-linking receives every URL, from any source.
+declare class ExpoLinkingModule extends NativeModule<{
+  onURLReceived(event: { url: string }): void;
+}> {}
+const ExpoLinking = requireNativeModule<ExpoLinkingModule>("ExpoLinking");
+
 const appLinking = {
   prefixes: [
     Linking.createURL("/"),
@@ -143,11 +152,17 @@ const appLinking = {
   ],
   config: { initialRouteName: "Home" },
   filter: (url: string) => shouldHandleAppLink(url, hasCloudPublicConfig()),
-  getInitialURL: async () => (await Linking.getInitialURL()) ?? (await launchWorkspaceURL()),
+  // Scene and App Intent launches can arrive before JavaScript subscribes.
+  getInitialURL: async () => Linking.getLinkingURL() ?? (await launchWorkspaceURL()),
+  subscribe: (listener: (url: string) => void) => {
+    const subscription = ExpoLinking.addListener("onURLReceived", ({ url }) => listener(url));
+    return () => subscription.remove();
+  },
   getActionFromState: (
-    state: Parameters<typeof getActionFromState>[0],
+    linkState: Parameters<typeof getActionFromState>[0],
     options: Parameters<typeof getActionFromState>[1],
   ): ReturnType<typeof getActionFromState> => {
+    const state = freshDraftLinkState(linkState);
     const current = rootNavigationRef.isReady() ? rootNavigationRef.getRootState() : undefined;
     return (
       // Our router handles the selection; React Navigation's type only lists its own actions.
@@ -205,6 +220,7 @@ const appServiceDisposers = [
   }),
   installAppearanceRuntime(),
   installSubscriptionUsageRefresh(),
+  installNewChatControlSync(),
   installPermissionUpdateNotice(),
   installThreadOutboxDelivery(),
   installComposerAttachmentUploads(),
