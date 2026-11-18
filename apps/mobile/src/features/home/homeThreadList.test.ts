@@ -7,7 +7,7 @@ import { describe, expect, it } from "vite-plus/test";
 
 import { buildHomeProjectScopes, findHomeProjectScope } from "./homeThreadList";
 import { makeThreadShellFixture } from "../../test-fixtures";
-import { buildThreadListV2Items } from "../threads/threadListV2";
+import { buildThreadListV2Items, buildThreadListV2ListItems } from "../threads/threadListV2";
 
 function makeProject(
   input: Partial<EnvironmentProject> & Pick<EnvironmentProject, "environmentId" | "id" | "title">,
@@ -221,5 +221,84 @@ describe("home project scopes", () => {
     expect(findHomeProjectScope(scopes, "environment-local:project-target")).toBe(targetScope);
     expect(findHomeProjectScope(scopes, "environment-local:missing")).toBeNull();
     expect(findHomeProjectScope(scopes, null)).toBeNull();
+  });
+});
+
+describe("project folders", () => {
+  it("groups active threads into folders, newest message first, and closes folders", () => {
+    const environmentId = EnvironmentId.make("local");
+    const app = makeProject({ environmentId, id: ProjectId.make("app"), title: "App" });
+    const docs = makeProject({ environmentId, id: ProjectId.make("docs"), title: "Docs" });
+    const thread = (id: string, project: EnvironmentProject, sentAt: string, extra = {}) =>
+      makeThread({
+        environmentId,
+        id: ThreadId.make(id),
+        projectId: project.id,
+        title: id,
+        latestUserAuthoredMessageAt: sentAt,
+        updatedAt: sentAt,
+        ...extra,
+      });
+    const threads = [
+      thread("app-old", app, "2026-06-01T01:00:00.000Z"),
+      thread("docs-new", docs, "2026-06-01T04:00:00.000Z"),
+      thread("app-new", app, "2026-06-01T03:00:00.000Z"),
+      thread("docs-asks", docs, "2026-06-01T02:00:00.000Z", { hasPendingApprovals: true }),
+      thread("pinned", app, "2026-06-01T05:00:00.000Z", { pinnedAt: "2026-06-01T00:00:00.000Z" }),
+    ];
+    const scopes = buildHomeProjectScopes({
+      projects: [app, docs],
+      environmentId: null,
+      projectGroupingMode: "repository",
+    });
+    const layout = (collapsedKeys: ReadonlySet<string>, selectedThreadKey: string | null) => {
+      const result = buildThreadListV2Items({
+        threads,
+        environmentId: null,
+        searchQuery: "",
+        now: "2026-06-02T00:00:00.000Z",
+        selectedThreadKey,
+        projectFolders: scopes.map((scope) => ({
+          key: scope.key,
+          title: scope.title,
+          project: scope.representative,
+          memberProjectRefs: scope.projectRefs,
+          pinned: scope.pinned,
+          archived: scope.archived,
+          collapsed: collapsedKeys.has(scope.key),
+        })),
+      });
+      return buildThreadListV2ListItems({
+        items: result.items,
+        pendingTasks: [],
+        folderHeaders: result.folderHeaders,
+      }).map((item) =>
+        item.type === "v2-project-folder"
+          ? `${item.folder.title} ${item.hiddenCount} ${item.dot}`
+          : item.type === "v2-thread"
+            ? item.item.thread.id
+            : item.type,
+      );
+    };
+
+    expect(layout(new Set(), null)).toEqual([
+      "pinned",
+      "Docs 0 null",
+      "docs-new",
+      "docs-asks",
+      "App 0 null",
+      "app-new",
+      "app-old",
+    ]);
+
+    const docsKey = scopes.find((scope) => scope.title === "Docs")!.key;
+    expect(layout(new Set([docsKey]), `${environmentId}:docs-new`)).toEqual([
+      "pinned",
+      "Docs 1 attention",
+      "docs-new",
+      "App 0 null",
+      "app-new",
+      "app-old",
+    ]);
   });
 });
