@@ -119,9 +119,15 @@ describe("environment voice input", () => {
     const working = vi.fn<PreparedVoiceTranscription["transcribe"]>(async () => "second try");
     let selected = failing;
     let prepare: VoiceTranscriber["prepare"] = async () => preparedTranscription(selected);
+    const audio: string[] = [];
     const harness = createHarness({
       retryFailedRecording: true,
-      getTranscriber: () => ({ prepare: (options) => prepare(options) }),
+      getTranscriber: () => ({
+        prepare: (options) => {
+          audio.push(options.audio);
+          return prepare(options);
+        },
+      }),
     });
     await harness.controller.start();
     await harness.controller.stop();
@@ -140,6 +146,7 @@ describe("environment voice input", () => {
     await harness.controller.start();
     expect(failing.mock.calls.map(([uri]) => uri)).toEqual(["file:///voice.m4a"]);
     expect(working.mock.calls.map(([uri]) => uri)).toEqual(["file:///voice.m4a"]);
+    expect(audio).toEqual(["live", "kept", "kept"]);
     expect(harness.recorder.record).toHaveBeenCalledOnce();
     expect(harness.deleted).toEqual(["file:///voice.m4a"]);
   });
