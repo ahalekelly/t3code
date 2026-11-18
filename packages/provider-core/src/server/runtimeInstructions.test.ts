@@ -50,6 +50,6 @@ describe("buildRuntimeInstructions", () => {
       instructions,
       "For PR waits, no sleep, loops, gh --watch, Monitor or ScheduleWakeup.",
     );
-    assert.include(instructions, "call unwatch_pull_request");
+    assert.notInclude(instructions, "call unwatch_pull_request");
   });
 });
