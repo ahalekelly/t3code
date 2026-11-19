@@ -1425,6 +1425,7 @@ function isSameAttachment(a: DraftComposerAttachment, b: DraftComposerAttachment
 /**
  * Restore puts back attachments after failed sends, so it skips the duplicate check and the caps.
  * Returns how many attachments the caps rejected.
+ * appendReference chips file attachments into the text; images, like on web, show only in the strip.
  */
 export function appendComposerDraftAttachments(
   draftKey: string,
@@ -1444,10 +1445,16 @@ export function appendComposerDraftAttachments(
   let duplicates: ReadonlyArray<DraftComposerAttachment> = [];
   updateComposerDrafts((current) => {
     const existing = normalizeDraft(current[draftKey]);
-    const retained = options?.appendReference
-      ? draftWithoutInsertionSelection(draftKey, existing, options.insertion)
-      : existing;
-    const seen = [...retained.attachments];
+    // A file chip replaces the selection, so the selection's attachments are not repeats.
+    const replacesSelection =
+      options?.appendReference === true &&
+      incoming.some((attachment) => attachment.type !== "image");
+    const seen = [
+      ...(replacesSelection
+        ? draftWithoutInsertionSelection(draftKey, existing, options?.insertion)
+        : existing
+      ).attachments,
+    ];
     const attachments = options?.restore
       ? incoming
       : incoming.filter((attachment) => {
@@ -1456,48 +1463,58 @@ export function appendComposerDraftAttachments(
           return true;
         });
     duplicates = incoming.filter((attachment) => !attachments.includes(attachment));
-    const remaining = options?.restore
-      ? attachments.length
-      : Math.max(
+    const limit = Math.min(
+      PROVIDER_SEND_TURN_MAX_ATTACHMENTS,
+      options?.maxAttachments ?? PROVIDER_SEND_TURN_MAX_ATTACHMENTS,
+    );
+    const capacity = (draft: ComposerDraft, wanted: number) =>
+      options?.restore ? wanted : Math.max(0, limit - draft.attachments.length);
+    // Chips replace the selection, so files are placed first and images fill the slots left after.
+    const chipped = options?.appendReference
+      ? attachments.filter((attachment) => attachment.type !== "image")
+      : [];
+    let draft = existing;
+    if (chipped.length > 0) {
+      const retained = draftWithoutInsertionSelection(draftKey, existing, options?.insertion);
+      const records = chipped
+        .slice(
           0,
-          Math.min(
-            PROVIDER_SEND_TURN_MAX_ATTACHMENTS,
-            options?.maxAttachments ?? PROVIDER_SEND_TURN_MAX_ATTACHMENTS,
-          ) - retained.attachments.length,
+          Math.max(
+            0,
+            Math.min(
+              capacity(retained, chipped.length),
+              COMPOSER_CONTEXT_MAX_RECORDS - (retained.context?.records.length ?? 0),
+            ),
+          ),
+        )
+        .map((attachment) => attachmentContextRecord(attachment));
+      const inserted =
+        records.length > 0 &&
+        draftWithInsertedContext(
+          draftKey,
+          {
+            ...existing,
+            attachments: [...existing.attachments, ...chipped.slice(0, records.length)],
+          },
+          {
+            text: records.map(formatComposerContextReference).join(" "),
+            context: { version: 1, records },
+          },
+          options?.insertion,
         );
-    const contextCapacity = options?.appendReference
-      ? Math.max(0, COMPOSER_CONTEXT_MAX_RECORDS - (retained.context?.records.length ?? 0))
-      : attachments.length;
-    const accepted = attachments.slice(0, Math.min(remaining, contextCapacity));
-    rejected = attachments.slice(accepted.length);
-    if (accepted.length === 0) {
-      return current;
+      if (inserted) draft = { ...inserted, attachments: [...inserted.attachments] };
     }
-    let draft = { ...existing, attachments: [...existing.attachments, ...accepted] };
-    if (options?.appendReference) {
-      const records = accepted.map((attachment) => attachmentContextRecord(attachment));
-      const inserted = draftWithInsertedContext(
-        draftKey,
-        draft,
-        {
-          text: records.map(formatComposerContextReference).join(" "),
-          context: { version: 1, records },
-        },
-        options?.insertion,
-      );
-      if (!inserted) {
-        rejected = attachments;
-        return current;
-      }
-      draft = { ...inserted, attachments: [...inserted.attachments] };
-      removed = existing.attachments.filter(
-        (attachment) => !draft.attachments.includes(attachment),
-      );
-    }
-    return {
-      ...current,
-      [draftKey]: draft,
+    const plain = options?.appendReference
+      ? attachments.filter((attachment) => attachment.type === "image")
+      : attachments;
+    draft = {
+      ...draft,
+      attachments: [...draft.attachments, ...plain.slice(0, capacity(draft, plain.length))],
     };
+    rejected = attachments.filter((attachment) => !draft.attachments.includes(attachment));
+    if (rejected.length === attachments.length) return current;
+    removed = existing.attachments.filter((attachment) => !draft.attachments.includes(attachment));
+    return { ...current, [draftKey]: draft };
   });
   scheduleUnusedComposerAttachmentCleanup([...rejected, ...removed, ...duplicates]);
   return rejected.length;
