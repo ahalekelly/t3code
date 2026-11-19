@@ -131,7 +131,6 @@ import {
   ComposerContextReferenceChip,
   ComposerContextRecordsContext,
 } from "./composerContextPresentation";
-import type { AssistantCitationSourceAnchor } from "~/lib/assistantTextSelection";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 import { ComposerCodeBlockNodeView } from "./chat/ComposerCodeBlockNodeView";
 import { resolveAssistantCitationCommentDismissal } from "./chat/assistantCitationCommentDismissal";
@@ -150,7 +149,6 @@ export interface ComposerPromptEditorHandle {
   focusAtEnd: () => void;
   readSelectionRange: () => { start: number; end: number };
   captureAttachmentInsertion: () => ComposerAttachmentInsertion | undefined;
-  requestCitationComment: (request: ComposerCitationCommentRequest) => void;
   readSnapshot: () => {
     value: string;
     cursor: number;
@@ -204,29 +202,13 @@ export interface ComposerPromptEditorProps {
   editorRef: React.RefObject<ComposerPromptEditorHandle | null>;
 }
 
-export type ComposerCitationCommentRequest = {
-  previousValue: string;
-  value: string;
-  citationStart: number;
-  sourceAnchor: AssistantCitationSourceAnchor;
-  insertedSpaces: CitationInsertedSpaces;
-};
-
-type CitationInsertedSpaces = { before: boolean; after: boolean };
-
-type OpenCitationComment = {
-  key: string;
-  sourceAnchor?: AssistantCitationSourceAnchor;
-  removeOnCancel?: CitationInsertedSpaces;
-};
-
 const ComposerCitationCommentContext = createContext<{
-  openComment: OpenCitationComment | null;
+  openCommentKey: string | null;
   onOpenChange: (citeKey: string, open: boolean) => void;
   onDraftChange: (citeKey: string, comment: string) => void;
   onSubmitAndSend: () => boolean;
 }>({
-  openComment: null,
+  openCommentKey: null,
   onOpenChange: () => {},
   onDraftChange: () => {},
   onSubmitAndSend: () => false,
@@ -449,8 +431,6 @@ function ComposerCitationNodeView({ node, editor, getPos }: NodeViewProps) {
   const commentContext = use(ComposerCitationCommentContext);
   const citation = node.attrs.citation as AssistantCitation;
   const citeKey = node.attrs.citeKey as string;
-  const commentTarget =
-    commentContext.openComment?.key === citeKey ? commentContext.openComment : null;
 
   const nodePos = () => {
     const pos = typeof getPos === "function" ? getPos() : null;
@@ -472,22 +452,6 @@ function ComposerCitationNodeView({ node, editor, getPos }: NodeViewProps) {
     });
     editor.view.dispatch(tr);
     return true;
-  };
-
-  const removeOnCancel = commentTarget?.removeOnCancel;
-  const onRemove = () => {
-    if (!removeOnCancel) return;
-    const pos = nodePos();
-    if (pos === null) return;
-    const { doc } = editor.state;
-    const current = doc.nodeAt(pos);
-    if (!current) return;
-    const end = pos + current.nodeSize;
-    const from = removeOnCancel.before && doc.textBetween(pos - 1, pos) === " " ? pos - 1 : pos;
-    const to = removeOnCancel.after && doc.textBetween(end, end + 1) === " " ? end + 1 : end;
-    // A read-only composer (dictation) can still receive a new citation, so Cancel must undo it.
-    const chain = editor.chain();
-    (editor.isEditable ? chain.focus() : chain).deleteRange({ from, to }).run();
   };
 
   const sentRef = useRef(false);
@@ -536,13 +500,11 @@ function ComposerCitationNodeView({ node, editor, getPos }: NodeViewProps) {
       <AssistantCitationChip
         citation={citation}
         commentEditor={{
-          open: commentTarget !== null,
-          sourceAnchor: commentTarget?.sourceAnchor,
+          open: commentContext.openCommentKey === citeKey,
           onOpenChange: (open) => {
             if (open && !editor.isEditable) return;
             commentContext.onOpenChange(citeKey, open);
           },
-          ...(removeOnCancel ? { onCancel: onRemove } : {}),
           onSave: onSaveComment,
           onDraftChange: (comment) => commentContext.onDraftChange(citeKey, comment),
           onSaveAndSend: (comment) => {
@@ -998,21 +960,17 @@ function ComposerPromptEditorTiptapInner(
   const selectionRangeRef = useRef({ start: initialExpandedCursor, end: initialExpandedCursor });
   const isApplyingControlledUpdateRef = useRef(false);
   const hasAppliedControlledSelectionRef = useRef(false);
-  const citationRequestRef = useRef<ComposerCitationCommentRequest | null>(null);
-  const [openCitation, setOpenCitation] = useState<OpenCitationComment | null>(null);
+  const [openCitationKey, setOpenCitationKey] = useState<string | null>(null);
   const citationDraftRef = useRef<{ key: string; comment: string } | null>(null);
   const [isEmpty, setIsEmpty] = useState(value.length === 0);
 
   const citationCommentActions = {
-    openComment: openCitation,
+    openCommentKey: openCitationKey,
     onOpenChange: (nodeKey: string, open: boolean) => {
       if (!open && citationDraftRef.current?.key === nodeKey) citationDraftRef.current = null;
-      setOpenCitation((current) => {
-        if (open) {
-          if (current?.key === nodeKey) return current;
-          return { key: nodeKey };
-        }
-        return current?.key === nodeKey ? null : current;
+      setOpenCitationKey((current) => {
+        if (open) return nodeKey;
+        return current === nodeKey ? null : current;
       });
     },
     onDraftChange: (nodeKey: string, comment: string) => {
@@ -1617,8 +1575,6 @@ function ComposerPromptEditorTiptapInner(
     if (!initialSelection && previousSnapshot.value === value && !isFocused) return;
 
     isApplyingControlledUpdateRef.current = true;
-    const pendingCitation =
-      citationRequestRef.current?.value === value ? citationRequestRef.current : null;
     if (previousSnapshot.value !== value) {
       saveCitationDraft(editor, previousSnapshot.value);
       editor.commands.setContent(
@@ -1629,33 +1585,12 @@ function ComposerPromptEditorTiptapInner(
       );
     }
     selectMarkdownOffset(editor, normalizedExpandedCursor);
-    const map = serializeEditorDoc(editor.state.doc);
     if (isFocused) scrollTiptapCaretIntoView(editor);
     // A redraw later in this commit drops the editor's scroll offset, so reveal on the next frame.
     else if (initialSelection) {
       window.requestAnimationFrame(() => {
         if (!editor.isDestroyed) revealCaretInEditor(editor);
       });
-    }
-    if (pendingCitation) {
-      citationRequestRef.current = null;
-      const target = map.runs.find(
-        (run) =>
-          run.kind === "token" &&
-          run.nodeName === "composer-citation" &&
-          run.mdStart === pendingCitation.citationStart,
-      );
-      if (target) {
-        const node = editor.state.doc.nodeAt(target.pmPos);
-        const citeKey = (node?.attrs as { citeKey?: string } | undefined)?.citeKey;
-        if (citeKey) {
-          setOpenCitation({
-            key: citeKey,
-            sourceAnchor: pendingCitation.sourceAnchor,
-            removeOnCancel: pendingCitation.insertedSpaces,
-          });
-        }
-      }
     }
     queueMicrotask(() => {
       isApplyingControlledUpdateRef.current = false;
@@ -1754,29 +1689,6 @@ function ComposerPromptEditorTiptapInner(
       },
       captureAttachmentInsertion: () =>
         editor ? captureComposerAttachmentInsertion(editor) : undefined,
-      requestCitationComment: (request) => {
-        citationRequestRef.current = request;
-        if (!editor) return;
-        const map = serializeEditorDoc(editor.state.doc);
-        if (map.value !== request.value) return;
-        const target = map.runs.find(
-          (run) =>
-            run.kind === "token" &&
-            run.nodeName === "composer-citation" &&
-            run.mdStart === request.citationStart,
-        );
-        if (!target) return;
-        const node = editor.state.doc.nodeAt(target.pmPos);
-        const citeKey = (node?.attrs as { citeKey?: string } | undefined)?.citeKey;
-        if (citeKey) {
-          citationRequestRef.current = null;
-          setOpenCitation({
-            key: citeKey,
-            sourceAnchor: request.sourceAnchor,
-            removeOnCancel: request.insertedSpaces,
-          });
-        }
-      },
       readSnapshot,
       isCaretOnVisualEdge: (edge) => {
         const snapshot = readSnapshot();
