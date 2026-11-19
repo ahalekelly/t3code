@@ -296,6 +296,19 @@ export function MobileEnrichedMarkdownText(
     else if (actionId === "enriched-share-link") void Share.share({ message: url });
     else onFileContextMenuAction?.(url, actionId);
   };
+  const { onCite } = props;
+  const contextMenuItems = useMemo(
+    () =>
+      onCite && [
+        {
+          text: "Cite",
+          icon: "quote.opening",
+          onPress: ({ text, selection }: { text: string; selection: { start: number } }) =>
+            onCite({ text, start: selection.start }),
+        },
+      ],
+    [onCite],
+  );
   const linkContextMenuItems =
     Platform.OS === "ios" && (fileContextMenu || props.onLinkPress || props.onImagePress)
       ? Object.fromEntries(
@@ -442,6 +455,7 @@ export function MobileEnrichedMarkdownText(
             props.onLinkPress || props.onImagePress ? ({ url }) => onLinkPress(url) : undefined
           }
           onLinkLongPress={onLinkLongPress}
+          contextMenuItems={contextMenuItems}
           linkContextMenuItems={linkContextMenuItems}
           linkPillContent={linkPillContent}
         />
