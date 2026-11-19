@@ -911,10 +911,7 @@ export const issueAssetUrl = Effect.fn("AssetAccess.issueAssetUrl")(function* (i
   };
 });
 
-export const resolveAsset = Effect.fn("AssetAccess.resolveAsset")(function* (
-  token: string,
-  relativePath: string,
-) {
+const verifiedClaims = Effect.fn("AssetAccess.verifiedClaims")(function* (token: string) {
   const [encodedPayload, signature] = token.split(".");
   if (!encodedPayload || !signature) return null;
 
@@ -923,9 +920,43 @@ export const resolveAsset = Effect.fn("AssetAccess.resolveAsset")(function* (
     Effect.tapError((cause) => Effect.logError("Failed to load the asset signing key.", { cause })),
     Effect.orElseSucceed(() => false),
   );
-  if (!verified) return null;
+  return verified ? decodeClaims(encodedPayload) : null;
+});
 
-  const claims = decodeClaims(encodedPayload);
+/**
+ * Re-signs an expired file token with a fresh lifetime, so a reloaded tab or a copied
+ * link keeps working. Only file kinds renew: a `filesystem:read` session can mint
+ * them for any path, so renewal grants that session nothing new.
+ */
+export const renewExpiredFileToken = Effect.fn("AssetAccess.renewExpiredFileToken")(function* (
+  token: string,
+) {
+  const claims = yield* verifiedClaims(token);
+  const now = yield* Clock.currentTimeMillis;
+  if (
+    !claims ||
+    claims.expiresAt > now ||
+    (claims.kind !== "workspace-file" &&
+      claims.kind !== "workspace-file-exact" &&
+      claims.kind !== "media-file-exact")
+  ) {
+    return null;
+  }
+  const encodedPayload = base64UrlEncode(
+    encodeAssetClaims({ ...claims, expiresAt: now + ASSET_TOKEN_TTL_MS }),
+  );
+  return yield* (yield* AssetSigner.AssetSigner).sign(encodedPayload).pipe(
+    Effect.map((signature) => `${encodedPayload}.${signature}`),
+    Effect.tapError((cause) => Effect.logError("Failed to load the asset signing key.", { cause })),
+    Effect.orElseSucceed(() => null),
+  );
+});
+
+export const resolveAsset = Effect.fn("AssetAccess.resolveAsset")(function* (
+  token: string,
+  relativePath: string,
+) {
+  const claims = yield* verifiedClaims(token);
   if (!claims || claims.expiresAt <= (yield* Clock.currentTimeMillis)) return null;
 
   if (claims.kind === "attachment") {
