@@ -7,6 +7,9 @@ import {
   AssetAccessError,
   AssetCreateUrlInput,
   AssetPreviewTypeValidationError,
+  AuthFilesystemReadScope,
+  AuthOrchestrationReadScope,
+  AuthSessionId,
   SOURCE_CONTROL_MEDIA_ASSET,
   ThreadId,
   TurnItemId,
@@ -22,7 +25,15 @@ import * as Path from "effect/Path";
 import * as PlatformError from "effect/PlatformError";
 import * as Schema from "effect/Schema";
 import * as TestClock from "effect/testing/TestClock";
-import { HttpClientRequest, HttpClientResponse, HttpServerResponse } from "effect/http";
+import * as NodeHttpServer from "@effect/platform-node/NodeHttpServer";
+import * as Context from "effect/Context";
+import {
+  HttpClient,
+  HttpClientRequest,
+  HttpClientResponse,
+  HttpRouter,
+  HttpServerResponse,
+} from "effect/http";
 import { vi } from "vite-plus/test";
 
 import * as AssetSigner from "./AssetSigner.ts";
@@ -34,8 +45,15 @@ import * as Orchestrator from "../orchestration-v2/Orchestrator.ts";
 import * as ProjectFaviconResolver from "../project/ProjectFaviconResolver.ts";
 import * as T3ProjectFileLoader from "../project/T3ProjectFileLoader.ts";
 import * as WorkspacePaths from "../workspace/WorkspacePaths.ts";
-import { assetFileResponse } from "../http.ts";
-import { ASSET_ROUTE_PREFIX, issueAssetUrl, readMcpAppHtml, resolveAsset } from "./AssetAccess.ts";
+import * as EnvironmentAuth from "../auth/EnvironmentAuth.ts";
+import { assetFileResponse, layerAssetRoute } from "../http.ts";
+import {
+  ASSET_ROUTE_PREFIX,
+  issueAssetUrl,
+  readMcpAppHtml,
+  renewExpiredFileToken,
+  resolveAsset,
+} from "./AssetAccess.ts";
 import * as NativeAppIconResolver from "./NativeAppIconResolver.ts";
 import * as RepositoryIdentityResolver from "../project/RepositoryIdentityResolver.ts";
 import { symlinksSupported } from "@t3tools/shared/testing/symlinks";
@@ -1000,6 +1018,117 @@ describe("AssetAccess", () => {
           ),
         ).toBeNull();
       }).pipe(Effect.provide(layerTest)),
+  );
+
+  it.effect("renews only expired, validly signed file tokens, keeping their claims", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const { environmentThemesDir } = yield* ServerConfig.ServerConfig;
+      yield* fs.makeDirectory(environmentThemesDir, { recursive: true });
+      yield* fs.writeFile(`${environmentThemesDir}/frieren.png`, screenshotPng);
+      const root = yield* fs.makeTempDirectoryScoped({ prefix: "t3-asset-renew-" });
+      yield* fs.makeDirectory(path.join(root, "reports"));
+      yield* fs.writeFileString(path.join(root, "reports", "a.html"), "<p>A</p>");
+      yield* fs.writeFileString(path.join(root, "reports", "b.html"), "<p>B</p>");
+      const tokenOf = (relativeUrl: string) =>
+        relativeUrl.slice(`${ASSET_ROUTE_PREFIX}/`.length).split("/")[0]!;
+      const token = tokenOf(
+        (yield* issueAssetUrl({
+          resource: {
+            _tag: "workspace-file",
+            threadId: ThreadId.make("thread-1"),
+            path: "reports/a.html",
+          },
+          workspaceRoot: root,
+        })).relativeUrl,
+      );
+      const themeToken = tokenOf(
+        (yield* issueAssetUrl({
+          resource: { _tag: "environment-theme-background", themeId: "frieren" },
+        })).relativeUrl,
+      );
+
+      expect(yield* renewExpiredFileToken(token)).toBeNull();
+      yield* TestClock.adjust("61 minutes");
+      expect(yield* resolveAsset(token, "b.html")).toBeNull();
+      expect(yield* renewExpiredFileToken(`${token}tampered`)).toBeNull();
+      expect(yield* renewExpiredFileToken(themeToken)).toBeNull();
+
+      const renewed = yield* renewExpiredFileToken(token);
+      expect(yield* resolveAsset(renewed!, "b.html")).toMatchObject({
+        kind: "file",
+        path: yield* fs.realPath(path.join(root, "reports", "b.html")),
+      });
+    }).pipe(Effect.scoped, Effect.provide(layerTest)),
+  );
+
+  it.effect("redirects expired file links to a renewed URL only for same-site file readers", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const root = yield* fs.makeTempDirectoryScoped({ prefix: "t3-asset-route-" });
+      yield* fs.writeFileString(path.join(root, "report.html"), "<p>report</p>");
+      const { relativeUrl } = yield* issueAssetUrl({
+        resource: {
+          _tag: "workspace-file",
+          threadId: ThreadId.make("thread-1"),
+          path: "report.html",
+        },
+        workspaceRoot: root,
+      });
+      const layerAuth = Layer.mock(EnvironmentAuth.EnvironmentAuth)({
+        authenticateHttpRequest: (request) => {
+          const scopes = {
+            reader: [AuthFilesystemReadScope],
+            viewer: [AuthOrchestrationReadScope],
+          }[request.headers.cookie ?? ""];
+          return scopes
+            ? Effect.succeed({
+                sessionId: AuthSessionId.make("session-1"),
+                subject: "user",
+                method: "browser-session-cookie" as const,
+                scopes,
+              })
+            : Effect.fail(new EnvironmentAuth.ServerAuthMissingCredentialError());
+        },
+      });
+      const services = yield* Layer.build(
+        HttpRouter.serve(layerAssetRoute, {
+          disableListenLog: true,
+          disableLogger: true,
+        }).pipe(
+          Layer.provideMerge(NodeHttpServer.layerTest),
+          Layer.provide(layerAuth),
+          Layer.provide(Layer.succeed(BuiltInDrivers.SourceControlDrivers, [])),
+          Layer.provide(Layer.mock(RepositoryIdentityResolver.RepositoryIdentityResolver)({})),
+        ),
+      );
+      const client = Context.get(services, HttpClient.HttpClient);
+      // The test client follows the redirect, keeping these headers.
+      const get = (headers: Record<string, string>) =>
+        client.execute(
+          HttpClientRequest.get(relativeUrl).pipe(HttpClientRequest.setHeaders(headers)),
+        );
+
+      yield* TestClock.adjust("61 minutes");
+      for (const headers of [
+        {},
+        { cookie: "viewer" },
+        { cookie: "reader", "sec-fetch-site": "cross-site" },
+        { cookie: "reader", "sec-fetch-site": "same-site" },
+      ]) {
+        expect((yield* get(headers)).status).toBe(404);
+      }
+      for (const headers of [
+        { cookie: "reader" },
+        { cookie: "reader", "sec-fetch-site": "none" },
+      ]) {
+        const response = yield* get(headers);
+        expect(response.status).toBe(200);
+        expect(yield* response.text).toBe("<p>report</p>");
+      }
+    }).pipe(Effect.scoped, Effect.provide(layerTest)),
   );
 
   it.effect("versions media by file changes rather than by re-signing", () =>
