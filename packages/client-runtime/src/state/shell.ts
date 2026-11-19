@@ -30,8 +30,7 @@ import * as ConnectionWakeups from "../connection/wakeups.ts";
 import { safeErrorLogAttributes } from "../errors/safeLog.ts";
 import * as Persistence from "../platform/persistence.ts";
 import { runCachePersistence } from "./cachePersistence.ts";
-import { subscribeDynamicWithSession, subscriptionRetryDelay } from "../rpc/client.ts";
-import type { RpcSession } from "../rpc/session.ts";
+import { subscribeDynamicWithInput, subscriptionRetryDelay } from "../rpc/client.ts";
 import * as ShellSnapshotLoader from "./shellSnapshotHttp.ts";
 import type { DeferredShellSnapshot } from "./shellPullRequests.ts";
 import {
@@ -100,7 +99,8 @@ const EARLY_LOAD_GRACE = "3 seconds";
 type ShellOriginIdentity = Omit<Persistence.ShellCacheOrigin, "snapshotAt">;
 
 interface ShellSubscription {
-  readonly session: RpcSession;
+  /** The attempt's subscribe input, which tags its stream items; null while makeInput runs. */
+  readonly input: unknown;
   /** What a snapshot from this subscription descends from; null when the server did not say. */
   readonly identity: ShellOriginIdentity | null;
 }
@@ -422,15 +422,14 @@ export const makeEnvironmentShellState = Effect.fn("EnvironmentShellState.make")
   });
 
   const applyItems = Effect.fn("EnvironmentShellState.applyItems")(function* (
-    entries: ReadonlyArray<readonly [RpcSession, OrchestrationV2ShellStreamItem]>,
+    entries: ReadonlyArray<readonly [input: unknown, item: OrchestrationV2ShellStreamItem]>,
   ) {
-    // Read under the lock: items buffered across a session change must not land on the
-    // rows the next session loaded.
+    // Read under the lock: Stream.switchMap can still deliver a replaced attempt's buffered
+    // items, which must not land on the rows the next attempt loaded. Its cursor replays them.
     const subscription = yield* Ref.get(activeSubscription);
-    yield* applyLocked(
-      entries.flatMap(([session, item]) => (session === subscription?.session ? [item] : [])),
-      subscription?.identity ?? null,
-    );
+    const items = entries.flatMap(([input, item]) => (input === subscription?.input ? [item] : []));
+    if (items.length === 0) return;
+    yield* applyLocked(items, subscription?.identity ?? null);
   }, snapshotWriteLock.withPermit);
 
   const stateScope = yield* Effect.scope;
@@ -625,7 +624,7 @@ export const makeEnvironmentShellState = Effect.fn("EnvironmentShellState.make")
 
   yield* setSynchronizing;
   yield* Effect.forkScoped(
-    subscribeDynamicWithSession(
+    subscribeDynamicWithInput(
       ORCHESTRATION_V2_WS_METHODS.subscribeShell,
       Effect.fn("EnvironmentShellState.makeSubscribeInput")(function* (session) {
         const identity = yield* session.initialConfig.pipe(
@@ -651,8 +650,12 @@ export const makeEnvironmentShellState = Effect.fn("EnvironmentShellState.make")
           sameShellIdentity(early.identity, identity)
             ? earlyExit.value
             : null;
-        yield* Ref.set(activeSubscription, { session, identity });
-        yield* Ref.set(awaitingCompletion, true);
+        // Under the lock, so a batch lands wholly before or after the attempt starts.
+        yield* snapshotWriteLock.withPermit(
+          Ref.set(activeSubscription, { input: null, identity }).pipe(
+            Effect.andThen(Ref.set(awaitingCompletion, true)),
+          ),
+        );
         yield* setSynchronizing;
 
         // Rows from a recent server snapshot with the same omissions and server build resume
@@ -686,21 +689,23 @@ export const makeEnvironmentShellState = Effect.fn("EnvironmentShellState.make")
           ...(omitIdleSubagents ? { omitIdleSubagents: true as const } : {}),
           ...(omitOlderSettled ? { omitOlderSettled: true as const } : {}),
         };
-        if (Option.isNone(current.snapshot) || !(resumingHeldRows || loaded?.kind === "snapshot")) {
-          return { ...omission, requestCompletionMarker: true as const };
-        }
-        return {
-          afterSequence: current.snapshot.value.snapshotSequence,
-          // Only rows the client already held may be refused; a cursor from the snapshot just
-          // loaded falls back to the socket snapshot, so a refusal cannot loop.
-          ...(resumingHeldRows ? { httpSnapshotFallback: true as const } : {}),
-          // No stream item has touched the snapshot just loaded, so its identities still hold.
-          ...(loaded?.kind === "snapshot" && loaded.projectIdentities !== undefined
-            ? { knownProjectIdentities: loaded.projectIdentities }
-            : {}),
-          ...omission,
-          requestCompletionMarker: true as const,
-        };
+        const input =
+          Option.isNone(current.snapshot) || !(resumingHeldRows || loaded?.kind === "snapshot")
+            ? { ...omission, requestCompletionMarker: true as const }
+            : {
+                afterSequence: current.snapshot.value.snapshotSequence,
+                // Only rows the client already held may be refused; a cursor from the snapshot
+                // just loaded falls back to the socket snapshot, so a refusal cannot loop.
+                ...(resumingHeldRows ? { httpSnapshotFallback: true as const } : {}),
+                // No stream item has touched the snapshot just loaded, so its identities still hold.
+                ...(loaded?.kind === "snapshot" && loaded.projectIdentities !== undefined
+                  ? { knownProjectIdentities: loaded.projectIdentities }
+                  : {}),
+                ...omission,
+                requestCompletionMarker: true as const,
+              };
+        yield* snapshotWriteLock.withPermit(Ref.set(activeSubscription, { input, identity }));
+        return input;
       }),
       {
         // A defect parks the stream, so resubscribe after a backoff rather than wait for a wakeup.
