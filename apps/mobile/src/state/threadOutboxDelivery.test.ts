@@ -837,12 +837,11 @@ describe("thread outbox recovery rollback", () => {
       });
     const attachment = {
       id: "late-paste",
-      type: "image" as const,
-      name: "pasted.png",
-      mimeType: "image/png",
+      type: "file" as const,
+      name: "pasted.txt",
+      mimeType: "text/plain",
       sizeBytes: 1,
-      dataUrl: "data:image/png;base64,AA==",
-      previewUri: "data:image/png;base64,AA==",
+      fileUri: "file:///pasted.txt",
     };
     try {
       const recovering = recoverFailedThreadDraft(message);
