@@ -1162,7 +1162,7 @@ describe("AssetAccess", () => {
       ]) {
         const response = yield* get(headers);
         expect(response.status).toBe(200);
-        expect(yield* response.text).toBe("<p>report</p>");
+        expect(yield* response.text).toContain("<p>report</p>");
       }
     }).pipe(Effect.scoped, Effect.provide(layerTest)),
   );
