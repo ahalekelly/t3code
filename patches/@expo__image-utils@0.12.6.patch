@@ -1,0 +1,18 @@
+diff --git a/build/Cache.js b/build/Cache.js
+index 23c5e945d941b9e4146f6b7803e869ab518e6836..7b5a494acce830a9271bef4bcc3282b45cc1076b 100644
+--- a/build/Cache.js
++++ b/build/Cache.js
+@@ -106,7 +106,12 @@ async function getImageFromCacheAsync(fileName, cacheKey) {
+ async function cacheImageAsync(fileName, buffer, cacheKey) {
+     try {
+         const cachedKey = cacheKeys[cacheKey];
+-        await _fs().default.promises.writeFile(cachedKey != null ? (0, _path().resolve)(cachedKey, fileName) : (0, _path().resolve)(fileName), buffer);
++        const target = cachedKey != null ? (0, _path().resolve)(cachedKey, fileName) : (0, _path().resolve)(fileName);
++        // Parallel callers read this file (expo-splash-screen renders its light and dark images at
++        // once); renaming a finished file means a reader never sees one half-written.
++        const temporary = `${target}.${_crypto().default.randomUUID()}.tmp`;
++        await _fs().default.promises.writeFile(temporary, buffer);
++        await _fs().default.promises.rename(temporary, target);
+     } catch (error) {
+         console.warn(`Error caching image: "${fileName}". ${error.message}`);
+     }
