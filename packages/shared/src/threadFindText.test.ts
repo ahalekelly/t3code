@@ -108,9 +108,7 @@ it("searches displayed prose and file-chip labels without hidden paths", () => {
     "[a](/repo/app/(a)/page.tsx) and [b](/repo/app/(b)/page.tsx)",
     String.raw`[a](/repo/app/\(a\)/page.tsx) and [b](/repo/app/\(b\)/page.tsx)`,
   ]) {
-    expect(assistantSegments(text, "/repo")).toEqual([
-      "a app/(a)/page.tsx and b app/(b)/page.tsx",
-    ]);
+    expect(assistantSegments(text, "/repo")).toEqual(["a app/(a)/page.tsx and b app/(b)/page.tsx"]);
   }
   expect(
     assistantSegments(
@@ -153,13 +151,13 @@ it.each([
     source: "user",
     cwd: "/workspace/repo",
     text: "See [src/notes.ts](src/notes.ts#L42-L64) and [src/notes.ts](src/notes.ts#L42-L70)",
-    expected: ["See notes.ts · L42–64 and notes.ts · L42–70"],
+    expected: ["See src/notes.ts · L42–64 and src/notes.ts · L42–70"],
   },
   {
     source: "assistant",
     cwd: "/workspace/repo",
     text: "[Read notes](src/notes.ts:42-64) and `test/notes.ts:42-64`",
-    expected: ["Read notes notes.ts · repo/src · L42–64 and notes.ts · repo/test · L42–64"],
+    expected: ["Read notes src/notes.ts · L42–64 and test/notes.ts · L42–64"],
   },
   {
     source: "assistant",
@@ -171,7 +169,7 @@ it.each([
       "\n```text\n/tmp/notes.ts:42-64\n```",
     ].join(" "),
     expected: [
-      "notes.ts · L42–64 relative web reverse notes.ts · L64 port:42-64",
+      "/tmp/notes.ts · L42–64 relative web reverse /tmp/notes.ts · L64 port:42-64",
       "/tmp/notes.ts:42-64\n",
     ],
   },
@@ -239,5 +237,5 @@ it("indexes image destinations rendered as file chips", () => {
       "![note](src/notes.ts#L42-L64) ![screenshot](src/screenshot.png#L42-L64)",
       "/workspace/repo",
     ),
-  ).toEqual(["notes.ts · L42–64 "]);
+  ).toEqual(["src/notes.ts · L42–64 "]);
 });
