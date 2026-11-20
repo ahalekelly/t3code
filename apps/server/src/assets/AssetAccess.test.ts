@@ -1422,14 +1422,17 @@ describe("AssetAccess", () => {
       expect(yield* resolveAsset(token, "guide.md")).toEqual({
         kind: "file",
         path: yield* fileSystem.realPath(docPath),
+        renderIntent: "file-preview",
       });
       expect(yield* resolveAsset(token, "manuals/jumpers.jpg")).toEqual({
         kind: "file",
         path: yield* fileSystem.realPath(imagePath),
+        renderIntent: "file-preview",
       });
       expect(yield* resolveAsset(token, "module.md")).toEqual({
         kind: "file",
         path: yield* fileSystem.realPath(siblingPath),
+        renderIntent: "file-preview",
       });
       expect(yield* resolveAsset(token, "../README.md")).toBeNull();
     }).pipe(Effect.provide(layerTest)),
