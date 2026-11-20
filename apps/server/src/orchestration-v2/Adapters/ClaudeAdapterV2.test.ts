@@ -20043,7 +20043,7 @@ describe("ClaudeAdapterV2 background wake turns", () => {
           "toolu_root_read",
           "toolu_root_agent",
         ]);
-        assert.equal(harness.offeredMessages[1]?.priority, "now");
+        assert.equal(harness.offeredMessages[1]?.priority, "next");
 
         // The moved subagent outlives the steered turn.
         for (const frame of [
