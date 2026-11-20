@@ -152,6 +152,7 @@ export function IssueCommentComposer(props: {
               <ComposerDictationError
                 error={voiceInput.state.phase === "error" ? voiceInput.state.error : null}
                 onDismiss={voiceInput.cancel}
+                onTranscribeAgain={voiceInput.canTranscribeAgain ? voiceInput.transcribeAgain : null}
               />
               <View onLayout={compactEditor.onRowLayout}>
                 <ComposerDictationDraftContent
