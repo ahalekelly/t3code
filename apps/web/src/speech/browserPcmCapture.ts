@@ -3,7 +3,7 @@ import type {
   VoiceRecorder,
   VoiceStreamingSession,
   VoiceInputErrorCode,
-  VoiceTranscriptionOptions,
+  VoicePreparationOptions,
 } from "@t3tools/client-runtime/voice-input";
 import { requestMicrophone } from "./requestMicrophone";
 import workletUrl from "./pcmWorklet.ts?worker&url";
@@ -21,7 +21,7 @@ export function createBrowserPcmCapture(
     readonly onDurationLimit: () => void;
     readonly onError: (message: string, code?: VoiceInputErrorCode) => void;
   },
-  prepare: (options: VoiceTranscriptionOptions) => Promise<PreparedBrowserTranscription>,
+  prepare: (options: VoicePreparationOptions) => Promise<PreparedBrowserTranscription>,
 ) {
   let stream: MediaStream | undefined;
   let recordingUri: string | null = null;
@@ -175,7 +175,7 @@ export function createBrowserPcmCapture(
       if (recordingUri === uri) recordingUri = null;
     },
     transcriber: {
-      prepare: async (options: VoiceTranscriptionOptions) => {
+      prepare: async (options: VoicePreparationOptions) => {
         const prepared = await prepare(options);
         options.signal.throwIfAborted();
         signal = options.signal;

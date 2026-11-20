@@ -116,6 +116,7 @@ import {
   ComposerDictationDraftContent,
   ComposerDictationError,
   ComposerDictationPrimaryAction,
+  ComposerDictationSendAction,
   ComposerDictationStartAction,
   ComposerDictationStatus,
   ComposerDictationToolbar,
@@ -456,6 +457,7 @@ export const ThreadComposer = function ThreadComposer(props: ThreadComposerProps
     selection: composerMenu.selection,
     onChangeDraftMessage: (text) => setComposerDraftText(composerDraftKey, text),
     onChangeSelection: composerMenu.onSelectionChange,
+    onSubmit: () => handleSend(),
   });
   const { isAvailable: canStartDictation, start: startDictation } = voiceInput;
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- starts the microphone session a New Chat control link asked for, once per draft
@@ -595,6 +597,7 @@ export const ThreadComposer = function ThreadComposer(props: ThreadComposerProps
       threadTitle: props.selectedThread.title,
       projectTitle: props.environmentLabel ?? "T3 Code",
     });
+    return { scope: threadKey, messageId: sent.value };
   };
 
   const nativeImageSubmit = useSubmitAfterNativeImages({
@@ -813,6 +816,7 @@ export const ThreadComposer = function ThreadComposer(props: ThreadComposerProps
           <ComposerDictationError
             error={voiceInput.state.phase === "error" ? voiceInput.state.error : null}
             onDismiss={voiceInput.cancel}
+            onTranscribeAgain={voiceInput.canTranscribeAgain ? voiceInput.transcribeAgain : null}
           />
           {isExpanded ? editingAttachments : null}
           {attachmentBlockReason !== null ? (
@@ -1116,7 +1120,12 @@ export const ThreadComposer = function ThreadComposer(props: ThreadComposerProps
                     onConfirm={voiceInput.stop}
                     onCancel={voiceInput.cancel}
                   />
-                  {showStopAction ? (
+                  {voicePresentation.trailingAction === "confirm" ? (
+                    <ComposerDictationSendAction
+                      presentation={voicePresentation}
+                      onSend={voiceInput.stopAndSend}
+                    />
+                  ) : showStopAction ? (
                     <ComposerActionButton
                       size={usesLargeControls ? "large" : "regular"}
                       accessibilityLabel={gt("Stop agent")}
