@@ -500,13 +500,13 @@ describe("V2 thread find", () => {
       const sql = yield* SqlClient.SqlClient;
       yield* putItems([item("paths", 1, "[local](src/main.ts) [other](/elsewhere/src/main.ts)")]);
       assert.equal(
-        (yield* projection.searchThread({ threadId, query: "project:find/src" })).totalMatches,
+        (yield* projection.searchThread({ threadId, query: "/elsewhere/src" })).totalMatches,
         1,
       );
       yield* sql`UPDATE projection_projects SET workspace_root = '/elsewhere'
         WHERE project_id = ${projectId}`;
       assert.equal(
-        (yield* projection.searchThread({ threadId, query: "project:find" })).totalMatches,
+        (yield* projection.searchThread({ threadId, query: "/elsewhere" })).totalMatches,
         0,
       );
       assert.equal(
