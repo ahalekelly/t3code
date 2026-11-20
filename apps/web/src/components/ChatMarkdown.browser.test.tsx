@@ -632,7 +632,7 @@ describe("ChatMarkdown workspace file opens", () => {
     await using screen = await render(
       <>
         <ChatMarkdown cwd="/repo" threadRef={guest} text="[Cited](cited-note.txt)" />
-        <ChatMarkdown cwd="/repo" threadRef={other} text="[Other](/elsewhere/other.md)" />
+        <ChatMarkdown cwd="/repo" threadRef={other} text="[Other](/elsewhere/other.ts)" />
       </>,
     );
     const [cited, otherLink] = screen.container.querySelectorAll("a");
@@ -656,7 +656,7 @@ describe("ChatMarkdown workspace file opens", () => {
       });
       expect(selectActiveRightPanelSurface(byThreadKey, other)).toMatchObject({
         kind: "file",
-        relativePath: "/elsewhere/other.md",
+        relativePath: "/elsewhere/other.ts",
       });
     }
   });
