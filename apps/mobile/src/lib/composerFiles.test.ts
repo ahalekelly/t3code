@@ -17,6 +17,11 @@ const mocks = vi.hoisted(() => ({
   release: vi.fn(),
 }));
 
+vi.mock("./composerPickTrace", () => ({
+  startComposerPickTrace: () => () => {},
+  traceNativePicker: (_trace: unknown, launch: () => Promise<unknown>) => launch(),
+}));
+
 vi.mock("expo-file-system", () => {
   class Directory {
     readonly uri: string;
