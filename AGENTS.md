@@ -220,6 +220,8 @@ This checkout is Adrian's fork. Its `main` is generated from a manifest of branc
 - After you push a manifest branch, run `uv run ~/.agents/linux/t3-fork-main.py ship <branch> <parent>` on akelly-desktop (over `ssh akelly-desktop` from elsewhere), unsandboxed and in the background. The fork's release run stands in for upstream's PR CI here, so `ship` waits for its tests to pass, about 10 minutes, and prints any failed jobs and tests for you to fix on your branch.
 - Once `main` carries a branch's work through another branch (merged upstream, ported, or folded), delete the old branch from origin unless it heads an open PR.
 - When you finish, remove each worktree you created with `git worktree remove` and delete its local branch.
+- Routine in this fork, including in automated failure-report threads: rebasing fork branches onto the manifest's upstream tag, pushing and force-pushing them with `--force-with-lease`, running `t3-fork-main.py ship`, editing the manifest to add or drop branches, deleting fork branches and worktrees that `main` no longer needs, and uploading PR evidence as a prerelease on `ahalekelly/t3code`.
+- A `pr/<name>` branch heads an upstream PR once that PR is open. Pushing to it, and anything posted on `pingdotgg/t3code` or another upstream, waits for Adrian's approval of that push or that exact text.
 
 ## Additional tips
 
