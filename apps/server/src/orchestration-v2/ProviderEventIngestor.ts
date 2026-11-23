@@ -25,7 +25,6 @@ import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 import * as SqlError from "effect/sql/SqlError";
 
-import { AgentScope } from "@t3tools/shared/AgentScope";
 import { modelSelectionsEqual } from "@t3tools/shared/model";
 import {
   ProviderTurnAnalytics,
@@ -255,7 +254,6 @@ export const layer: Layer.Layer<
     const idAllocator = yield* IdAllocator.IdAllocatorV2;
     const threadCommands = yield* ThreadCommandExecutor.ThreadCommandExecutor;
     const analytics = yield* ProviderTurnAnalytics;
-    const agentScope = yield* AgentScope;
     const instances = yield* ProviderInstanceRegistry.ProviderInstanceRegistry;
     const usageLimitResets = yield* UsageLimitResetFallback;
     const scope = yield* Effect.scope;
@@ -667,12 +665,9 @@ export const layer: Layer.Layer<
                 return dismissed;
               }
               const occurredAt = yield* DateTime.now;
-              const reported = (yield* agentScope.oomKilled(input.threadId))
-                ? { ...input.event.failure, message: "Killed: out of memory.", code: "oom_kill" }
-                : input.event.failure;
               // A proxied CLI can drop the reset time; the hub still knows when its pool refills.
               const endpoint =
-                reported.class === "usage_limit" && reported.resetAt == null
+                input.event.failure.class === "usage_limit" && input.event.failure.resetAt == null
                   ? (yield* Effect.flatMap(
                       instances.getInstance(input.providerInstanceId),
                       (instance) => instance?.snapshot.getSnapshot ?? Effect.undefined,
@@ -699,7 +694,10 @@ export const layer: Layer.Layer<
                         usageLimitResets.resetAt(input.event.driver, endpoint, model),
                       ),
                     );
-              const failure = hubResetAt === null ? reported : { ...reported, resetAt: hubResetAt };
+              const failure =
+                hubResetAt === null
+                  ? input.event.failure
+                  : { ...input.event.failure, resetAt: hubResetAt };
               return [
                 ...dismissed,
                 yield* makeDomainEvent(input, {
