@@ -476,6 +476,10 @@ export class SessionStore extends Context.Service<
     readonly revokeAllExcept: (
       sessionId: AuthSessionId,
     ) => Effect.Effect<number, SessionCredentialInternalError>;
+    /** Whether the session is unrevoked and unexpired, or still connected past its expiry. */
+    readonly isActive: (
+      sessionId: AuthSessionId,
+    ) => Effect.Effect<boolean, SessionCredentialInternalError>;
     readonly proofKeyThumbprintOf: (
       sessionId: AuthSessionId,
     ) => Effect.Effect<Option.Option<string>, SessionCredentialInternalError>;
@@ -1202,6 +1206,12 @@ const make = Effect.gen(function* () {
     },
   );
 
+  const isActive: SessionStore["Service"]["isActive"] = (sessionId) =>
+    loadActiveSession(sessionId).pipe(
+      Effect.map(Option.isSome),
+      Effect.mapError((cause) => new SessionCredentialVerificationError({ sessionId, cause })),
+    );
+
   const proofKeyThumbprintOf: SessionStore["Service"]["proofKeyThumbprintOf"] = (sessionId) =>
     authSessions
       .getProofKeyThumbprint({ sessionId })
@@ -1354,6 +1364,7 @@ const make = Effect.gen(function* () {
     },
     revoke,
     revokeAllExcept,
+    isActive,
     proofKeyThumbprintOf,
     revokeByProofKey,
     markConnected,
