@@ -3082,11 +3082,15 @@ export const layerWsRpc = (
                 path.isAbsolute(input.resource.path) &&
                 !isNetworkPath(input.resource.path))
             ) {
-              return yield* issueAssetUrl({ resource: input.resource });
+              return yield* issueAssetUrl({
+                resource: input.resource,
+                sessionId: currentSessionId,
+              });
             }
             if (input.resource._tag === "draft-workspace-file") {
               return yield* issueAssetUrl({
                 resource: input.resource,
+                sessionId: currentSessionId,
                 workspaceRoot: input.resource.cwd,
               });
             }
@@ -3111,6 +3115,7 @@ export const layerWsRpc = (
               const clone = yield* projectCloneTracker.get(project.value.projectId);
               return yield* issueAssetUrl({
                 resource: input.resource,
+                sessionId: currentSessionId,
                 ...(project.value.faviconPath
                   ? { projectFaviconPath: project.value.faviconPath }
                   : {}),
@@ -3146,6 +3151,7 @@ export const layerWsRpc = (
             }
             return yield* issueAssetUrl({
               resource: input.resource,
+              sessionId: currentSessionId,
               workspaceRoot: thread.thread.worktreePath ?? project.value.workspaceRoot,
             });
           }),
