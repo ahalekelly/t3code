@@ -104,6 +104,7 @@ function EdgeDictationPill(props: {
   const phase = voice.state.phase;
   const isError = phase === "error";
   const openSettings = isError && voice.state.errorAction === "settings";
+  const transcribeAgain = isError && voice.canTranscribeAgain;
   const label = voice.label ?? gt("Draft", { $context: "noun, the draft being dictated into" });
 
   return (
@@ -220,7 +221,11 @@ function EdgeDictationPill(props: {
               voice.isAvailable ? (
                 <Pressable
                   accessibilityLabel={
-                    openSettings ? gt("Open microphone settings") : gt("Retry dictation")
+                    openSettings
+                      ? gt("Open microphone settings")
+                      : transcribeAgain
+                        ? gt("Transcribe again")
+                        : gt("Retry dictation")
                   }
                   accessibilityRole="button"
                   className="size-[30px] items-center justify-center active:opacity-70"
