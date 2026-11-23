@@ -166,6 +166,7 @@ describe("CodexAdapterV2 runtime policy", () => {
               nativeThreadId: "native-mode-switch",
               codexInput: [{ type: "text", text: "test" }],
               runtimePolicy: { runtimeMode: "full-access", interactionMode, cwd: null },
+              readConfiguredPermissions: Effect.die("unread"),
               modelSelection: {
                 instanceId: ProviderInstanceId.make("codex"),
                 model: "gpt-5.4",
@@ -196,6 +197,7 @@ describe("CodexAdapterV2 runtime policy", () => {
     Effect.gen(function* () {
       const build = (
         runtimeMode: "approval-required" | "auto-accept-edits" | "auto" | "full-access",
+        configuredPermissions: string | null = "custom_profile",
       ) =>
         CodexAdapterV2.buildCodexTurnStartParams({
           nativeThreadId: `native-${runtimeMode}`,
@@ -209,22 +211,25 @@ describe("CodexAdapterV2 runtime policy", () => {
             instanceId: ProviderInstanceId.make("codex"),
             model: "gpt-5.4",
           },
+          readConfiguredPermissions: Effect.succeed(configuredPermissions),
         });
 
       const approvalRequired = yield* build("approval-required");
       const autoAcceptEdits = yield* build("auto-accept-edits");
       const auto = yield* build("auto");
+      const autoWithoutProfile = yield* build("auto", null);
       const fullAccess = yield* build("full-access");
 
       assert.equal(approvalRequired.approvalPolicy, "untrusted");
       assert.equal(approvalRequired.approvalsReviewer, "user");
-      assert.equal(approvalRequired.sandboxPolicy?.type, "readOnly");
+      assert.equal(approvalRequired.permissions, ":read-only");
       assert.equal(autoAcceptEdits.approvalPolicy, "on-request");
       assert.equal(autoAcceptEdits.approvalsReviewer, "user");
-      assert.equal(autoAcceptEdits.sandboxPolicy?.type, "workspaceWrite");
+      assert.equal(autoAcceptEdits.permissions, "custom_profile");
       assert.equal(auto.approvalPolicy, "on-request");
       assert.equal(auto.approvalsReviewer, "auto_review");
-      assert.equal(auto.sandboxPolicy?.type, "workspaceWrite");
+      assert.equal(auto.permissions, "custom_profile");
+      assert.equal(autoWithoutProfile.permissions, ":workspace");
       assert.deepEqual(fullAccess.approvalPolicy, {
         granular: {
           mcp_elicitations: true,
@@ -235,7 +240,10 @@ describe("CodexAdapterV2 runtime policy", () => {
         },
       });
       assert.equal(fullAccess.approvalsReviewer, "user");
-      assert.equal(fullAccess.sandboxPolicy?.type, "dangerFullAccess");
+      assert.equal(fullAccess.permissions, ":danger-full-access");
+      for (const params of [approvalRequired, autoAcceptEdits, auto, fullAccess]) {
+        assert.isUndefined(params.sandboxPolicy);
+      }
     }),
   );
 
@@ -251,6 +259,7 @@ describe("CodexAdapterV2 runtime policy", () => {
             model: "gpt-5.4",
             ...(value === undefined ? {} : { options: [{ id: "cyberAccessProgram", value }] }),
           },
+          readConfiguredPermissions: Effect.die("unread"),
           cyberAccess,
         });
 
@@ -277,6 +286,7 @@ describe("CodexAdapterV2 runtime policy", () => {
         codexInput: [{ type: "text", text: "what's on my list?" }],
         runtimePolicy: policy,
         modelSelection,
+        readConfiguredPermissions: Effect.die("unread"),
         appContext,
       });
       assert.deepEqual(alone.additionalContext, {
@@ -287,6 +297,7 @@ describe("CodexAdapterV2 runtime policy", () => {
         codexInput: [{ type: "text", text: "what's on my list?" }],
         runtimePolicy: policy,
         modelSelection,
+        readConfiguredPermissions: Effect.die("unread"),
         hasT3Mcp: true,
         appContext,
       });
@@ -669,7 +680,7 @@ function codexReplayPreamble(input: {
   readonly effort?: string;
   readonly turnPolicy?: Pick<
     typeof CodexClient.V2TurnStartParams.Type,
-    "approvalPolicy" | "sandboxPolicy"
+    "approvalPolicy" | "permissions"
   >;
 }): Array<CodexReplay.CodexAppServerReplayEntry> {
   return [
@@ -767,7 +778,7 @@ function codexReplayPreamble(input: {
           model: "gpt-5.4",
           approvalPolicy: "never",
           approvalsReviewer: "user",
-          sandboxPolicy: { type: "dangerFullAccess" },
+          permissions: ":danger-full-access",
           ...input.turnPolicy,
           summary: "auto",
           ...(input.effort === undefined ? {} : { effort: input.effort }),
@@ -804,10 +815,9 @@ function codexReplayPreamble(input: {
 }
 
 /**
- * Every turn/start follows a config/read, and a thread's first turn on a connection names it
- * unless the transcript names it itself. A thread start, resume or fork follows a config/read
- * unless it retries a failed request or the transcript reads config itself. Inserts those
- * exchanges and shifts later client ids.
+ * Inserts the config/read before each turn/start and thread start, resume or fork, and the
+ * thread/name/set before a thread's first turn on a connection, unless the transcript has them
+ * or a thread request retries a failed one. Shifts later client ids.
  */
 function withConfigReadBeforeTurnStart(
   entries: ReadonlyArray<CodexReplay.CodexAppServerReplayEntry>,
@@ -857,11 +867,13 @@ function withConfigReadBeforeTurnStart(
           namedThreads.add(params.threadId);
           exchanges.push(["thread/name/set", { threadId: params.threadId, name: threadName }, {}]);
         }
-        exchanges.push([
-          "config/read",
-          { cwd: params.cwd, includeLayers: false },
-          { config: {}, origins: {} },
-        ]);
+        if (previousOutbound?.method === "config/read") transcriptReads -= 1;
+        else
+          exchanges.push([
+            "config/read",
+            { cwd: params.cwd, includeLayers: false },
+            { config: {}, origins: {} },
+          ]);
       }
       for (const [method, requestParams, response] of exchanges) {
         const id = frame.id + offset;
@@ -1700,7 +1712,7 @@ describe("CodexAdapterV2 post-settle continuation", () => {
                   : {
                       turnPolicy: {
                         approvalPolicy: "on-request",
-                        sandboxPolicy: { type: "workspaceWrite" },
+                        permissions: ":workspace",
                       },
                     }),
               }),
@@ -3584,12 +3596,12 @@ describe("CodexAdapterV2 post-settle continuation", () => {
         "approval-required": {
           approvalPolicy: "untrusted",
           approvalsReviewer: "user",
-          sandboxPolicy: { type: "readOnly" },
+          permissions: ":read-only",
         },
         "full-access": {
           approvalPolicy: "never",
           approvalsReviewer: "user",
-          sandboxPolicy: { type: "dangerFullAccess" },
+          permissions: ":danger-full-access",
         },
       } as const;
       const turnModes = ["approval-required", "full-access", "approval-required"] as const;
@@ -3796,6 +3808,7 @@ describe("CodexAdapterV2 post-settle continuation", () => {
         codexInput: [{ type: "text", text: "work" }],
         runtimePolicy: CODEX_TEST_RUNTIME_POLICY,
         modelSelection,
+        readConfiguredPermissions: Effect.die("unread"),
         hasT3Mcp: true,
         cyberAccess: { defaultProgram: "daybreakBlue" },
       });
@@ -3925,6 +3938,107 @@ describe("CodexAdapterV2 post-settle continuation", () => {
         ["item/completed", "turn/completed", "thread/inject_items"],
         "restored T3 context while the compacting native turn was still running",
       );
+    }).pipe(
+      Effect.provide(
+        Layer.mergeAll(
+          IdAllocator.layer,
+          McpProviderSessions.layer,
+          NodeServices.layer,
+          NodeCrypto.layer,
+        ),
+      ),
+    ),
+  );
+
+  it.effect("runs Auto turns under the profile named by the Codex config for the turn's cwd", () =>
+    Effect.gen(function* () {
+      const nativeThreadId = "auto-thread";
+      const nativeTurnId = "auto-turn";
+      const runtimePolicy = { ...CODEX_TEST_RUNTIME_POLICY, runtimeMode: "auto" } as const;
+      const transcript = makeCodexReplayTranscript({
+        scenario: "auto-configured-permissions",
+        entries: [
+          ...codexReplayPreamble({ nativeThreadId, nativeTurnId, prompt: "work" }).slice(0, 5),
+          {
+            type: "expect_outbound",
+            label: "thread/name/set",
+            frame: {
+              id: 3,
+              method: "thread/name/set",
+              params: { threadId: nativeThreadId, name: CODEX_TEST_THREAD_TITLE },
+            },
+          },
+          { type: "emit_inbound", label: "thread/name/set", frame: { id: 3, result: {} } },
+          {
+            type: "expect_outbound",
+            label: "config/read",
+            frame: {
+              id: 4,
+              method: "config/read",
+              params: { includeLayers: false, cwd: "/workspace" },
+            },
+          },
+          {
+            type: "emit_inbound",
+            label: "config/read",
+            frame: {
+              id: 4,
+              result: { config: { default_permissions: "custom_profile" }, origins: {} },
+            },
+          },
+          {
+            type: "expect_outbound",
+            label: "turn/start",
+            frame: {
+              id: 5,
+              method: "turn/start",
+              params: {
+                threadId: nativeThreadId,
+                input: [{ type: "text", text: "work" }],
+                cwd: "/workspace",
+                model: "gpt-5.4",
+                approvalPolicy: "on-request",
+                approvalsReviewer: "auto_review",
+                permissions: "custom_profile",
+                summary: "auto",
+                collaborationMode: { mode: "default", settings: { model: "gpt-5.4" } },
+              },
+            },
+          },
+          {
+            type: "emit_inbound",
+            label: "turn/start",
+            frame: {
+              id: 5,
+              result: { turn: makeCodexReplayTurn({ id: nativeTurnId, status: "inProgress" }) },
+            },
+          },
+          {
+            type: "emit_inbound",
+            label: "done",
+            frame: {
+              method: "turn/completed",
+              params: {
+                threadId: nativeThreadId,
+                turn: makeCodexReplayTurn({ id: nativeTurnId, status: "completed" }),
+              },
+            },
+          },
+        ],
+      });
+      const harness = yield* makeCodexReplayHarness(transcript);
+      yield* harness.runtime.startTurn({
+        ...makeCodexTestTurnInput({
+          threadId: harness.threadId,
+          providerThread: harness.providerThread,
+          now: yield* DateTime.now,
+          attemptId: RunAttemptId.make("auto-attempt"),
+          text: "work",
+        }),
+        runtimePolicy,
+      });
+      yield* harness.firstTerminal;
+      assert.equal(harness.terminalEvents()[0]?.status, "completed");
     }).pipe(
       Effect.provide(
         Layer.mergeAll(
@@ -11663,6 +11777,7 @@ describe("CodexAdapterV2 post-settle continuation", () => {
               codexInput: [{ type: "text", text }],
               runtimePolicy: CODEX_TEST_RUNTIME_POLICY,
               modelSelection: CODEX_TEST_MODEL_SELECTION,
+              readConfiguredPermissions: Effect.die("unread"),
               hasT3Mcp: true,
             }),
             (params): CodexReplay.CodexAppServerReplayEntry => ({
