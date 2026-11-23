@@ -7,8 +7,6 @@ import {
   AssetAccessError,
   AssetCreateUrlInput,
   AssetPreviewTypeValidationError,
-  AuthFilesystemReadScope,
-  AuthOrchestrationReadScope,
   AuthSessionId,
   SOURCE_CONTROL_MEDIA_ASSET,
   ThreadId,
@@ -25,15 +23,7 @@ import * as Path from "effect/Path";
 import * as PlatformError from "effect/PlatformError";
 import * as Schema from "effect/Schema";
 import * as TestClock from "effect/testing/TestClock";
-import * as NodeHttpServer from "@effect/platform-node/NodeHttpServer";
-import * as Context from "effect/Context";
-import {
-  HttpClient,
-  HttpClientRequest,
-  HttpClientResponse,
-  HttpRouter,
-  HttpServerResponse,
-} from "effect/http";
+import { HttpClientRequest, HttpClientResponse, HttpServerResponse } from "effect/http";
 import { vi } from "vite-plus/test";
 
 import * as AssetSigner from "./AssetSigner.ts";
@@ -44,15 +34,9 @@ import * as Orchestrator from "../orchestration-v2/Orchestrator.ts";
 import * as ProjectFaviconResolver from "../project/ProjectFaviconResolver.ts";
 import * as T3ProjectFileLoader from "../project/T3ProjectFileLoader.ts";
 import * as WorkspacePaths from "../workspace/WorkspacePaths.ts";
-import * as EnvironmentAuth from "../auth/EnvironmentAuth.ts";
-import { assetFileResponse, layerAssetRoute } from "../http.ts";
-import {
-  ASSET_ROUTE_PREFIX,
-  issueAssetUrl,
-  readMcpAppHtml,
-  renewExpiredFileToken,
-  resolveAsset,
-} from "./AssetAccess.ts";
+import * as SessionStore from "../auth/SessionStore.ts";
+import { assetFileResponse } from "../http.ts";
+import { ASSET_ROUTE_PREFIX, issueAssetUrl, readMcpAppHtml, resolveAsset } from "./AssetAccess.ts";
 import * as NativeAppIconResolver from "./NativeAppIconResolver.ts";
 import * as RepositoryIdentityResolver from "../project/RepositoryIdentityResolver.ts";
 import { symlinksSupported } from "@t3tools/shared/testing/symlinks";
@@ -121,6 +105,13 @@ const oversizedScreenshotItem = {
   },
 };
 
+const sessionId1 = AuthSessionId.make("session-1");
+const tokenAndPath = (relativeUrl: string) => {
+  const suffix = relativeUrl.slice(`${ASSET_ROUTE_PREFIX}/`.length);
+  const separator = suffix.indexOf("/");
+  return [suffix.slice(0, separator), suffix.slice(separator + 1)] as const;
+};
+
 const layerTest = Layer.mergeAll(
   NodeHttpPlatform.layer,
   Layer.mock(Orchestrator.OrchestratorV2)({
@@ -143,6 +134,11 @@ const layerTest = Layer.mergeAll(
   AssetSigner.layer.pipe(
     Layer.provideMerge(ServerSecretStore.layer.pipe(Layer.provide(layerConfig))),
   ),
+  Layer.mock(SessionStore.SessionStore)({
+    cookieName: "t3_session",
+    legacyCookieName: undefined,
+    isActive: (sessionId) => Effect.succeed(sessionId === sessionId1),
+  }),
 ).pipe(Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)));
 
 describe("AssetAccess", () => {
@@ -213,7 +209,7 @@ describe("AssetAccess", () => {
         itemId: screenshotItem.id,
         index: 0,
       };
-      const result = yield* issueAssetUrl({ resource });
+      const result = yield* issueAssetUrl({ sessionId: sessionId1, resource });
       expect(result.imageDimensions).toEqual({ width: 390, height: 844 });
       const suffix = result.relativeUrl.slice(`${ASSET_ROUTE_PREFIX}/`.length);
       const separator = suffix.indexOf("/");
@@ -222,11 +218,13 @@ describe("AssetAccess", () => {
         mimeType: "image/png",
         bytes: Buffer.from(screenshotPng),
       });
-      const missing = yield* issueAssetUrl({ resource: { ...resource, index: 1 } }).pipe(
-        Effect.flip,
-      );
+      const missing = yield* issueAssetUrl({
+        sessionId: sessionId1,
+        resource: { ...resource, index: 1 },
+      }).pipe(Effect.flip);
       expect(missing._tag).toBe("AssetWorkspaceAssetNotFoundError");
       const oversized = yield* issueAssetUrl({
+        sessionId: sessionId1,
         resource: { ...resource, itemId: oversizedScreenshotItem.id },
       }).pipe(Effect.flip);
       expect(oversized._tag).toBe("AssetWorkspaceAssetNotFoundError");
@@ -241,6 +239,7 @@ describe("AssetAccess", () => {
       const imagePath = `${environmentThemesDir}/frieren.png`;
       yield* fs.writeFile(imagePath, screenshotPng);
       const result = yield* issueAssetUrl({
+        sessionId: sessionId1,
         resource: { _tag: "environment-theme-background", themeId: "frieren" },
       });
       const suffix = result.relativeUrl.slice(`${ASSET_ROUTE_PREFIX}/`.length);
@@ -290,6 +289,7 @@ describe("AssetAccess", () => {
         yield* fs.writeFileString(filePath, "media");
         const canonicalFile = yield* fs.realPath(filePath);
         const result = yield* issueAssetUrl({
+          sessionId: sessionId1,
           resource: { _tag: "media-file", threadId: ThreadId.make("thread-1"), path: filePath },
           workspaceRoot: root,
         });
@@ -332,7 +332,11 @@ describe("AssetAccess", () => {
             path: directory === root ? name : filePath,
             disposition: "attachment" as const,
           };
-          const result = yield* issueAssetUrl({ resource, workspaceRoot: root });
+          const result = yield* issueAssetUrl({
+            sessionId: sessionId1,
+            resource,
+            workspaceRoot: root,
+          });
           const suffix = result.relativeUrl.slice(`${ASSET_ROUTE_PREFIX}/`.length);
           const separator = suffix.indexOf("/");
           const token = suffix.slice(0, separator);
@@ -357,6 +361,7 @@ describe("AssetAccess", () => {
         }
       }
       const directoryError = yield* issueAssetUrl({
+        sessionId: sessionId1,
         resource: {
           _tag: "media-file",
           threadId: ThreadId.make("thread-1"),
@@ -379,6 +384,7 @@ describe("AssetAccess", () => {
         const filePath = path.resolve(root, relativePath);
         yield* fs.writeFileString(filePath, "media");
         const result = yield* issueAssetUrl({
+          sessionId: sessionId1,
           resource: { _tag: "media-file", threadId: ThreadId.make("thread-1"), path: relativePath },
           workspaceRoot: root,
         });
@@ -406,6 +412,7 @@ describe("AssetAccess", () => {
         const filePath = path.join(root, name);
         yield* fs.writeFileString(filePath, "media bytes");
         const result = yield* issueAssetUrl({
+          sessionId: sessionId1,
           resource: { _tag: "draft-workspace-file", cwd: root, path: name },
           workspaceRoot: root,
         });
@@ -459,6 +466,7 @@ describe("AssetAccess", () => {
           ["secret.txt", "AssetPreviewTypeValidationError"],
         ] as const) {
           const error = yield* issueAssetUrl({
+            sessionId: sessionId1,
             resource: { _tag: "draft-workspace-file", cwd: root, path: requestedPath },
             workspaceRoot: root,
           }).pipe(Effect.flip);
@@ -466,6 +474,7 @@ describe("AssetAccess", () => {
         }
         for (const name of ["video.mp4", "audio.wav"]) {
           const error = yield* issueAssetUrl({
+            sessionId: sessionId1,
             resource: { _tag: "workspace-file", threadId: ThreadId.make("thread-1"), path: name },
             workspaceRoot: root,
           }).pipe(Effect.flip);
@@ -493,6 +502,7 @@ describe("AssetAccess", () => {
         ] as const) {
           yield* fs.symlink(target, path.join(root, name));
           const error = yield* issueAssetUrl({
+            sessionId: sessionId1,
             resource: { _tag: "draft-workspace-file", cwd: root, path: name },
             workspaceRoot: root,
           }).pipe(Effect.flip);
@@ -516,6 +526,7 @@ describe("AssetAccess", () => {
           yield* fs.writeFileString(target, "preview bytes");
           yield* fs.symlink(target, alias);
           const result = yield* issueAssetUrl({
+            sessionId: sessionId1,
             resource: { _tag: "draft-workspace-file", cwd: root, path: alias },
             workspaceRoot: root,
           });
@@ -556,6 +567,7 @@ describe("AssetAccess", () => {
           }),
         });
         const result = yield* issueAssetUrl({
+          sessionId: sessionId1,
           resource: { _tag: "draft-workspace-file", cwd: root, path: "video.mp4" },
           workspaceRoot: root,
         }).pipe(Effect.result, Effect.provideService(FileSystem.FileSystem, swappingFileSystem));
@@ -588,6 +600,7 @@ describe("AssetAccess", () => {
             if (workspaceRoot) yield* fs.makeDirectory(workspaceRoot, { recursive: true });
             for (const requestedPath of ["~/Downloads/repro.mp4", "~\\Downloads/repro.mp4"]) {
               const result = yield* issueAssetUrl({
+                sessionId: sessionId1,
                 resource: {
                   ...(tag === "media-file"
                     ? { _tag: tag, threadId: ThreadId.make("thread-1") }
@@ -634,7 +647,9 @@ describe("AssetAccess", () => {
           { _tag: "media-file", threadId: ThreadId.make("thread-1"), path: drivePath },
           { _tag: "draft-workspace-file", cwd: workspaceRoot, path: drivePath },
         ] as const) {
-          const result = yield* underWsl(issueAssetUrl({ resource, workspaceRoot }));
+          const result = yield* underWsl(
+            issueAssetUrl({ sessionId: sessionId1, resource, workspaceRoot }),
+          );
           expect(result.imageDimensions).toEqual({ width: 390, height: 844 });
           const suffix = result.relativeUrl.slice(`${ASSET_ROUTE_PREFIX}/`.length);
           const separator = suffix.indexOf("/");
@@ -661,7 +676,7 @@ describe("AssetAccess", () => {
           { _tag: "media-file", threadId: ThreadId.make("thread-1"), path: gitBashPath },
           { _tag: "draft-workspace-file", cwd: workspaceRoot, path: gitBashPath },
         ] as const) {
-          const result = yield* issueAssetUrl({ resource, workspaceRoot });
+          const result = yield* issueAssetUrl({ sessionId: sessionId1, resource, workspaceRoot });
           expect(result.imageDimensions).toEqual({ width: 390, height: 844 });
           const suffix = result.relativeUrl.slice(`${ASSET_ROUTE_PREFIX}/`.length);
           const separator = suffix.indexOf("/");
@@ -703,10 +718,11 @@ describe("AssetAccess", () => {
         { _tag: "draft-workspace-file", cwd: share, path: "//attacker.test/s/a.png" },
         { _tag: "media-file", threadId: ThreadId.make("thread-1"), path: `${share}/a.png` },
       ] as const) {
-        const error = yield* issueAssetUrl({ resource, workspaceRoot: share }).pipe(
-          Effect.provideService(FileSystem.FileSystem, recordingFileSystem),
-          Effect.flip,
-        );
+        const error = yield* issueAssetUrl({
+          sessionId: sessionId1,
+          resource,
+          workspaceRoot: share,
+        }).pipe(Effect.provideService(FileSystem.FileSystem, recordingFileSystem), Effect.flip);
         expect(error._tag).toBe("AssetWorkspaceAssetNotFoundError");
       }
       expect(resolved).toEqual([path.resolve(`${share}/a.png`)]);
@@ -724,6 +740,7 @@ describe("AssetAccess", () => {
           const filePath = path.join(root, name);
           yield* fs.writeFileString(filePath, "not media");
           const error = yield* issueAssetUrl({
+            sessionId: sessionId1,
             resource: { _tag: "media-file", threadId: ThreadId.make("thread-1"), path: filePath },
           }).pipe(Effect.flip);
           expect(error).toBeInstanceOf(AssetPreviewTypeValidationError);
@@ -731,6 +748,7 @@ describe("AssetAccess", () => {
         const disguisedPath = path.join(root, "disguised.png");
         yield* fs.symlink(path.join(root, "secret.txt"), disguisedPath);
         const disguisedError = yield* issueAssetUrl({
+          sessionId: sessionId1,
           resource: {
             _tag: "media-file",
             threadId: ThreadId.make("thread-1"),
@@ -741,6 +759,7 @@ describe("AssetAccess", () => {
         const directoryPath = path.join(root, "directory.png");
         yield* fs.makeDirectory(directoryPath);
         const directoryError = yield* issueAssetUrl({
+          sessionId: sessionId1,
           resource: {
             _tag: "media-file",
             threadId: ThreadId.make("thread-1"),
@@ -762,6 +781,7 @@ describe("AssetAccess", () => {
         yield* fs.writeFileString(path.join(root, "real.pdf"), "%PDF-1.4");
         const link = path.join(root, "report.pdf");
         const issue = issueAssetUrl({
+          sessionId: sessionId1,
           resource: {
             _tag: "workspace-file",
             threadId: ThreadId.make("thread-1"),
@@ -816,7 +836,7 @@ describe("AssetAccess", () => {
         { _tag: "media-file", threadId, path: config.dbPath },
         { _tag: "draft-workspace-file", cwd: config.stateDir, path: "statev2.sqlite" },
       ] as const) {
-        const error = yield* issueAssetUrl({ resource }).pipe(Effect.flip);
+        const error = yield* issueAssetUrl({ sessionId: sessionId1, resource }).pipe(Effect.flip);
         expect(error._tag).toBe("AssetWorkspaceAssetNotFoundError");
       }
 
@@ -824,11 +844,13 @@ describe("AssetAccess", () => {
       yield* fs.symlink(stateFile, icon);
       yield* fs.writeFileString(path.join(config.baseDir, "page.html"), '<img src="icon.png">');
       const page = yield* issueAssetUrl({
+        sessionId: sessionId1,
         resource: { _tag: "draft-workspace-file", cwd: config.baseDir, path: "page.html" },
       });
       const pageToken = page.relativeUrl.slice(`${ASSET_ROUTE_PREFIX}/`.length).split("/")[0]!;
       expect(yield* resolveAsset(pageToken, "icon.png")).toBeNull();
       const faviconError = yield* issueAssetUrl({
+        sessionId: sessionId1,
         resource: { _tag: "project-favicon", cwd: root },
         projectFaviconPath: icon,
       }).pipe(Effect.flip);
@@ -851,6 +873,7 @@ describe("AssetAccess", () => {
         yield* fs.symlink(filePath, aliasPath);
         const canonicalFile = yield* fs.realPath(filePath);
         const result = yield* issueAssetUrl({
+          sessionId: sessionId1,
           resource: { _tag: "media-file", threadId: ThreadId.make("thread-1"), path: aliasPath },
         });
         const suffix = result.relativeUrl.slice(`${ASSET_ROUTE_PREFIX}/`.length);
@@ -881,6 +904,7 @@ describe("AssetAccess", () => {
         yield* fs.writeFileString(filePath, "0123456789");
         yield* fs.writeFileString(secretPath, "private information");
         const result = yield* issueAssetUrl({
+          sessionId: sessionId1,
           resource: { _tag: "media-file", threadId: ThreadId.make("thread-1"), path: filePath },
         });
         const suffix = result.relativeUrl.slice(`${ASSET_ROUTE_PREFIX}/`.length);
@@ -920,6 +944,7 @@ describe("AssetAccess", () => {
         yield* fs.writeFileString(secretPath, "secret");
         const canonicalPath = yield* fs.realPath(filePath);
         const result = yield* issueAssetUrl({
+          sessionId: sessionId1,
           resource: { _tag: "media-file", threadId: ThreadId.make("thread-1"), path: filePath },
         });
         const suffix = result.relativeUrl.slice(`${ASSET_ROUTE_PREFIX}/`.length);
@@ -959,6 +984,7 @@ describe("AssetAccess", () => {
         yield* fs.writeFileString(path.join(privateDirectory, "recording.mp4"), "private video");
         const canonicalPath = yield* fs.realPath(filePath);
         const result = yield* issueAssetUrl({
+          sessionId: sessionId1,
           resource: { _tag: "media-file", threadId: ThreadId.make("thread-1"), path: filePath },
         });
         const suffix = result.relativeUrl.slice(`${ASSET_ROUTE_PREFIX}/`.length);
@@ -999,114 +1025,42 @@ describe("AssetAccess", () => {
       }).pipe(Effect.provide(layerTest)),
   );
 
-  it.effect("renews only expired, validly signed file tokens, keeping their claims", () =>
+  it.effect("file links resolve while their session is active, past other links' hour", () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
       const path = yield* Path.Path;
       const { environmentThemesDir } = yield* ServerConfig.ServerConfig;
       yield* fs.makeDirectory(environmentThemesDir, { recursive: true });
       yield* fs.writeFile(`${environmentThemesDir}/frieren.png`, screenshotPng);
-      const root = yield* fs.makeTempDirectoryScoped({ prefix: "t3-asset-renew-" });
+      const root = yield* fs.makeTempDirectoryScoped({ prefix: "t3-asset-session-" });
       yield* fs.makeDirectory(path.join(root, "reports"));
       yield* fs.writeFileString(path.join(root, "reports", "a.html"), "<p>A</p>");
-      yield* fs.writeFileString(path.join(root, "reports", "b.html"), "<p>B</p>");
-      const tokenOf = (relativeUrl: string) =>
-        relativeUrl.slice(`${ASSET_ROUTE_PREFIX}/`.length).split("/")[0]!;
-      const token = tokenOf(
-        (yield* issueAssetUrl({
+      const urlFor = (sessionId: AuthSessionId) =>
+        issueAssetUrl({
+          sessionId,
           resource: {
             _tag: "workspace-file",
             threadId: ThreadId.make("thread-1"),
             path: "reports/a.html",
           },
           workspaceRoot: root,
-        })).relativeUrl,
-      );
-      const themeToken = tokenOf(
+        }).pipe(Effect.map(({ relativeUrl }) => tokenAndPath(relativeUrl)));
+      const active = yield* urlFor(sessionId1);
+      const revoked = yield* urlFor(AuthSessionId.make("revoked-session"));
+      const theme = tokenAndPath(
         (yield* issueAssetUrl({
+          sessionId: sessionId1,
           resource: { _tag: "environment-theme-background", themeId: "frieren" },
         })).relativeUrl,
       );
 
-      expect(yield* renewExpiredFileToken(token)).toBeNull();
-      yield* TestClock.adjust("61 minutes");
-      expect(yield* resolveAsset(token, "b.html")).toBeNull();
-      expect(yield* renewExpiredFileToken(`${token}tampered`)).toBeNull();
-      expect(yield* renewExpiredFileToken(themeToken)).toBeNull();
-
-      const renewed = yield* renewExpiredFileToken(token);
-      expect(yield* resolveAsset(renewed!, "b.html")).toMatchObject({
+      yield* TestClock.adjust("30 days");
+      expect(yield* resolveAsset(...active)).toMatchObject({
         kind: "file",
-        path: yield* fs.realPath(path.join(root, "reports", "b.html")),
+        path: yield* fs.realPath(path.join(root, "reports", "a.html")),
       });
-    }).pipe(Effect.scoped, Effect.provide(layerTest)),
-  );
-
-  it.effect("redirects expired file links to a renewed URL only for same-site file readers", () =>
-    Effect.gen(function* () {
-      const fs = yield* FileSystem.FileSystem;
-      const path = yield* Path.Path;
-      const root = yield* fs.makeTempDirectoryScoped({ prefix: "t3-asset-route-" });
-      yield* fs.writeFileString(path.join(root, "report.html"), "<p>report</p>");
-      const { relativeUrl } = yield* issueAssetUrl({
-        resource: {
-          _tag: "workspace-file",
-          threadId: ThreadId.make("thread-1"),
-          path: "report.html",
-        },
-        workspaceRoot: root,
-      });
-      const layerAuth = Layer.mock(EnvironmentAuth.EnvironmentAuth)({
-        authenticateHttpRequest: (request) => {
-          const scopes = {
-            reader: [AuthFilesystemReadScope],
-            viewer: [AuthOrchestrationReadScope],
-          }[request.headers.cookie ?? ""];
-          return scopes
-            ? Effect.succeed({
-                sessionId: AuthSessionId.make("session-1"),
-                subject: "user",
-                method: "browser-session-cookie" as const,
-                scopes,
-              })
-            : Effect.fail(new EnvironmentAuth.ServerAuthMissingCredentialError());
-        },
-      });
-      const services = yield* Layer.build(
-        HttpRouter.serve(layerAssetRoute, {
-          disableListenLog: true,
-          disableLogger: true,
-        }).pipe(
-          Layer.provideMerge(NodeHttpServer.layerTest),
-          Layer.provide(layerAuth),
-          Layer.provide(Layer.succeed(BuiltInDrivers.SourceControlDrivers, [])),
-          Layer.provide(Layer.mock(RepositoryIdentityResolver.RepositoryIdentityResolver)({})),
-        ),
-      );
-      const client = Context.get(services, HttpClient.HttpClient);
-      // The test client follows the redirect, keeping these headers.
-      const get = (headers: Record<string, string>) =>
-        client.execute(
-          HttpClientRequest.get(relativeUrl).pipe(HttpClientRequest.setHeaders(headers)),
-        );
-
-      yield* TestClock.adjust("61 minutes");
-      for (const headers of [
-        {},
-        { cookie: "viewer" },
-        { cookie: "reader", "sec-fetch-site": "cross-site" },
-        { cookie: "reader", "sec-fetch-site": "same-site" },
-      ]) {
-        expect((yield* get(headers)).status).toBe(404);
-      }
-      for (const headers of [
-        { cookie: "reader" },
-        { cookie: "reader", "sec-fetch-site": "none" },
-      ]) {
-        const response = yield* get(headers);
-        expect(response.status).toBe(200);
-        expect(yield* response.text).toContain("<p>report</p>");
-      }
+      expect(yield* resolveAsset(...revoked)).toBeNull();
+      expect(yield* resolveAsset(...theme)).toBeNull();
     }).pipe(Effect.scoped, Effect.provide(layerTest)),
   );
 
@@ -1119,6 +1073,7 @@ describe("AssetAccess", () => {
       yield* fs.writeFileString(filePath, "original");
       yield* Effect.promise(() => NodeFSP.utimes(filePath, 1_000, 1_000));
       const input = {
+        sessionId: sessionId1,
         resource: {
           _tag: "media-file" as const,
           threadId: ThreadId.make("thread-1"),
@@ -1129,9 +1084,9 @@ describe("AssetAccess", () => {
       expect(original.fileRevision).toEqual(expect.any(String));
 
       yield* TestClock.adjust("1 minute");
-      const renewed = yield* issueAssetUrl(input);
-      expect(renewed.relativeUrl).not.toBe(original.relativeUrl);
-      expect(renewed.fileRevision).toBe(original.fileRevision);
+      const reissued = yield* issueAssetUrl(input);
+      expect(reissued.relativeUrl).toBe(original.relativeUrl);
+      expect(reissued.fileRevision).toBe(original.fileRevision);
 
       yield* fs.writeFileString(filePath, "modified");
       yield* Effect.promise(() => NodeFSP.utimes(filePath, 2_000, 2_000));
@@ -1155,6 +1110,7 @@ describe("AssetAccess", () => {
       const filePath = path.join(root, "recording.mp4");
       yield* fs.writeFileString(filePath, "original");
       const input = {
+        sessionId: sessionId1,
         resource: {
           _tag: "media-file" as const,
           threadId: ThreadId.make("thread-1"),
@@ -1212,6 +1168,7 @@ describe("AssetAccess", () => {
       yield* fs.symlink(path.join(root, "notes.txt"), path.join(root, "notes.css"));
 
       const result = yield* issueAssetUrl({
+        sessionId: sessionId1,
         resource: { _tag: "workspace-file", threadId: ThreadId.make("thread-1"), path: page },
         workspaceRoot: root,
       });
@@ -1251,6 +1208,7 @@ describe("AssetAccess", () => {
           yield* fs.symlink(target, path.join(reportsDirectory, name));
         }
         const result = yield* issueAssetUrl({
+          sessionId: sessionId1,
           resource: { _tag: "workspace-file", threadId: ThreadId.make("thread-1"), path: page },
           workspaceRoot: root,
         });
@@ -1287,6 +1245,7 @@ describe("AssetAccess", () => {
       const canonicalCssPath = yield* fileSystem.realPath(cssPath);
 
       const result = yield* issueAssetUrl({
+        sessionId: sessionId1,
         resource: {
           _tag: "workspace-file",
           threadId: ThreadId.make("thread-1"),
@@ -1326,7 +1285,11 @@ describe("AssetAccess", () => {
           { _tag: "workspace-file" as const, threadId: ThreadId.make("thread-1"), path: htmlPath },
           { _tag: "draft-workspace-file" as const, cwd: root, path: "report.html" },
         ]) {
-          const url = yield* issueAssetUrl({ resource, workspaceRoot: root });
+          const url = yield* issueAssetUrl({
+            sessionId: sessionId1,
+            resource,
+            workspaceRoot: root,
+          });
           const suffix = url.relativeUrl.slice(`${ASSET_ROUTE_PREFIX}/`.length);
           expect(yield* resolveAsset(suffix.slice(0, suffix.indexOf("/")), fontName)).toEqual({
             kind: "file",
@@ -1347,6 +1310,7 @@ describe("AssetAccess", () => {
       yield* fileSystem.writeFileString(dotCssPath, "body { color: red; }");
       yield* fileSystem.writeFileString(path.join(reportsDirectory, ".cache", "hidden.css"), "");
       const dotUrl = yield* issueAssetUrl({
+        sessionId: sessionId1,
         resource: {
           _tag: "workspace-file",
           threadId: ThreadId.make("thread-1"),
@@ -1399,7 +1363,11 @@ describe("AssetAccess", () => {
           { _tag: "workspace-file" as const, threadId: ThreadId.make("thread-1"), path: htmlPath },
           { _tag: "draft-workspace-file" as const, cwd: root, path: "report.html" },
         ]) {
-          const url = yield* issueAssetUrl({ resource, workspaceRoot: root });
+          const url = yield* issueAssetUrl({
+            sessionId: sessionId1,
+            resource,
+            workspaceRoot: root,
+          });
           const suffix = url.relativeUrl.slice(`${ASSET_ROUTE_PREFIX}/`.length);
           expect(yield* resolveAsset(suffix.slice(0, suffix.indexOf("/")), siblingName)).toBeNull();
         }
@@ -1425,6 +1393,7 @@ describe("AssetAccess", () => {
       yield* fileSystem.writeFileString(path.join(root, "README.md"), "# Root");
 
       const result = yield* issueAssetUrl({
+        sessionId: sessionId1,
         resource: { _tag: "workspace-file", threadId: ThreadId.make("thread-1"), path: docPath },
         workspaceRoot: root,
       });
@@ -1464,6 +1433,7 @@ describe("AssetAccess", () => {
       yield* fileSystem.writeFileString(htmlPath, "<p>outside</p>");
 
       const error = yield* issueAssetUrl({
+        sessionId: sessionId1,
         resource: {
           _tag: "workspace-file",
           threadId: ThreadId.make("thread-1"),
@@ -1543,7 +1513,11 @@ describe("AssetAccess", () => {
           },
           { _tag: "draft-workspace-file" as const, cwd: root, path: `assets/${name}` },
         ]) {
-          const result = yield* issueAssetUrl({ resource, workspaceRoot: root });
+          const result = yield* issueAssetUrl({
+            sessionId: sessionId1,
+            resource,
+            workspaceRoot: root,
+          });
           const suffix = result.relativeUrl.slice(`${ASSET_ROUTE_PREFIX}/`.length);
           const token = suffix.slice(0, suffix.indexOf("/"));
           expect(yield* resolveAsset(token, name)).toEqual({ kind: "file", path: canonicalPath });
@@ -1588,6 +1562,7 @@ describe("AssetAccess", () => {
         yield* fileSystem.writeFileString(filePath, "preview fixture");
         const canonicalFile = yield* fileSystem.realPath(filePath);
         const result = yield* issueAssetUrl({
+          sessionId: sessionId1,
           resource: {
             _tag: "workspace-file",
             threadId: ThreadId.make("thread-1"),
@@ -1607,6 +1582,7 @@ describe("AssetAccess", () => {
       const disguisedPath = path.join(root, "image.png#notes.txt");
       yield* fileSystem.writeFileString(disguisedPath, "not an image");
       const error = yield* issueAssetUrl({
+        sessionId: sessionId1,
         resource: {
           _tag: "workspace-file",
           threadId: ThreadId.make("thread-1"),
@@ -1632,6 +1608,7 @@ describe("AssetAccess", () => {
         );
         for (const disposition of ["inline", "attachment"] as const) {
           const result = yield* issueAssetUrl({
+            sessionId: sessionId1,
             resource: {
               _tag: "attachment",
               attachmentId,
@@ -1676,6 +1653,7 @@ describe("AssetAccess", () => {
         yield* fs.writeFile(path.join(realAttachmentsDir, `${attachmentId}.png`), screenshotPng);
 
         const result = yield* issueAssetUrl({
+          sessionId: sessionId1,
           resource: { _tag: "attachment", attachmentId },
         }).pipe(
           Effect.provideService(ServerConfig.ServerConfig, {
@@ -1716,6 +1694,7 @@ describe("AssetAccess", () => {
         yield* fileSystem.writeFile(attachmentPath, new Uint8Array([1, 2, 3]));
 
         const result = yield* issueAssetUrl({
+          sessionId: sessionId1,
           resource: {
             _tag: "attachment",
             attachmentId,
@@ -1750,6 +1729,7 @@ describe("AssetAccess", () => {
       yield* fileSystem.writeFile(attachmentPath, new Uint8Array([1, 2, 3]));
 
       const result = yield* issueAssetUrl({
+        sessionId: sessionId1,
         resource: {
           _tag: "attachment",
           attachmentId,
@@ -1781,12 +1761,14 @@ describe("AssetAccess", () => {
       const canonicalFaviconPath = yield* fileSystem.realPath(faviconPath);
 
       const faviconResult = yield* issueAssetUrl({
+        sessionId: sessionId1,
         resource: { _tag: "project-favicon", cwd: root },
       });
       expect(faviconResult.sourcePath).toBe("favicon.svg");
       expect(faviconResult.relativeUrl).toMatch(/\/v[0-9a-f]{64}-favicon\.svg$/);
       expect(
         yield* issueAssetUrl({
+          sessionId: sessionId1,
           resource: { _tag: "project-favicon", cwd: root },
         }),
       ).toEqual(faviconResult);
@@ -1801,6 +1783,7 @@ describe("AssetAccess", () => {
 
       yield* fileSystem.writeFileString(faviconPath, updatedFavicon);
       const updatedFaviconResult = yield* issueAssetUrl({
+        sessionId: sessionId1,
         resource: { _tag: "project-favicon", cwd: root },
       });
       expect(
@@ -1809,6 +1792,7 @@ describe("AssetAccess", () => {
 
       yield* fileSystem.remove(faviconPath);
       const fallbackResult = yield* issueAssetUrl({
+        sessionId: sessionId1,
         resource: { _tag: "project-favicon", cwd: root },
       });
       expect(fallbackResult.relativeUrl.endsWith(`/${PROJECT_FAVICON_FALLBACK_MARKER}`)).toBe(true);
@@ -1842,6 +1826,7 @@ describe("AssetAccess", () => {
       const canonicalSiblingPath = yield* fileSystem.realPath(siblingPath);
 
       const result = yield* issueAssetUrl({
+        sessionId: sessionId1,
         resource: { _tag: "project-favicon", cwd: root },
         projectFaviconPath: externalPath,
       });
@@ -1874,6 +1859,7 @@ describe("AssetAccess", () => {
       yield* fileSystem.writeFileString(path.join(root, "brand", "saved.svg"), "<svg>saved</svg>");
 
       const result = yield* issueAssetUrl({
+        sessionId: sessionId1,
         resource: { _tag: "project-favicon", cwd: root, path: "brand/hint.svg" },
         projectFaviconPath: "brand/saved.svg",
       });
@@ -1893,7 +1879,7 @@ describe("AssetAccess", () => {
         repository: "enterprise/private",
       };
       const input = yield* decodeAssetCreateUrlInput({ resource });
-      const issued = yield* issueAssetUrl(input);
+      const issued = yield* issueAssetUrl({ ...input, sessionId: sessionId1 });
       const suffix = issued.relativeUrl.slice(`${ASSET_ROUTE_PREFIX}/`.length);
       const separator = suffix.indexOf("/");
       const resolved = yield* resolveAsset(suffix.slice(0, separator), suffix.slice(separator + 1));
@@ -1950,7 +1936,7 @@ describe("AssetAccess", () => {
       const { resource } = yield* decodeAssetCreateUrlInput({
         resource: { _tag: "github-media", cwd: "/repo", url },
       });
-      const issued = yield* issueAssetUrl({ resource });
+      const issued = yield* issueAssetUrl({ sessionId: sessionId1, resource });
       const suffix = issued.relativeUrl.slice(`${ASSET_ROUTE_PREFIX}/`.length);
       const separator = suffix.indexOf("/");
       const asset = yield* resolveAsset(suffix.slice(0, separator), suffix.slice(separator + 1));
@@ -1989,6 +1975,7 @@ describe("AssetAccess", () => {
         "https://example.com/shot.png?token=private-media-token",
       ]) {
         const error = yield* issueAssetUrl({
+          sessionId: sessionId1,
           resource: { _tag: SOURCE_CONTROL_MEDIA_ASSET, cwd: "/repo", url },
         }).pipe(Effect.flip);
         expect(error._tag).toBe("AssetGitHubMediaUrlValidationError");
