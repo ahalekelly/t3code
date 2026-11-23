@@ -1,4 +1,4 @@
-import { EnvironmentHttpCommonError, OrchestrationV2ShellResumable } from "@t3tools/contracts";
+import { OrchestrationV2ShellResumable } from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
@@ -6,11 +6,12 @@ import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Predicate from "effect/Predicate";
 import * as Schema from "effect/Schema";
-import { HttpClient, HttpClientError, type HttpClientResponse } from "effect/http";
+import { HttpClient } from "effect/http";
 
 import * as RemoteEnvironmentAuthorization from "../authorization/service.ts";
 import type { PreparedConnection } from "../connection/model.ts";
 import * as ManagedRelay from "../relay/managedRelay.ts";
+import { decodeSnapshotResponse } from "../rpc/http.ts";
 import {
   executeAuthenticatedEnvironmentHttpRequest,
   withOrchestrationProtocolHeader,
@@ -71,47 +72,41 @@ export const fetchEnvironmentShellSnapshot = Effect.fn(
           ...endpoint,
           responseMode: "response-only",
         })
-        .pipe(Effect.flatMap(decodeShellSnapshotResponse)),
+        .pipe(
+          Effect.flatMap((response) =>
+            decodeSnapshotResponse({
+              response,
+              decode: decodeShellHttpAnswer,
+              counts: (answer): Record<string, number> =>
+                "resumable" in answer
+                  ? {}
+                  : {
+                      "snapshot.projects": answer.projects.length,
+                      "snapshot.threads": answer.threads.length,
+                    },
+              group: "orchestration",
+              decodeOther: (replay) =>
+                replay
+                  .shellSnapshot({ headers: withOrchestrationProtocolHeader(headers), ...endpoint })
+                  .pipe(Effect.map((answer): ShellHttpAnswer => answer)),
+            }),
+          ),
+        ),
   });
 });
 
-const decodeEnvironmentHttpCommonError = Schema.decodeUnknownEffect(
-  Schema.toCodecJson(EnvironmentHttpCommonError),
-);
-
 const isShellResumable = Schema.is(OrchestrationV2ShellResumable);
 
-const decodeShellSnapshotResponse = (
-  response: HttpClientResponse.HttpClientResponse,
-): Effect.Effect<
-  ShellHttpAnswer,
-  HttpClientError.HttpClientError | Schema.SchemaError | EnvironmentHttpCommonError
-> => {
-  if (response.status === 200) {
-    return response.json.pipe(
-      Effect.flatMap((json): Effect.Effect<ShellHttpAnswer, Schema.SchemaError> => {
-        if (isShellResumable(json)) return Effect.succeed(json);
-        const projectIdentities =
-          Predicate.isObject(json) && typeof json.projectIdentities === "string"
-            ? json.projectIdentities
-            : undefined;
-        return decodeShellSnapshotDeferringPullRequests(json).pipe(
-          Effect.map((snapshot) =>
-            projectIdentities === undefined ? snapshot : { ...snapshot, projectIdentities },
-          ),
-        );
-      }),
-    );
-  }
-  const statusError = new HttpClientError.HttpClientError({
-    reason: new HttpClientError.StatusCodeError({ request: response.request, response }),
-  });
-  return response.json.pipe(
-    Effect.flatMap(decodeEnvironmentHttpCommonError),
-    Effect.matchEffect({
-      onFailure: () => Effect.fail(statusError),
-      onSuccess: Effect.fail,
-    }),
+const decodeShellHttpAnswer = (json: unknown): Effect.Effect<ShellHttpAnswer, Schema.SchemaError> => {
+  if (isShellResumable(json)) return Effect.succeed(json);
+  const projectIdentities =
+    Predicate.isObject(json) && typeof json.projectIdentities === "string"
+      ? json.projectIdentities
+      : undefined;
+  return decodeShellSnapshotDeferringPullRequests(json).pipe(
+    Effect.map((snapshot) =>
+      projectIdentities === undefined ? snapshot : { ...snapshot, projectIdentities },
+    ),
   );
 };
 
