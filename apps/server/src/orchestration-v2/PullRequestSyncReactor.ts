@@ -380,7 +380,9 @@ export const make = Effect.gen(function* () {
   const isDue = (key: string, entries: ReadonlyArray<LinkEntry>, nowMs: number): boolean => {
     if ((failedReads.get(key)?.retryAtMs ?? 0) > nowMs) return false;
     if (requested.has(key)) return true;
-    const active = entries.filter((entry) => isUnsettled(entry.thread));
+    const active = entries.filter(
+      (entry) => isUnsettled(entry.thread) || entry.link.watch !== undefined,
+    );
     if (active.length === 0) return false;
     const last = lastSyncedAt.get(key);
     const sinceLastMs = last === undefined ? Number.POSITIVE_INFINITY : nowMs - last;
@@ -873,7 +875,7 @@ export const make = Effect.gen(function* () {
             // Every reaction skips a running command, so only an ended one forks.
             return active ? Effect.void : inThreadOrder(event.threadId, reaction);
           }
-          // Settled threads are not swept, so read their links once to settle with fresh status.
+          // A settled thread's unwatched links are not swept, so read them once to settle with fresh status.
           case "thread.settled":
             return inThreadOrder(event.threadId, refreshUnmergedLinks(event.threadId));
           case "run.updated":
