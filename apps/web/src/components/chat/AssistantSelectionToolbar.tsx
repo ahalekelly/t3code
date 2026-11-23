@@ -8,10 +8,7 @@ import { useGT } from "gt-react";
 import { QuoteIcon } from "lucide-react";
 import { use, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import {
-  captureAssistantTextSelection,
-  type AssistantCitationSourceAnchor,
-} from "~/lib/assistantTextSelection";
+import { captureAssistantTextSelection } from "~/lib/assistantTextSelection";
 import {
   isSelectionRectVisible,
   observeSelectionActions,
@@ -28,12 +25,11 @@ export function AssistantSelectionToolbar({
 }: {
   viewport: HTMLElement | null;
   threadRef: ScopedThreadRef;
-  onCite: (citation: AssistantCitation, sourceAnchor: AssistantCitationSourceAnchor) => boolean;
+  onCite: (citation: AssistantCitation) => boolean;
 }) {
   const [selection, setSelection] = useState<{
     citation: AssistantCitation;
     position: SelectionActionPoint;
-    sourceAnchor: AssistantCitationSourceAnchor;
   } | null>(null);
   const toolbarRef = useRef<HTMLButtonElement>(null);
   const actionsRef = useRef<ReturnType<typeof observeSelectionActions> | null>(null);
@@ -124,7 +120,6 @@ export function AssistantSelectionToolbar({
             pointer.y <= line.bottom + 8,
         );
       setSelection({
-        sourceAnchor: { source: captured.source, range: captured.range, viewport },
         citation: {
           version: 1,
           ...threadRef,
@@ -185,7 +180,7 @@ export function AssistantSelectionToolbar({
     setSelection(null);
   };
   const cite = () => {
-    if (tooLong || !onCite(selection.citation, selection.sourceAnchor)) return false;
+    if (tooLong || !onCite(selection.citation)) return false;
     window.getSelection()?.removeAllRanges();
     dismiss();
     return true;
