@@ -338,7 +338,7 @@ describe("makeRelayDeviceRegistrationRequest", () => {
   });
 
   it("disables push features in Personal Team relay registrations", () => {
-    Constants.expoConfig!.extra = { iosPersonalTeamBuild: true };
+    Constants.expoConfig!.extra = { iosPushEnabled: false };
 
     expect(
       makeRelayDeviceRegistrationRequest({
