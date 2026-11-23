@@ -37,6 +37,26 @@ const isFailedCheck = (check: PullRequestCheck) =>
 const workflowRunOf = (url: string | null) => url?.match(/^.*\/actions\/runs\/\d+/)?.[0] ?? null;
 const approvalKey = (check: PullRequestCheck) => workflowRunOf(check.url) ?? check.name;
 
+const activeAt = (remark: PullRequestComment) => remark.editedAt ?? remark.createdAt;
+
+/** Remarks from others that the watch has not reported yet. */
+export function unreportedRemarks(
+  watch: Pick<ThreadPullRequestWatch, "remarksThrough" | "remarkIds">,
+  detail: Pick<PullRequestDetail, "viewer" | "author">,
+  remarks: ReadonlyArray<PullRequestComment>,
+): Array<PullRequestComment> {
+  const own = (detail.viewer ?? detail.author?.login)?.toLowerCase();
+  const through = Date.parse(watch.remarksThrough);
+  // Hosts can stamp remarks to the second, so remarks at the boundary time are told apart by ID.
+  return remarks.filter((remark) => {
+    const at = Date.parse(activeAt(remark));
+    return (
+      (at > through || (at === through && !watch.remarkIds.includes(remark.id))) &&
+      remark.author?.login.toLowerCase() !== own
+    );
+  });
+}
+
 export function evaluatePullRequestWatch(
   watch: ThreadPullRequestWatch,
   detail: Pick<
@@ -183,17 +203,8 @@ export function evaluatePullRequestWatch(
     checksPending = true;
   }
 
-  const own = (detail.viewer ?? detail.author?.login)?.toLowerCase();
   const through = Date.parse(watch.remarksThrough);
-  const activeAt = (remark: PullRequestComment) => remark.editedAt ?? remark.createdAt;
-  // Hosts can stamp remarks to the second, so remarks at the boundary time are told apart by ID.
-  const fresh = (remarks ?? []).filter((remark) => {
-    const at = Date.parse(activeAt(remark));
-    return (
-      (at > through || (at === through && !watch.remarkIds.includes(remark.id))) &&
-      remark.author?.login.toLowerCase() !== own
-    );
-  });
+  const fresh = unreportedRemarks(watch, detail, remarks ?? []);
   if (fresh.length > 0) changes.push({ kind: "remarks", remarks: fresh });
   const latest = Math.max(through, ...fresh.map((remark) => Date.parse(activeAt(remark))));
   const atLatest = fresh.filter((remark) => Date.parse(activeAt(remark)) === latest);
@@ -453,12 +464,14 @@ export function combinePullRequestWatchWakes(
   };
 }
 
+/** The wake for a watch its pull request's merge or close ended, with remarks it had not reported. */
 export function pullRequestWatchEndMessage(input: {
   readonly number: number;
   readonly url: string;
   readonly detail: Pick<PullRequestDetail, "state" | "baseBranch" | "mergeCommitSha" | "mergedBy">;
+  readonly remarks: ReadonlyArray<PullRequestComment>;
 }): { readonly text: string; readonly notification: OrchestrationV2Notification } {
-  const { detail } = input;
+  const { detail, remarks } = input;
   const merged = detail.state === "merged";
   const how = merged
     ? [
@@ -467,15 +480,21 @@ export function pullRequestWatchEndMessage(input: {
         detail.mergeCommitSha ? ` as ${detail.mergeCommitSha.slice(0, 7)}` : "",
       ].join("")
     : "was closed without merging";
+  const told = remarks.length > 0;
   return {
     text: [
-      `Pull request #${input.number} (${input.url}) ${how}, so T3 Code stopped watching it.`,
-      ...(merged ? [] : ["If it is reopened, call watch_pull_request to watch it again."]),
-    ].join(" "),
+      [
+        `Pull request #${input.number} (${input.url}) ${how}, so T3 Code stopped watching it.`,
+        ...(merged ? [] : ["If it is reopened, call watch_pull_request to watch it again."]),
+      ].join(" "),
+      ...(told
+        ? changeLines({ kind: "remarks", remarks }, { baseBranch: detail.baseBranch, commit: "" })
+        : []),
+    ].join("\n"),
     notification: {
       source: { kind: "monitor" },
       outcome: merged ? "completed" : "updated",
-      summary: `#${input.number}: ${merged ? "merged" : "closed"}, stopped watching`,
+      summary: `#${input.number}: ${[merged ? "merged" : "closed", ...(told ? [SUMMARY.remarks] : []), "stopped watching"].join(", ")}`,
     },
   };
 }

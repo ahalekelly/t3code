@@ -1062,6 +1062,7 @@ describe("pullRequestWatchEndMessage", () => {
       number: 7,
       url,
       detail: { state: "merged", baseBranch: "main", ...overrides },
+      remarks: [],
     });
   const mergeCommitSha = "3b2f958603a51d8c42c4ede02eee7b8cb310b2d9";
 
