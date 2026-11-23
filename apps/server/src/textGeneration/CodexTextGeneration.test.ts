@@ -51,8 +51,8 @@ interface FakeCodexInput {
   requireServiceTier?: string;
   requireReasoningEffort?: string;
   forbidReasoningEffort?: boolean;
-  requireArg?: string;
-  forbidArg?: string;
+  requireArgs?: ReadonlyArray<string>;
+  forbidArgs?: ReadonlyArray<string>;
   stdinMustContain?: string;
   stdinMustNotContain?: string;
   mcpServers?: ReadonlyArray<{ name: string; enabled: boolean }> | number;
@@ -68,8 +68,8 @@ function makeFakeCodexBinary(dir: string, input: FakeCodexInput) {
     requireServiceTier: input.requireServiceTier ?? null,
     requireReasoningEffort: input.requireReasoningEffort ?? null,
     forbidReasoningEffort: input.forbidReasoningEffort ?? false,
-    requireArg: input.requireArg ?? null,
-    forbidArg: input.forbidArg ?? null,
+    requireArgs: input.requireArgs ?? [],
+    forbidArgs: input.forbidArgs ?? [],
     stdinMustContain: input.stdinMustContain ?? null,
     stdinMustNotContain: input.stdinMustNotContain ?? null,
     mcpServers: input.mcpServers ?? [],
@@ -165,11 +165,11 @@ function makeFakeCodexBinary(dir: string, input: FakeCodexInput) {
         "}",
         'if (check.requiredCwd !== null && process.cwd() !== check.requiredCwd) fail("cannot inspect checkout", 10);',
         'if (check.requireInstructions !== null && !instructions.includes(check.requireInstructions)) fail("missing writer task", 11);',
-        "if (check.requireArg !== null && !originalArgs.includes(` ${check.requireArg} `)) {",
-        '  fail("missing arg: " + check.requireArg, 8);',
+        "for (const arg of check.requireArgs) {",
+        '  if (!originalArgs.includes(` ${arg} `)) fail("missing arg: " + arg, 8);',
         "}",
-        "if (check.forbidArg !== null && originalArgs.includes(` ${check.forbidArg} `)) {",
-        '  fail("forbidden arg: " + check.forbidArg, 9);',
+        "for (const arg of check.forbidArgs) {",
+        '  if (originalArgs.includes(` ${arg} `)) fail("forbidden arg: " + arg, 9);',
         "}",
         'if (check.requireImage && !seenImage) fail("missing --image input", 2);',
         "if (",
@@ -308,7 +308,7 @@ it.layer(layerCodexTextGenerationTest)("CodexTextGeneration", (it) => {
           output: JSON.stringify({ title: "Live title" }),
           models,
           ...(defaultModel ? { defaultModel } : {}),
-          requireArg: `--model ${expected}`,
+          requireArgs: [`--model ${expected}`],
         },
         (textGeneration) =>
           Effect.gen(function* () {
@@ -327,8 +327,8 @@ it.layer(layerCodexTextGenerationTest)("CodexTextGeneration", (it) => {
       {
         output: JSON.stringify({ title: "Live title" }),
         models: ["gpt-6-astra"],
-        requireArg: '--model gpt-6-astra --config model_reasoning_effort="low"',
-        forbidArg: 'service_tier="priority"',
+        requireArgs: ['--model gpt-6-astra --config model_reasoning_effort="low"'],
+        forbidArgs: ['service_tier="priority"'],
       },
       (textGeneration) =>
         textGeneration.generateThreadTitle({
@@ -350,7 +350,7 @@ it.layer(layerCodexTextGenerationTest)("CodexTextGeneration", (it) => {
         defaultModel: "gpt-6-astra",
         customModels: ["gpt-5.6-luna-preview"],
         managedRuntime: true,
-        requireArg: '--model gpt-5.6-luna-preview --config model_reasoning_effort="high"',
+        requireArgs: ['--model gpt-5.6-luna-preview --config model_reasoning_effort="high"'],
       },
       (textGeneration) =>
         textGeneration.generateThreadTitle({
@@ -370,7 +370,8 @@ it.layer(layerCodexTextGenerationTest)("CodexTextGeneration", (it) => {
       {
         output: JSON.stringify({ subject: "Update project", body: "" }),
         managedRuntime: true,
-        forbidArg: 'service_tier="priority"',
+        requireArgs: ['--config web_search="disabled"'],
+        forbidArgs: ['service_tier="priority"', "--config project_doc_max_bytes=0"],
       },
       (textGeneration) =>
         textGeneration.generateCommitMessage({
@@ -392,14 +393,16 @@ it.layer(layerCodexTextGenerationTest)("CodexTextGeneration", (it) => {
         launchArgs: "--config 'developer_instructions=\"Use TEAM: as the PR title prefix\"'",
         requiredCwd: process.cwd(),
         requireInstructions: "Use TEAM: as the PR title prefix",
-        forbidArg: "--config features.shell_tool=false",
+        forbidArgs: ["--config features.shell_tool=false"],
         mcpServers: [
           { name: "augmenter", enabled: true },
           { name: "my.server", enabled: true },
           { name: "already-off", enabled: false },
         ],
-        requireArg:
-          'exec --config mcp_servers={"augmenter"={enabled=false},"my.server"={enabled=false}} --config developer_instructions="Use',
+        requireArgs: [
+          "--config features.plugins=false --config features.apps=false",
+          'exec --config mcp_servers={"augmenter"={enabled=false},"my.server"={enabled=false}}',
+        ],
       },
       (textGeneration) =>
         Effect.gen(function* () {
@@ -425,8 +428,7 @@ it.layer(layerCodexTextGenerationTest)("CodexTextGeneration", (it) => {
         launchArgs: `-c 'mcp_servers.t3-code.url="http://127.0.0.1:1/mcp"' -c 'mcp_servers.t3-code.enabled=true'`,
         mcpServers: [{ name: "t3-code", enabled: true }],
         requireMcpServersOff: ["t3-code"],
-        requireArg:
-          "--config features.apps=false --config mcp_servers.t3-code.enabled=false --ephemeral",
+        requireArgs: ["--config mcp_servers.t3-code.enabled=false"],
       },
       (textGeneration) =>
         Effect.gen(function* () {
@@ -449,8 +451,9 @@ it.layer(layerCodexTextGenerationTest)("CodexTextGeneration", (it) => {
           { name: "my.server", enabled: true },
           { name: "my server", enabled: true },
         ],
-        requireArg:
-          '--config features.apps=false --config mcp_servers={"my.server"={enabled=false},"my server"={enabled=false}} --config mcp_servers.my server.enabled=false --ephemeral',
+        requireArgs: [
+          '--config mcp_servers={"my.server"={enabled=false},"my server"={enabled=false}} --config mcp_servers.my server.enabled=false',
+        ],
       },
       (textGeneration) =>
         Effect.gen(function* () {
@@ -469,8 +472,11 @@ it.layer(layerCodexTextGenerationTest)("CodexTextGeneration", (it) => {
       {
         output: JSON.stringify({ branch: "remove-default-shapes" }),
         mcpServers: 2,
-        requireArg: "--config features.plugins=false --config features.apps=false --ephemeral",
-        forbidArg: "mcp_servers=",
+        requireArgs: [
+          "--config features.plugins=false --config features.apps=false",
+          "--ephemeral",
+        ],
+        forbidArgs: ["mcp_servers="],
       },
       (textGeneration) =>
         Effect.gen(function* () {
@@ -484,14 +490,17 @@ it.layer(layerCodexTextGenerationTest)("CodexTextGeneration", (it) => {
     ),
   );
 
-  it.effect("keeps plugins and apps off over launch args that turn them on", () =>
+  it.effect("keeps its feature overrides after launch args that turn them on", () =>
     withFakeCodexEnv(
       {
         output: JSON.stringify({ title: "Remove default shapes" }),
         launchArgs:
           "--config features.plugins=true --config features.apps=true --config features.connectors=true",
-        requireArg:
-          "--config features.plugins=true --config features.apps=true --config features.connectors=true --config features.connectors=false --config features.plugins=false --config features.apps=false --ephemeral",
+        requireArgs: [
+          "--config features.connectors=true --config features.connectors=false --config features.plugins=false --config features.apps=false",
+          "--config project_doc_max_bytes=0",
+        ],
+        forbidArgs: ['--config web_search="disabled"'],
       },
       (textGeneration) =>
         Effect.gen(function* () {
@@ -510,8 +519,8 @@ it.layer(layerCodexTextGenerationTest)("CodexTextGeneration", (it) => {
       {
         output: JSON.stringify({ title: "Hookless title" }),
         launchArgs: "--config features.hooks=true --enable hooks",
-        requireArg: "--config features.codex_hooks=false --config features.hooks=false",
-        forbidArg: "--enable",
+        requireArgs: ["--config features.codex_hooks=false --config features.hooks=false"],
+        forbidArgs: ["--enable"],
       },
       (textGeneration) =>
         Effect.gen(function* () {
@@ -548,8 +557,8 @@ it.layer(layerCodexTextGenerationTest)("CodexTextGeneration", (it) => {
           body: "",
         }),
         launchArgs: "--strict-config --oss --local-provider ollama --listen off",
-        requireArg: "--strict-config --oss --local-provider ollama",
-        forbidArg: "--listen",
+        requireArgs: ["--strict-config --oss --local-provider ollama"],
+        forbidArgs: ["--listen"],
       },
       (textGeneration) =>
         textGeneration.generateCommitMessage({
