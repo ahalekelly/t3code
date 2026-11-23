@@ -203,6 +203,7 @@ import { useOpenLink } from "../browser/useOpenLink";
 import { writeTextToClipboard } from "../hooks/useCopyToClipboard";
 import { isPreviewAvailableFor } from "../browser/previewRuntime";
 import {
+  createFileAssetUrl,
   isBrowserPreviewFile,
   openFileInPreview,
   openUrlInPreview,
@@ -820,6 +821,25 @@ function useChatMarkdownState({
       openPreview,
     });
   };
+  const openMarkdownFileLink = async (path: string) => {
+    const preparedConnection = threadRef ? readPreparedConnection(threadRef.environmentId) : null;
+    if (!threadRef || preparedConnection === null) {
+      return AsyncResult.failure<void, BrowserPreviewUnavailableError>(
+        Cause.fail(
+          new BrowserPreviewUnavailableError({ message: gt("Environment is not connected.") }),
+        ),
+      );
+    }
+    const url = await createFileAssetUrl({
+      threadRef,
+      filePath: path,
+      workspaceRoot: cwd,
+      httpBaseUrl: preparedConnection.httpBaseUrl,
+      createAssetUrl,
+    });
+    if (url._tag === "Success") await openDeferredMarkdownLink(url.value);
+    return url;
+  };
   const findWorkspaceFileMatch = async (fileLinkMeta: MarkdownFileLinkMeta) => {
     const workspaceRelativePath = fileLinkMeta.workspaceLookupPath;
     if (
@@ -1013,6 +1033,7 @@ function useChatMarkdownState({
             ? () => openMarkdownFileInPreview(fileLinkMeta.filePath)
             : undefined
         }
+        onOpenLink={async () => openMarkdownFileLink((await resolveHostPath()).absolutePath)}
       />
     );
   };
