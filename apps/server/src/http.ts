@@ -1,6 +1,5 @@
 import * as Mime from "effect/http/Mime";
 import {
-  AuthFilesystemReadScope,
   AuthOrchestrationOperateScope,
   AuthOrchestrationReadScope,
   EnvironmentHttpApi,
@@ -46,12 +45,7 @@ import * as HttpApiBuilder from "effect/http-api/HttpApiBuilder";
 import { OtlpTracer, OtlpSerialization } from "effect/observability";
 
 import * as ServerConfig from "./config.ts";
-import {
-  ASSET_ROUTE_PREFIX,
-  readMcpAppHtml,
-  renewExpiredFileToken,
-  resolveAsset,
-} from "./assets/AssetAccess.ts";
+import { ASSET_ROUTE_PREFIX, readMcpAppHtml, resolveAsset } from "./assets/AssetAccess.ts";
 import { sourceControlMediaResponse } from "./assets/sourceControlMediaResponse.ts";
 import { statMediaFile, streamMediaFile, type OpenMediaFile } from "./assets/MediaFile.ts";
 import {
@@ -549,31 +543,11 @@ export const layerAssetRoute = HttpRouter.add(
       return HttpServerResponse.text("Not Found", { status: 404 });
     }
 
-    const token = suffix.slice(0, separatorIndex);
-    const asset = yield* resolveAsset(token, suffix.slice(separatorIndex + 1));
+    const asset = yield* resolveAsset(
+      suffix.slice(0, separatorIndex),
+      suffix.slice(separatorIndex + 1),
+    );
     if (!asset) {
-      // The session cookie is SameSite=Lax, so another site's link would carry it.
-      const fetchSite = request.headers["sec-fetch-site"];
-      const renewed =
-        fetchSite !== "cross-site" && fetchSite !== "same-site"
-          ? yield* renewExpiredFileToken(token)
-          : null;
-      const session =
-        renewed === null
-          ? null
-          : yield* (yield* EnvironmentAuth.EnvironmentAuth)
-              .authenticateHttpRequest(request)
-              .pipe(
-                Effect.catchIf(EnvironmentAuth.isServerAuthCredentialError, () =>
-                  Effect.succeed(null),
-                ),
-              );
-      if (renewed !== null && session?.scopes.includes(AuthFilesystemReadScope)) {
-        return HttpServerResponse.redirect(
-          `${ASSET_ROUTE_PREFIX}/${renewed}/${suffix.slice(separatorIndex + 1)}${url.value.search}`,
-          { status: 302, headers: { "cache-control": "no-store" } },
-        );
-      }
       return HttpServerResponse.text("Not Found", { status: 404 });
     }
     if (asset.kind === "bytes") {
