@@ -46,6 +46,7 @@ import {
   getComposerDraftSnapshot,
   setComposerDraftText,
   composerContextImportsAtom,
+  composerPendingMediaAtom,
   countComposerDraftAttachmentsAfterSelection,
   useComposerDraft,
   useComposerDraftResetGeneration,
@@ -307,9 +308,11 @@ export const ThreadComposer = function ThreadComposer(props: ThreadComposerProps
     context: draftContext,
   } = useComposerDraft(composerDraftKey);
   const queuedEdit = props.queuedEdit ?? null;
+  const pendingMedia = useAtomValue(composerPendingMediaAtom)[composerDraftKey];
   const hasContent =
     draftMessage.trim().length > 0 ||
     draftAttachments.length > 0 ||
+    pendingMedia !== undefined ||
     (queuedEdit?.existingAttachments.length ?? 0) > 0;
   const showStopAction = !hasContent && props.canStopThread && queuedEdit === null;
   const onResumeQueue = props.onResumeQueue;
@@ -328,10 +331,16 @@ export const ThreadComposer = function ThreadComposer(props: ThreadComposerProps
     AuthOrchestrationOperateScope,
   );
   const uploadStates = useAtomValue(composerAttachmentUploadsAtom);
-  const stripAttachments = composerStripAttachments(
-    draftAttachments,
-    (attachment) => uploadStates[composerAttachmentUploadKey(props.environmentId, attachment.id)],
-  );
+  // A finished attachment keeps its placeholder's id; skip the placeholder once it lands.
+  const stripAttachments = [
+    ...composerStripAttachments(
+      draftAttachments,
+      (attachment) => uploadStates[composerAttachmentUploadKey(props.environmentId, attachment.id)],
+    ),
+    ...(pendingMedia ?? []).filter(
+      (placeholder) => !draftAttachments.some(({ id }) => id === placeholder.id),
+    ),
+  ];
   const attachmentsUploading =
     props.connectionState === "connected" &&
     composerAttachmentsStillUploading({
@@ -510,6 +519,7 @@ export const ThreadComposer = function ThreadComposer(props: ThreadComposerProps
     (props.canOperateThread || props.connectionState !== "connected") &&
     hasContent &&
     !contextImports[composerDraftKey] &&
+    pendingMedia === undefined &&
     !isSubmissionLocked &&
     sendBlockedReason === null &&
     !modelUnavailable;
@@ -525,7 +535,7 @@ export const ThreadComposer = function ThreadComposer(props: ThreadComposerProps
       (current) =>
         current ?? {
           ...source,
-          gallery: filePreviewGallery(source, composerImageGallery(draftAttachments)),
+          gallery: filePreviewGallery(source, composerImageGallery(stripAttachments)),
         },
     );
   };
