@@ -22,7 +22,6 @@ import { ToolCallVisibility } from "@t3tools/contracts/settings";
 import type { AndroidNavigationStyle } from "../lib/androidNavigationStyle";
 import type { ComposerEnterBehavior } from "../lib/composerEnterBehavior";
 import type { AudioDevice } from "../lib/nativeSpeech";
-import { isVoiceReplyMode, type VoiceReplyMode } from "../lib/voiceReplies";
 import {
   VOICE_TRANSCRIPTION_SOURCE_LABELS,
   type VoiceTranscriptionSource,
@@ -30,8 +29,10 @@ import {
 import {
   SPEECH_MODELS,
   SPEECH_PACES,
+  isVoiceReplyMode,
   type SpeechModel,
   type SpeechPace,
+  type VoiceReplyMode,
 } from "../lib/speechSettings";
 import type { FollowUpBehavior } from "../lib/followUpBehavior";
 import { isMicrophoneKind, type MicrophoneEntry } from "../lib/microphonePriority";
