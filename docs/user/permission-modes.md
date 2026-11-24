@@ -35,6 +35,10 @@ Antigravity offers **Auto** only when your Antigravity sign-in provides its Auto
 including some personal Google accounts, do not. Without it, an Antigravity thread already set to
 **Auto** runs in **Supervised**.
 
+On Codex, **Auto-accept edits** and **Auto** run under the permissions profile that
+`default_permissions` names in your Codex config, including its network and file access, or
+Codex's `:workspace` profile when none is set.
+
 Muse Code offers only **Supervised** and **Full access**. A Muse thread already set to another mode
 runs in **Supervised**.
 
