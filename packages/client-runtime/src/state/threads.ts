@@ -37,7 +37,7 @@ import * as ManagedRelay from "../relay/managedRelay.ts";
 import {
   isAuthorizationFailure,
   request,
-  subscribeDynamic,
+  subscribeDynamicWithInput,
   subscriptionRetryDelay,
 } from "../rpc/client.ts";
 import { parseThreadKey, threadKey } from "./entities.ts";
@@ -703,19 +703,30 @@ export const makeEnvironmentThreadState = Effect.fn("EnvironmentThreadState.make
     yield* applyEventsLocked([item]);
   });
 
-  // Items a resume receives before the completion marker apply together, so a replayed resume
-  // renders its final state once; a cold open applies its snapshot as it arrives. A restarted
-  // attempt keeps held items: its replay repeats them from the unmoved cursor, and already
-  // applied sequences are skipped.
+  // Items a resume receives before the completion marker apply together, so a replay-only
+  // resume renders once; a cold open applies its snapshot as it arrives. A new attempt drops the
+  // previous attempt's held and late items (unapplied, so its cursor replays them). Both run
+  // under applyLock: each batch lands wholly before or after an attempt.
+  let attempt: unknown;
   let catchUp: OrchestrationV2ThreadStreamItem[] = [];
+  const startAttempt = applyLock.withPermits(1)(
+    Effect.sync(() => {
+      attempt = undefined;
+      catchUp = [];
+    }),
+  );
   // Keep this per-batch streaming path untraced for the same reason as applyEventsLocked.
   const receiveItems = Effect.fnUntraced(function* (
-    received: ReadonlyArray<OrchestrationV2ThreadStreamItem>,
+    received: ReadonlyArray<readonly [input: unknown, item: OrchestrationV2ThreadStreamItem]>,
   ) {
     yield* applyLock.withPermits(1)(
       Effect.gen(function* () {
-        catchUp.push(...received);
-        const completes = received.some((item) => item.kind === "synchronized");
+        let completes = false;
+        for (const [input, item] of received) {
+          if (input !== attempt) continue;
+          catchUp.push(item);
+          if (item.kind === "synchronized") completes = true;
+        }
         if (catchUp.length === 0) return;
         if (
           !completes &&
@@ -1052,9 +1063,10 @@ export const makeEnvironmentThreadState = Effect.fn("EnvironmentThreadState.make
     never,
     EnvironmentSupervisor.EnvironmentSupervisor
   > =>
-    subscribeDynamic(
+    subscribeDynamicWithInput(
       ORCHESTRATION_V2_WS_METHODS.subscribeThread,
       Effect.fn("EnvironmentThreadState.makeSubscribeInput")(function* (session) {
+        yield* startAttempt;
         let current = yield* SubscriptionRef.get(state);
         // A delete event already cleared this thread. Park without opening the socket.
         if (current.status === "deleted" && httpMisses === 0) {
@@ -1142,7 +1154,7 @@ export const makeEnvironmentThreadState = Effect.fn("EnvironmentThreadState.make
         const canResume = Option.isSome(current.data);
         const acceptBoundedSnapshot = yield* Ref.get(acceptsBoundedSocketSnapshots);
 
-        return {
+        const input = {
           threadId,
           ...(canResume ? { afterSequence: sequence } : {}),
           requestCompletionMarker: true as const,
@@ -1156,6 +1168,8 @@ export const makeEnvironmentThreadState = Effect.fn("EnvironmentThreadState.make
             : {}),
           acceptDedupedBodies: true as const,
         };
+        attempt = input;
+        return input;
       }),
       {
         // A socket-only open that fails retries over HTTP, which tells a
