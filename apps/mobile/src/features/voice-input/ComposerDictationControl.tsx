@@ -1,3 +1,4 @@
+import { useAtomValue } from "@effect/atom-react";
 import type { VoiceInputPhase, VoiceInputState } from "@t3tools/client-runtime/voice-input";
 import { useGT } from "gt-react-native";
 import { memo, useState, type ReactNode } from "react";
@@ -18,6 +19,9 @@ import { AppText as Text } from "../../components/ui/AppText";
 import { SymbolView, type AppSymbolName } from "../../components/ui/AppSymbol";
 import { useAndroidControlSizing } from "../../components/ui/useAndroidControlSizing";
 import { cn } from "../../lib/cn";
+import { useAudioDevices } from "../../lib/voiceReplies";
+import { voiceInputSettingsAtom } from "../../state/voiceSettings";
+import { readsRepliesAloud } from "./VoiceInputProvider";
 import type { VoiceComposerPresentation } from "./voiceInputPresentation";
 import { VOICE_WAVEFORM_SAMPLE_COUNT } from "./voiceInputMetering";
 
@@ -459,12 +463,19 @@ export function ComposerDictationSendAction(props: {
   readonly presentation: VoiceComposerPresentation;
   readonly onSend: () => void;
 }) {
+  const settings = useAtomValue(voiceInputSettingsAtom);
+  const audio = useAudioDevices();
   if (props.presentation.trailingAction !== "confirm") return null;
+  const readsAloud = readsRepliesAloud(settings, audio);
   return (
     <VoiceActionButton
-      accessibilityLabel="Finish dictation and send"
+      accessibilityLabel={
+        readsAloud
+          ? "Finish dictation, send, and read the reply aloud"
+          : "Finish dictation and send"
+      }
       disabled={!props.presentation.confirmationEnabled}
-      icon="arrow.up"
+      icon={readsAloud ? "speaker.wave.2" : "arrow.up"}
       onPress={props.onSend}
       variant="primary"
     />
