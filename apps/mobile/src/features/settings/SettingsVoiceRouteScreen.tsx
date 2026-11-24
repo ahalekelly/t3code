@@ -27,10 +27,11 @@ import {
   type SpeechModel,
   type SpeechPace,
   type VoiceApiKey,
+  type VoiceReplyMode,
 } from "../../lib/speechSettings";
 import { cn } from "../../lib/cn";
 import type { AudioDevice } from "../../lib/nativeSpeech";
-import { useAudioDevices, type VoiceReplyMode } from "../../lib/voiceReplies";
+import { useAudioDevices } from "../../lib/voiceReplies";
 import { m } from "../../i18n/messages";
 import { makePermissionStatusAtom } from "../../lib/permissionStatusAtom";
 import {
