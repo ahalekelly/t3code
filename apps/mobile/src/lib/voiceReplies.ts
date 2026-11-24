@@ -1,12 +1,7 @@
 import { useEffect, useState } from "react";
 
 import { nativeSpeech, type AudioDevice, type AudioDevices } from "./nativeSpeech";
-
-export type VoiceReplyMode = "always" | "inCar" | "never";
-
-export function isVoiceReplyMode(value: unknown): value is VoiceReplyMode {
-  return value === "always" || value === "inCar" || value === "never";
-}
+import type { VoiceReplyMode } from "./speechSettings";
 
 /** "In the car" means CarPlay, Android Auto, or a connected Bluetooth device the user picked. */
 export function readsVoiceReplies(
