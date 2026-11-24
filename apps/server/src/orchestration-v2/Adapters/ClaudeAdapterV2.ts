@@ -13859,13 +13859,16 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
             ),
         );
 
-        // Move subagents to the background so a steer reaches Claude without waiting for them to finish.
-        const backgroundForegroundSubagents = Effect.fnUntraced(function* (
+        // Move the root's calls and subagents to the background so a steer reaches Claude without
+        // waiting for them to finish. Claude answers false for calls it can't move, such as Read.
+        // A subagent's own calls stay: it waits on them.
+        const backgroundForegroundCalls = Effect.fnUntraced(function* (
           live: ClaudeLiveQueryContext,
+          turn: ActiveClaudeTurnContext,
           deadline: number,
         ) {
           const foreground: Array<{
-            readonly taskId: string;
+            readonly taskId: string | null;
             readonly toolUseId: string;
           }> = [];
           for (const [taskId, subagent] of yield* Ref.get(sessionSubagentsByTaskId)) {
@@ -13881,6 +13884,11 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
             }
             foreground.push({ taskId, toolUseId });
           }
+          for (const toolUseId of turn.toolCalls.keys()) {
+            if (!foreground.some((call) => call.toolUseId === toolUseId)) {
+              foreground.push({ taskId: null, toolUseId });
+            }
+          }
           for (const [toolUseId, move] of backgroundMovesByToolUseId) {
             if (move.pollUnsafe() !== undefined) backgroundMovesByToolUseId.delete(toolUseId);
           }
@@ -13893,7 +13901,7 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
             }
             const move = yield* live.query.backgroundTasks(toolUseId).pipe(
               Effect.flatMap((moved) =>
-                moved
+                moved && taskId !== null
                   ? Ref.get(sessionSubagentsByTaskId).pipe(
                       Effect.flatMap((registry) =>
                         registry.get(taskId)?.task.status === "running" &&
@@ -13907,7 +13915,7 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
                   : Effect.void,
               ),
               Effect.catch((cause) =>
-                Effect.logWarning("orchestration-v2.claude-steer-background-subagent-failed", {
+                Effect.logWarning("orchestration-v2.claude-steer-background-failed", {
                   taskId,
                   toolUseId,
                   cause,
@@ -14024,7 +14032,7 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
                 currentTurn.appContextOffered = appContextOffered;
               }
             };
-            yield* backgroundForegroundSubagents(existing, backgroundDeadline);
+            yield* backgroundForegroundCalls(existing, currentTurn, backgroundDeadline);
             if (liveSteerSelection !== undefined) {
               yield* applySelectionLive(existing, liveSteerSelection);
             }
