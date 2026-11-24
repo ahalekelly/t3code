@@ -26,12 +26,15 @@ export function useVoiceInputController(input: {
   readonly onSubmit?: () => Promise<SpokenResponse | undefined>;
 }) {
   const global = useGlobalVoiceInput();
-  const { session, prepareCommit, readRepliesAloud } = global;
+  const { session, prepareCommit } = global;
   const latestInput = useRef(input);
   // oxlint-disable-next-line react/refs -- Transcription finishes asynchronously and must reach the composer's current selection setter, not the one captured at start.
   latestInput.current = input;
   const mounted = useRef(true);
-  const [pendingSendText, setPendingSendText] = useState<string | null>(null);
+  const [pendingSend, setPendingSend] = useState<{
+    readonly text: string;
+    readonly readAloud: boolean;
+  } | null>(null);
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- tracks mount so async transcription results skip a composer that has unmounted
   useEffect(() => {
     mounted.current = true;
@@ -57,11 +60,11 @@ export function useVoiceInputController(input: {
         captured.ownerKey,
         captured.readDraftMessage,
         (transcript, selection) => {
-          const { text, send } = prepareCommit(transcript);
+          const { text, send, readAloud } = prepareCommit(transcript);
           captured.onChangeDraftMessage(text);
           if (mounted.current && latestInput.current.ownerKey === captured.ownerKey) {
             latestInput.current.onChangeSelection(selection);
-            if (send) setPendingSendText(text);
+            if (send) setPendingSend({ text, readAloud });
           }
         },
         captured.selection,
@@ -75,17 +78,18 @@ export function useVoiceInputController(input: {
   // waits for the composer to render the committed text instead of submitting a
   // stale draft.
   const draftShowsPendingSend =
-    pendingSendText !== null && input.readDraftMessage() === pendingSendText;
+    pendingSend !== null && input.readDraftMessage() === pendingSend.text;
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- submits the dictated message once the composer has rendered it
   useEffect(() => {
-    if (!draftShowsPendingSend || state.phase !== "idle") return;
+    if (!pendingSend || !draftShowsPendingSend || state.phase !== "idle") return;
+    const { readAloud } = pendingSend;
     // oxlint-disable-next-line react/set-state-in-effect -- consumes the one-shot send request as it submits
-    setPendingSendText(null);
+    setPendingSend(null);
     const submit = latestInput.current.onSubmit;
     if (!submit) return;
     void submit()
       .then((prompt) => {
-        if (!readRepliesAloud) return;
+        if (!readAloud) return;
         if (!prompt) {
           announce("The voice message was not sent.", "error");
           return;
@@ -95,10 +99,10 @@ export function useVoiceInputController(input: {
       })
       .catch((error: unknown) => {
         const message = error instanceof Error ? error.message : "Please try again.";
-        if (readRepliesAloud) announce(`The voice message was not sent. ${message}`, "error");
+        if (readAloud) announce(`The voice message was not sent. ${message}`, "error");
         Dialog.alert("Could not send voice message", message);
       });
-  }, [draftShowsPendingSend, readRepliesAloud, state.phase]);
+  }, [draftShowsPendingSend, pendingSend, state.phase]);
 
   const isBusy = voiceInputBlocksSubmission(state);
   return {

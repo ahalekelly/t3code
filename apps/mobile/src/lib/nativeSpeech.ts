@@ -13,8 +13,14 @@ export type NativeSpeechState = {
 
 export type SpeechCue = "sent" | "attention" | "error";
 
+export type AudioDevice = { readonly id: string; readonly name: string };
+
+/** `car` is CarPlay or Android Auto; `devices` are the connected Bluetooth audio devices. */
+export type AudioDevices = { readonly car: boolean; readonly devices: readonly AudioDevice[] };
+
 declare class SpeechModule extends NativeModule<{
   onSpeechState(state: NativeSpeechState): void;
+  onAudioDevicesChange(): void;
 }> {
   /** Resolves `true` when the reading played to the end, `false` when stopped. */
   start(options: NativeSpeechOptions, reading: string): Promise<boolean>;
@@ -32,6 +38,7 @@ declare class SpeechModule extends NativeModule<{
   announce(text: string, cue: SpeechCue): Promise<void>;
   beginBackgroundTask(name: string): Promise<number>;
   endBackgroundTask(task: number): Promise<void>;
+  audioDevices(): AudioDevices;
 }
 
 // Resolve on use: other platforms can import thread and voice-input controls.

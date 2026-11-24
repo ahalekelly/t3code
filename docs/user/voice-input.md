@@ -24,7 +24,7 @@ In **Settings → Voice → Transcription**, filter by language, download a mode
 
 ## Dictate on mobile
 
-- Record, then confirm to insert text where your selection was. The send button beside the check mark transcribes and sends at once; a tone confirms, and the reply is read aloud while you stay in the thread (turn off **Read voice replies aloud** in **Settings → Voice**). Approvals, questions, and failures are announced; enable **Read thinking updates** to hear progress messages too.
+- Record, then confirm to insert text where your selection was. The send button beside the check mark transcribes and sends at once; a tone confirms, and the reply is read aloud while you stay in the thread; the send button shows a speaker when it will be. Set **Read voice replies** in **Settings → Voice** to **Never**, or **In the car** to read only over CarPlay, Android Auto, or Bluetooth devices you turn on there (a device appears while connected). Approvals, questions, and failures are announced; enable **Read thinking updates** to hear progress messages too.
 - Recordings last up to 5 minutes, or 20 with a cloud service. On iPhone they continue with the phone locked; a call, Siri, or an alarm ends the recording with a tone and adds what was captured without sending.
 - Failed transcriptions keep the recording so you can retry. Canceling discards it and keeps your draft. Dictation continues on other screens; use the floating controls to finish or cancel.
 - iPhone dictates in your first preferred language that Apple's speech model supports, else the app's language.

@@ -1,10 +1,23 @@
+import AVFoundation
 import ExpoModulesCore
 
 public class T3SpeechModule: Module {
+  private var routeObserver: NSObjectProtocol?
+
   public func definition() -> ModuleDefinition {
     Name("T3Speech")
 
-    Events("onSpeechState")
+    Events("onSpeechState", "onAudioDevicesChange")
+
+    OnCreate {
+      routeObserver = NotificationCenter.default.addObserver(
+        forName: AVAudioSession.routeChangeNotification, object: nil, queue: .main
+      ) { [weak self] _ in self?.sendEvent("onAudioDevicesChange") }
+    }
+
+    OnDestroy {
+      if let routeObserver { NotificationCenter.default.removeObserver(routeObserver) }
+    }
 
     // Every call runs on the main queue in call order, so blocks appended right
     // after `start` reach the session it created. Events carry the caller's
@@ -87,6 +100,22 @@ public class T3SpeechModule: Module {
     AsyncFunction("endBackgroundTask") { (task: Int) in
       MainActor.assumeIsolated { BackgroundTasks.end(task) }
     }.runOnQueue(.main)
+
+    // Playback routes list a car's A2DP output; recording routes list its HFP input instead.
+    Function("audioDevices") { () -> [String: Any] in
+      let session = AVAudioSession.sharedInstance()
+      let ports = session.currentRoute.outputs + (session.availableInputs ?? [])
+      let bluetooth: Set<AVAudioSession.Port> = [.bluetoothA2DP, .bluetoothHFP, .bluetoothLE]
+      var devices: [String: String] = [:]
+      for port in ports where bluetooth.contains(port.portType) {
+        // A device's A2DP and HFP port UIDs share its address before the profile suffix.
+        devices[String(port.uid.prefix { $0 != "-" })] = port.portName
+      }
+      return [
+        "car": ports.contains { $0.portType == .carAudio },
+        "devices": devices.map { ["id": $0.key, "name": $0.value] },
+      ]
+    }
   }
 }
 
