@@ -141,9 +141,9 @@ it("keeps local as the default and never reuses consent for an offline or resele
     expect(appAtomRegistry.get(voiceRouteAtom)).toBeNull();
     chooseVoiceDestination(host);
     const current = appAtomRegistry.get(voiceRouteAtom)?.transcriber;
-    await expect(first!.prepare({ signal: new AbortController().signal })).rejects.toThrow(
-      "Your transcription choice changed.",
-    );
+    await expect(
+      first!.prepare({ signal: new AbortController().signal, audio: "live" }),
+    ).rejects.toThrow("Your transcription choice changed.");
     expect(mocks.fetch).not.toHaveBeenCalled();
     mocks.fetch
       .mockResolvedValueOnce(
@@ -162,7 +162,7 @@ it("keeps local as the default and never reuses consent for an offline or resele
         }),
       )
       .mockResolvedValueOnce(Response.json({ text: "hello" }));
-    const options = { signal: new AbortController().signal };
+    const options = { signal: new AbortController().signal, audio: "live" as const };
     const recording = await current!.prepare(options);
     await expect(recording.transcribe("file:///voice.m4a", options)).resolves.toBe("hello");
     expect(mocks.fetch.mock.calls.map(([url, init]) => [String(url), init?.redirect])).toEqual([

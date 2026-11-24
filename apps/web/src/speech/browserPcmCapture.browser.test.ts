@@ -18,7 +18,7 @@ it("records from the chosen microphone, cancels an unanswered prompt, and stops 
     async () => ({ locale: "en", transcribe: async () => "" }),
   );
   const abort = new AbortController();
-  await capture.transcriber.prepare({ signal: abort.signal });
+  await capture.transcriber.prepare({ signal: abort.signal, audio: "live" });
   const rejected = vi.fn();
   const preparing = capture.recorder.prepareToRecordAsync(abort.signal).catch(rejected);
   await vi.waitFor(() =>

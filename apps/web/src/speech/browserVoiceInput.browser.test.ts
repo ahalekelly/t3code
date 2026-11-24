@@ -109,6 +109,17 @@ it("retains all PCM until stop, retries batch audio, and captures preferences be
   const pendingStatus = new Promise<Response>((resolve) => {
     resolveStatus = resolve;
   });
+  const sockets: string[] = [];
+  using _socket = stubGlobal(
+    "WebSocket",
+    class extends EventTarget {
+      constructor(url: string) {
+        super();
+        sockets.push(url);
+      }
+      close() {}
+    },
+  );
   const fetch = globalThis.fetch;
   using _network = vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
     const request = new Request(input, init);
@@ -177,8 +188,11 @@ it("retains all PCM until stop, retries batch audio, and captures preferences be
       Math.fround(0.2),
       Math.fround(0.3),
     ]);
-    expect(request.options.speechLanguage).toBe("fr");
   }
+  // The retry prepares again, so it takes the language chosen since the failure, and sends the
+  // kept recording as a file without opening the stream the new choice enables.
+  expect(requests.map((request) => request.options.speechLanguage)).toEqual(["fr", "en"]);
+  expect(sockets).toHaveLength(0);
   expect(platform.recorder.uri).toBeNull();
   expect(microphone.stopTrack).toHaveBeenCalledOnce();
   expect(onError).not.toHaveBeenCalled();
@@ -240,7 +254,10 @@ it.each([
       onText() {},
       onError() {},
     });
-    const transcription = await platform.transcriber.prepare({ signal: abort.signal });
+    const transcription = await platform.transcriber.prepare({
+      signal: abort.signal,
+      audio: "live",
+    });
     expect(Boolean(transcription.streaming)).toBe(live);
     expect(transcription.locale).toBe(native && enabled ? "fr" : "en");
     expect(sockets).toEqual(
