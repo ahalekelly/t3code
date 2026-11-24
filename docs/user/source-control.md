@@ -338,13 +338,14 @@ review is terminal. An open or unsynced link keeps it active.
 
 Ask the agent to watch, monitor, or babysit a pull request and it calls `watch_pull_request`. The
 server checks the pull request every two minutes and wakes the agent when a
-check fails or waits for a maintainer's approval, the required checks pass, someone else comments or reviews, or the branch starts to
-conflict. On github.com it also wakes the agent, with GitHub's reason, when the merge queue drops
+check fails or waits for a maintainer's approval, the required checks pass, someone else comments or reviews, the branch starts to
+conflict, or the pull request merges or closes. On github.com it also wakes the agent, with GitHub's reason, when the merge queue drops
 the pull request without merging it. Threads in a project that watch the same pull request share one check. On GitHub, a check
 first asks whether anything changed and reads the pull request only when it did, which keeps
 watching inside GitHub's rate limit. Comments from your own account do not wake it. When the pull
-request merges or closes, watching ends, and the agent is woken once unless it merged or closed the
-pull request itself with the host's CLI. A reopened pull request needs a new watch. Watching also ends after 10 wakes in a row that bring only comments, after 8
+request merges or closes, watching ends, and the agent is woken once, with any comments it had not
+yet seen, unless it merged or closed the pull request itself with the host's CLI and no comments
+are new. A reopened pull request needs a new watch. Watching also ends after 10 wakes in a row that bring only comments, after 8
 failed reads in a row, or when you press Stop on the thread. A rate limit only pauses watching.
 Archiving a thread also ends all its watches. Watching a pull request again does not repeat check or conflict news its last
 watch already reported; unlinking the pull request clears that. Subagents cannot watch pull requests; the thread that delegated to them does. To start or stop
