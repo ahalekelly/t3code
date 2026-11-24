@@ -16,9 +16,10 @@ import {
   rememberMicrophones,
 } from "../../lib/microphonePriority";
 import { autoReadResponse } from "../../lib/autoReadResponse";
-import { nativeSpeech } from "../../lib/nativeSpeech";
+import { nativeSpeech, type AudioDevices } from "../../lib/nativeSpeech";
 import { announce, playCue, responseSpeech } from "../../lib/responseSpeech";
 import { VOICE_API_PROVIDERS } from "../../lib/speechSettings";
+import { readsVoiceReplies } from "../../lib/voiceReplies";
 import type { CloudTranscriptionSource } from "../../lib/voiceTranscriptionSources";
 import { getLocalVoiceTranscriber } from "../../native/voiceTranscription";
 import { createVoiceRecorder } from "../../native/voiceRecorder";
@@ -72,8 +73,10 @@ function missingKeyTranscriber(source: CloudTranscriptionSource): VoiceTranscrib
   };
 }
 
-function readsRepliesAloud(settings: VoiceInputSettings): boolean {
-  return !settings.loaded || settings.readRepliesAloud;
+export function readsRepliesAloud(settings: VoiceInputSettings, audio: AudioDevices): boolean {
+  return (
+    !settings.loaded || readsVoiceReplies(settings.voiceReplies, settings.carAudioDevices, audio)
+  );
 }
 
 function keepScreenAwake(tag: string): () => void {
@@ -219,7 +222,7 @@ const voiceInputAtom = Atom.make((get) => {
     if (
       phase === "error" &&
       sendRequested &&
-      readsRepliesAloud(registry.get(voiceInputSettingsAtom))
+      readsRepliesAloud(registry.get(voiceInputSettingsAtom), nativeSpeech().audioDevices())
     ) {
       announce(`The voice message was not sent. ${error ?? ""}`, "error");
     }
@@ -233,8 +236,10 @@ const voiceInputAtom = Atom.make((get) => {
   const prepareCommit = (text: string) => {
     const send = sendRequested;
     sendRequested = false;
-    const readAloud = send && readsRepliesAloud(registry.get(voiceInputSettingsAtom));
-    return { text: withDictationDisclaimer(text, readAloud), send };
+    const readAloud =
+      send &&
+      readsRepliesAloud(registry.get(voiceInputSettingsAtom), nativeSpeech().audioDevices());
+    return { text: withDictationDisclaimer(text, readAloud), send, readAloud };
   };
   get.subscribe(voiceRouteAtom, () => session.controller.cancel());
   get.addFinalizer(() => {
@@ -249,12 +254,10 @@ const voiceInputAtom = Atom.make((get) => {
 export function useGlobalVoiceInput() {
   const { session, audioLevels, stopAndSend, prepareCommit } = useAtomValue(voiceInputAtom);
   const isTranscriberAvailable = useAtomValue(voiceInputAvailableAtom);
-  const settings = useAtomValue(voiceInputSettingsAtom);
   const snapshot = useSyncExternalStore(session.subscribe, session.getSnapshot);
   return {
     ...snapshot,
     isAvailable: isTranscriberAvailable || getNativeShowcaseScene() !== null,
-    readRepliesAloud: readsRepliesAloud(settings),
     audioLevels,
     isBusy: voiceInputBlocksSubmission(snapshot.state),
     session,

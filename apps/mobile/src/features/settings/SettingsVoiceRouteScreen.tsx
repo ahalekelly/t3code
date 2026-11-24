@@ -29,6 +29,8 @@ import {
   type VoiceApiKey,
 } from "../../lib/speechSettings";
 import { cn } from "../../lib/cn";
+import type { AudioDevice } from "../../lib/nativeSpeech";
+import { useAudioDevices, type VoiceReplyMode } from "../../lib/voiceReplies";
 import { m } from "../../i18n/messages";
 import { makePermissionStatusAtom } from "../../lib/permissionStatusAtom";
 import {
@@ -499,18 +501,33 @@ export function SettingsVoiceRouteScreen() {
             Reading with {model.label} uses the {speechProvider.label} API key and costs about{" "}
             {model.centsPerMinute} cents per minute of audio.
           </Text>
-          <SettingsSwitchRow
-            icon="speaker.wave.2"
-            label="Read voice replies aloud"
-            subtitle="Read the reply after using voice auto-send, and announce approvals and questions."
-            value={preferences.readVoiceRepliesAloud ?? true}
-            onValueChange={(readVoiceRepliesAloud) => savePreferences({ readVoiceRepliesAloud })}
+          <VoiceChoice
+            label="Read voice replies"
+            value={voice.voiceReplies}
+            options={[
+              { id: "always", title: "Always" },
+              { id: "inCar", title: "In the car" },
+              { id: "never", title: "Never" },
+            ]}
+            onSelect={(mode) => savePreferences({ voiceReplies: mode as VoiceReplyMode })}
           />
+          <Text className="px-4 pb-4 text-sm text-foreground-muted">
+            Read the reply after using voice auto-send, and announce approvals and questions.
+            {voice.voiceReplies === "inCar"
+              ? " In the car means CarPlay, Android Auto, or a Bluetooth device turned on below. Connect a device to add it."
+              : ""}
+          </Text>
+          {voice.voiceReplies === "inCar" ? (
+            <CarAudioDeviceRows
+              saved={voice.carAudioDevices}
+              onChange={(carAudioDevices) => savePreferences({ carAudioDevices })}
+            />
+          ) : null}
           <SettingsSwitchRow
             icon="text.bubble"
             label="Read thinking updates"
             subtitle="Include written progress messages during voice replies."
-            disabled={!(preferences.readVoiceRepliesAloud ?? true)}
+            disabled={voice.voiceReplies === "never"}
             value={preferences.readThinkingUpdatesAloud ?? false}
             onValueChange={(readThinkingUpdatesAloud) =>
               savePreferences({ readThinkingUpdatesAloud })
@@ -711,6 +728,28 @@ function confirmRemoveApiKey(label: string, onConfirm: () => void) {
 
 function maskApiKey(key: string): string {
   return key.length > 24 ? `${key.slice(0, 8)}...${key.slice(-8)}` : "...";
+}
+
+function CarAudioDeviceRows(props: {
+  readonly saved: readonly AudioDevice[];
+  readonly onChange: (devices: readonly AudioDevice[]) => void;
+}) {
+  const connected = useAudioDevices().devices;
+  const isSaved = (device: AudioDevice) => props.saved.some(({ id }) => id === device.id);
+  return [...props.saved, ...connected.filter((device) => !isSaved(device))].map((device) => (
+    <SettingsSwitchRow
+      key={device.id}
+      icon="car"
+      label={device.name}
+      subtitle={connected.some(({ id }) => id === device.id) ? "Connected" : undefined}
+      value={isSaved(device)}
+      onValueChange={(on) =>
+        props.onChange(
+          on ? [...props.saved, device] : props.saved.filter(({ id }) => id !== device.id),
+        )
+      }
+    />
+  ));
 }
 
 function VoiceChoice({

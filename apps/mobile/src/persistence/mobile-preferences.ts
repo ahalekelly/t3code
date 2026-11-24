@@ -21,6 +21,8 @@ import {
 import { ToolCallVisibility } from "@t3tools/contracts/settings";
 import type { AndroidNavigationStyle } from "../lib/androidNavigationStyle";
 import type { ComposerEnterBehavior } from "../lib/composerEnterBehavior";
+import type { AudioDevice } from "../lib/nativeSpeech";
+import { isVoiceReplyMode, type VoiceReplyMode } from "../lib/voiceReplies";
 import {
   VOICE_TRANSCRIPTION_SOURCE_LABELS,
   type VoiceTranscriptionSource,
@@ -192,7 +194,8 @@ export interface Preferences {
   readonly responseSpeechVoice?: string;
   readonly responseSpeechPace?: SpeechPace;
   readonly responseSpeechInstructions?: string;
-  readonly readVoiceRepliesAloud?: boolean;
+  readonly voiceReplies?: VoiceReplyMode;
+  readonly carAudioDevices?: ReadonlyArray<AudioDevice>;
   readonly readThinkingUpdatesAloud?: boolean;
   readonly threadListWorkingShelfExpanded?: boolean;
   readonly threadListFilters?: ThreadListFilters;
@@ -286,7 +289,8 @@ function sanitizePreferences(parsed: Preferences): Preferences {
     responseSpeechVoice?: string;
     responseSpeechPace?: SpeechPace;
     responseSpeechInstructions?: string;
-    readVoiceRepliesAloud?: boolean;
+    voiceReplies?: VoiceReplyMode;
+    carAudioDevices?: ReadonlyArray<AudioDevice>;
     readThinkingUpdatesAloud?: boolean;
     threadListWorkingShelfExpanded?: boolean;
     threadListFilters?: ThreadListFilters;
@@ -465,8 +469,15 @@ function sanitizePreferences(parsed: Preferences): Preferences {
   if (typeof parsed.responseSpeechInstructions === "string") {
     preferences.responseSpeechInstructions = parsed.responseSpeechInstructions;
   }
-  if (typeof parsed.readVoiceRepliesAloud === "boolean") {
-    preferences.readVoiceRepliesAloud = parsed.readVoiceRepliesAloud;
+  if (isVoiceReplyMode(parsed.voiceReplies)) preferences.voiceReplies = parsed.voiceReplies;
+  if (Array.isArray(parsed.carAudioDevices)) {
+    preferences.carAudioDevices = parsed.carAudioDevices.filter(
+      (device) =>
+        typeof device === "object" &&
+        device !== null &&
+        typeof device.id === "string" &&
+        typeof device.name === "string",
+    );
   }
   if (typeof parsed.readThinkingUpdatesAloud === "boolean") {
     preferences.readThinkingUpdatesAloud = parsed.readThinkingUpdatesAloud;

@@ -216,8 +216,11 @@ and edit before sending. The send button beside the check mark transcribes and
 sends the message right away, skipping the review. A tone confirms the send, and
 the reply is read aloud automatically while you stay in the thread; the agent is asked
 to write it for listening. Approvals and questions are announced, and failures are
-spoken. The screen stays awake until the reply finishes. Turn off **Read voice
-replies aloud** in **Settings → Voice** to disable this. Enable **Read thinking
+spoken. The screen stays awake until the reply finishes. The send button shows a
+speaker when the reply will be read. Set **Read voice replies** in **Settings →
+Voice** to **Never**, or to **In the car** to read only over CarPlay, Android Auto,
+or Bluetooth devices you turn on there; a device appears in that list while it is
+connected. Enable **Read thinking
 updates** there to hear written progress messages as the agent works; each starts
 reading while it is still being written.
 

@@ -58,7 +58,7 @@ export function useAutoReadResponse(
       return;
     }
     if (!pending) return;
-    if (!voice.readRepliesAloud) {
+    if (voice.voiceReplies === "never") {
       autoReadResponse.cancel(scope);
       return;
     }
