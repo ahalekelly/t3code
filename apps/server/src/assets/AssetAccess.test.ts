@@ -1418,6 +1418,7 @@ describe("AssetAccess", () => {
       yield* write("b.html", "<h1>b</h1>");
       const mint = (name: string) =>
         issueAssetUrl({
+          sessionId: sessionId1,
           resource: {
             _tag: "workspace-file",
             threadId: ThreadId.make("thread-1"),
@@ -1983,6 +1984,7 @@ describe("AssetAccess", () => {
       };
       for (const link of [path.join(root, "favicon.svg"), path.join(pictures, "custom.svg")]) {
         const issue = issueAssetUrl({
+          sessionId: sessionId1,
           resource: { _tag: "project-favicon", cwd: root },
           ...(link.startsWith(pictures) ? { projectFaviconPath: link } : {}),
         });
