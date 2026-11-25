@@ -131,7 +131,10 @@ export const make = Effect.fn("MobileEnvironmentCacheStore.make")(function* () {
           environmentId,
           snapshot,
           ...(origin === undefined ? {} : { origin }),
-        }).pipe(Effect.mapError((cause) => persistenceError("save-shell", cause)));
+        }).pipe(
+          Effect.mapError((cause) => persistenceError("save-shell", cause)),
+          Effect.withSpan("cache.encode"),
+        );
         yield* database
           .saveCache(
             environmentId,
@@ -164,7 +167,10 @@ export const make = Effect.fn("MobileEnvironmentCacheStore.make")(function* () {
         environmentId,
         threadId,
         snapshot,
-      }).pipe(Effect.mapError((cause) => persistenceError("save-thread", cause)));
+      }).pipe(
+        Effect.mapError((cause) => persistenceError("save-thread", cause)),
+        Effect.withSpan("cache.encode"),
+      );
       if (!isLatest()) return;
       // An older copy of a thread now too large to keep would paint stale on reopen.
       yield* Option.match(payload, {
