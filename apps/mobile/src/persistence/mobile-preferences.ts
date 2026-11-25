@@ -172,7 +172,7 @@ export interface Preferences {
   /** Unset means on: connection traces are sent unless the user turns them off. */
   readonly connectionTracesEnabled?: boolean;
   readonly connectOnboardingOptOutAccounts?: ReadonlyArray<string>;
-  readonly collapsedProjectGroups?: readonly string[];
+  readonly collapsedProjectFolders?: readonly string[];
   readonly dismissedDatabaseStorageNotices?: readonly string[];
   /** Per host, when the newest T3 Connect device this phone has announced first signed in. */
   readonly connectDevicesSeenThrough?: Readonly<Record<string, number>>;
@@ -188,6 +188,7 @@ export interface Preferences {
   readonly workingShelfEnabled?: boolean;
   /** The kind of question the Workflows tab's Needs you list was last narrowed to. */
   readonly workflowQuestionKind?: string;
+  readonly projectFoldersEnabled?: boolean;
   readonly useLastProjectForNewThreads?: boolean;
   readonly lastThreadProject?: typeof ThreadProject.Type;
   readonly modelFavorites?: ReadonlyArray<{
@@ -277,7 +278,7 @@ function sanitizePreferences(parsed: Preferences): Preferences {
     crashReportsEnabled?: boolean;
     connectionTracesEnabled?: boolean;
     connectOnboardingOptOutAccounts?: ReadonlyArray<string>;
-    collapsedProjectGroups?: readonly string[];
+    collapsedProjectFolders?: readonly string[];
     dismissedDatabaseStorageNotices?: readonly string[];
     connectDevicesSeenThrough?: Readonly<Record<string, number>>;
     composerEnterBehavior?: ComposerEnterBehavior;
@@ -289,6 +290,7 @@ function sanitizePreferences(parsed: Preferences): Preferences {
     toolCallVisibility?: ToolCallVisibility;
     workingShelfEnabled?: boolean;
     workflowQuestionKind?: string;
+    projectFoldersEnabled?: boolean;
     useLastProjectForNewThreads?: boolean;
     lastThreadProject?: typeof ThreadProject.Type;
     modelFavorites?: Preferences["modelFavorites"];
@@ -393,8 +395,8 @@ function sanitizePreferences(parsed: Preferences): Preferences {
       (account): account is string => typeof account === "string",
     );
   }
-  if (Array.isArray(parsed.collapsedProjectGroups)) {
-    preferences.collapsedProjectGroups = parsed.collapsedProjectGroups.filter(
+  if (Array.isArray(parsed.collapsedProjectFolders)) {
+    preferences.collapsedProjectFolders = parsed.collapsedProjectFolders.filter(
       (key): key is string => typeof key === "string",
     );
   }
@@ -447,6 +449,9 @@ function sanitizePreferences(parsed: Preferences): Preferences {
   }
   if (typeof parsed.workflowQuestionKind === "string") {
     preferences.workflowQuestionKind = parsed.workflowQuestionKind;
+  }
+  if (typeof parsed.projectFoldersEnabled === "boolean") {
+    preferences.projectFoldersEnabled = parsed.projectFoldersEnabled;
   }
   if (typeof parsed.useLastProjectForNewThreads === "boolean") {
     preferences.useLastProjectForNewThreads = parsed.useLastProjectForNewThreads;

@@ -15,7 +15,7 @@ import { useAtomCommand } from "../../state/use-atom-command";
 import { ListChoiceRow as SettingsChoiceRow } from "../../components/ui/ListChoiceRow";
 import { SettingsSection } from "./components/SettingsSection";
 import { LanguageSettingsSection } from "./SettingsLanguageRouteScreen";
-import { NewThreadSettingsSection, WorkingSectionSettings } from "./ThreadSettingsSections";
+import { NewThreadSettingsSection, SidebarSettings } from "./ThreadSettingsSections";
 
 const GROUPING_OPTIONS: ReadonlyArray<{
   readonly mode: SidebarProjectGroupingMode;
@@ -75,7 +75,7 @@ export function SettingsProjectGroupingRouteScreen() {
             />
           ))}
         </SettingsSection>
-        <WorkingSectionSettings />
+        <SidebarSettings />
         <NewThreadSettingsSection />
       </ScrollView>
     </SettingsScreen>

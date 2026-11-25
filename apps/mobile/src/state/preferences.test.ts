@@ -80,14 +80,14 @@ describe("mobile preferences state", () => {
       const save = yield* Effect.forkChild(
         Effect.exit(
           state.savePreferences.run(registry, {
-            collapsedProjectGroups: ["project:new"],
+            collapsedProjectFolders: ["project:new"],
           }),
         ),
         { startImmediately: true },
       );
       pendingLoad.resolve({
         baseFontSize: 18,
-        collapsedProjectGroups: ["project:old"],
+        collapsedProjectFolders: ["project:old"],
       });
 
       const preferences = yield* AtomRegistry.getResult(registry, state.preferencesAtom, {
@@ -96,10 +96,10 @@ describe("mobile preferences state", () => {
       const saveResult = yield* Fiber.join(save);
       expect(preferences).toEqual({
         baseFontSize: 18,
-        collapsedProjectGroups: ["project:new"],
+        collapsedProjectFolders: ["project:new"],
       });
       expect(savePatch).toHaveBeenCalledWith({
-        collapsedProjectGroups: ["project:new"],
+        collapsedProjectFolders: ["project:new"],
       });
       expect(Exit.isFailure(saveResult)).toBe(false);
 
