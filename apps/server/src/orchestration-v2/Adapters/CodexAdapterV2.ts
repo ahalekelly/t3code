@@ -8025,14 +8025,13 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
             }
             const mcpSession = yield* mcpSessions.read(turnInput.threadId);
             const models = adapterOptions.models === undefined ? [] : yield* adapterOptions.models;
-            const configRead = yield* Effect.exit(
-              client
-                .request("config/read", { cwd: turnInput.runtimePolicy.cwd, includeLayers: false })
-                .pipe(
-                  Effect.map((response) => response.config),
-                  withAppServerDeadline("config/read"),
-                ),
-            );
+            const configRead = yield* client
+              .request("config/read", { cwd: turnInput.runtimePolicy.cwd, includeLayers: false })
+              .pipe(
+                Effect.map((response) => response.config),
+                Effect.exit,
+                withAppServerDeadline("config/read"),
+              );
             const configuredReasoningSummary = Exit.isSuccess(configRead)
               ? (configRead.value.model_reasoning_summary ?? undefined)
               : yield* Effect.logDebug("Codex config read failed.").pipe(Effect.as(undefined));
