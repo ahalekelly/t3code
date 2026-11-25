@@ -1,0 +1,81 @@
+name: Fork iPhone release
+
+# Builds the iPhone app for each main revision whose Fork release run passed, when its code changed
+# since its last release, and publishes it as `ios-<version>` with that run's version. It waits for
+# GitHub's scarce macOS runners, so nothing that ships main waits for it, and a newer main replaces
+# a waiting run but never cancels a running one. fork-mac-release.yml does the same for the Mac app.
+
+on:
+  workflow_run:
+    workflows: [Fork release]
+    types: [completed]
+
+# Only a passing run's iPhone run may replace a waiting one; any other run gets a group of its own.
+concurrency:
+  group: fork-ios-release-${{ github.event.workflow_run.conclusion == 'success' && 'main' || github.run_id }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  actions: read
+
+env:
+  SHA: ${{ github.event.workflow_run.head_sha }}
+
+jobs:
+  plan:
+    name: Read the release plan
+    if: github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    outputs:
+      version: ${{ steps.plan.outputs.version }}
+      base: ${{ steps.plan.outputs.base }}
+      ios: ${{ steps.plan.outputs.ios }}
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: release-plan
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ github.token }}
+
+      - id: plan
+        run: tee -a "$GITHUB_OUTPUT" < release-plan.env
+
+  ios_ipa:
+    name: iPhone
+    needs: [plan]
+    if: needs.plan.outputs.ios == 'true'
+    uses: ./.github/workflows/fork-ios-ipa.yml
+    # It deletes the compilation cache its new one replaces.
+    permissions:
+      contents: read
+      actions: write
+    with:
+      version: ${{ needs.plan.outputs.version }}
+      ref: ${{ github.event.workflow_run.head_sha }}
+    secrets: inherit
+
+  release_ios:
+    name: Publish iPhone release
+    needs: [plan, ios_ipa]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: ios-ipa
+          path: release-ios
+
+      - name: Publish iPhone release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          VERSION: ${{ needs.plan.outputs.version }}
+          BASE: ${{ needs.plan.outputs.base }}
+        run: |
+          gh release create "ios-$VERSION" release-ios/* \
+            --target "$SHA" --title "T3 Code iPhone $VERSION" --latest=false \
+            --notes "Fork iPhone build of \`main\` at $SHA, on upstream $BASE."
