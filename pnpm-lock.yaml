@@ -281,6 +281,7 @@ overrides:
   mdast-util-to-hast: 13.2.1
   alchemy: 2.0.0-beta.85
   expo-audio: 58.0.12
+  '@expo/image-utils@^0.12': 0.12.7
   expo-network: 58.0.5
   '@clerk/expo-native-components': 0.4.8
   '@cursor/sdk': 1.5.0
@@ -372,6 +373,7 @@ patchedDependencies:
   '@effect/platform-node-shared@4.1.5': 06952843c6f431ca83c78762fd18d23cda76883801049ee311feced2438ecf14
   '@effect/vitest@4.1.5': dd0bf2b1ae0f63aff0d620ebc67b82d19759b3fa69a608ef85e2a5b40b4d46c5
   '@electron/notarize@2.5.0': c251d51d8a9863f73cc60af20b0fdacc8d911334a59e733c63061e191c399f94
+  '@expo/image-utils@0.12.7': bc5f51422a0e94384b06d9beb2f9c1a61eee5ea06935f6f4f993b416d5f5ec58
   '@expo/ui@58.0.29': 2346ac02073363a401e85357e541055e9737bcbc1cdcb63e056cda9368fa79f6
   '@ff-labs/fff-node@0.11.0': 93f62a76399b435a76588b2bef237db0a1e85880c1ac0d0759c416e9cc579252
   '@generaltranslation/format@0.1.9': 5712dc73770a30134376f9ef883e1a2e1814f007f95532725ba5ecc7b7812db3
@@ -14921,7 +14923,7 @@ snapshots:
       '@expo/config-plugins': 58.0.13(supports-color@8.1.1)(typescript@6.0.3)
       '@expo/devcert': 1.2.2(supports-color@8.1.1)
       '@expo/env': 2.6.0(supports-color@8.1.1)
-      '@expo/image-utils': 0.12.7(supports-color@8.1.1)(typescript@6.0.3)
+      '@expo/image-utils': 0.12.7(patch_hash=bc5f51422a0e94384b06d9beb2f9c1a61eee5ea06935f6f4f993b416d5f5ec58)(supports-color@8.1.1)(typescript@6.0.3)
       '@expo/inline-modules': 0.2.10(supports-color@8.1.1)(typescript@6.0.3)
       '@expo/json-file': 11.2.1
       '@expo/log-box': 58.0.15(@expo/dom-webview@58.0.2)(expo@58.0.26)(react-native@0.88.1(@babel/core@7.29.7(supports-color@8.1.1))(@react-native/metro-config@0.88.1(@babel/core@7.29.7(supports-color@8.1.1))(bufferutil@4.1.0)(supports-color@8.1.1)(utf-8-validate@6.0.6))(@types/react@19.3.0)(bufferutil@4.1.0)(react@19.3.0)(supports-color@8.1.1)(utf-8-validate@6.0.6))(react@19.3.0)
@@ -15072,7 +15074,7 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  '@expo/image-utils@0.12.7(supports-color@8.1.1)(typescript@6.0.3)':
+  '@expo/image-utils@0.12.7(patch_hash=bc5f51422a0e94384b06d9beb2f9c1a61eee5ea06935f6f4f993b416d5f5ec58)(supports-color@8.1.1)(typescript@6.0.3)':
     dependencies:
       '@expo/require-utils': 58.0.6(supports-color@8.1.1)(typescript@6.0.3)
       '@expo/spawn-async': 1.8.0
@@ -15250,7 +15252,7 @@ snapshots:
       '@expo/config': 58.0.12(supports-color@8.1.1)(typescript@6.0.3)
       '@expo/config-plugins': 58.0.13(supports-color@8.1.1)(typescript@6.0.3)
       '@expo/config-types': 58.0.3
-      '@expo/image-utils': 0.12.7(supports-color@8.1.1)(typescript@6.0.3)
+      '@expo/image-utils': 0.12.7(patch_hash=bc5f51422a0e94384b06d9beb2f9c1a61eee5ea06935f6f4f993b416d5f5ec58)(supports-color@8.1.1)(typescript@6.0.3)
       '@expo/json-file': 11.2.1
       '@react-native/normalize-colors': 0.88.1
       debug: 4.4.3(supports-color@8.1.1)
@@ -19452,7 +19454,7 @@ snapshots:
 
   expo-asset@58.0.21(expo@58.0.26)(react-native@0.88.1(@babel/core@7.29.7(supports-color@8.1.1))(@react-native/metro-config@0.88.1(@babel/core@7.29.7(supports-color@8.1.1))(bufferutil@4.1.0)(supports-color@8.1.1)(utf-8-validate@6.0.6))(@types/react@19.3.0)(bufferutil@4.1.0)(react@19.3.0)(supports-color@8.1.1)(utf-8-validate@6.0.6))(react@19.3.0)(supports-color@8.1.1)(typescript@6.0.3):
     dependencies:
-      '@expo/image-utils': 0.12.7(supports-color@8.1.1)(typescript@6.0.3)
+      '@expo/image-utils': 0.12.7(patch_hash=bc5f51422a0e94384b06d9beb2f9c1a61eee5ea06935f6f4f993b416d5f5ec58)(supports-color@8.1.1)(typescript@6.0.3)
       expo: 58.0.26(f1276074af5eee14937223530600d31d)
       expo-constants: 58.0.16(expo@58.0.26)(react-native@0.88.1(@babel/core@7.29.7(supports-color@8.1.1))(@react-native/metro-config@0.88.1(@babel/core@7.29.7(supports-color@8.1.1))(bufferutil@4.1.0)(supports-color@8.1.1)(utf-8-validate@6.0.6))(@types/react@19.3.0)(bufferutil@4.1.0)(react@19.3.0)(supports-color@8.1.1)(utf-8-validate@6.0.6))(supports-color@8.1.1)(typescript@6.0.3)
       react: 19.3.0
@@ -19676,7 +19678,7 @@ snapshots:
 
   expo-notifications@58.1.9(expo@58.0.26)(react-native@0.88.1(@babel/core@7.29.7(supports-color@8.1.1))(@react-native/metro-config@0.88.1(@babel/core@7.29.7(supports-color@8.1.1))(bufferutil@4.1.0)(supports-color@8.1.1)(utf-8-validate@6.0.6))(@types/react@19.3.0)(bufferutil@4.1.0)(react@19.3.0)(supports-color@8.1.1)(utf-8-validate@6.0.6))(react@19.3.0)(supports-color@8.1.1)(typescript@6.0.3):
     dependencies:
-      '@expo/image-utils': 0.12.7(supports-color@8.1.1)(typescript@6.0.3)
+      '@expo/image-utils': 0.12.7(patch_hash=bc5f51422a0e94384b06d9beb2f9c1a61eee5ea06935f6f4f993b416d5f5ec58)(supports-color@8.1.1)(typescript@6.0.3)
       abort-controller: 3.0.0
       badgin: 1.2.3
       expo: 58.0.26(f1276074af5eee14937223530600d31d)
@@ -19742,7 +19744,7 @@ snapshots:
   expo-splash-screen@58.0.14(expo@58.0.26)(supports-color@8.1.1)(typescript@6.0.3):
     dependencies:
       '@expo/config-plugins': 58.0.13(supports-color@8.1.1)(typescript@6.0.3)
-      '@expo/image-utils': 0.12.7(supports-color@8.1.1)(typescript@6.0.3)
+      '@expo/image-utils': 0.12.7(patch_hash=bc5f51422a0e94384b06d9beb2f9c1a61eee5ea06935f6f4f993b416d5f5ec58)(supports-color@8.1.1)(typescript@6.0.3)
       expo: 58.0.26(f1276074af5eee14937223530600d31d)
       xml2js: 0.6.0
     transitivePeerDependencies:
