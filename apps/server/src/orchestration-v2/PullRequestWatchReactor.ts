@@ -77,6 +77,17 @@ const providerFailureReason = (cause: Cause.Cause<PullRequestService.PullRequest
         : null,
   });
 
+const failureDetail = (cause: Cause.Cause<PullRequestService.PullRequestError>) =>
+  Option.match(Cause.findErrorOption(cause), {
+    onNone: () => null,
+    onSome: (error) =>
+      error._tag !== "PullRequestOperationError"
+        ? error.message
+        : isProviderError(error.cause) && error.cause.accessHint !== undefined
+          ? `${error.detail} ${error.cause.accessHint}`
+          : error.detail,
+  });
+
 const logFailure =
   (message: string, fields: Record<string, unknown>) =>
   <E>(cause: Cause.Cause<E>): Effect.Effect<void> =>
@@ -360,10 +371,11 @@ export const make = Effect.gen(function* () {
       error?._tag === "PullRequestUnavailableError" && error.reason !== "provider-unsupported"
         ? error.message
         : null;
+    const detail = failureDetail(cause);
     return record(target, null, {
       text:
         unusable === null
-          ? `T3 Code stopped watching pull request #${target.link.number} (${target.link.url}) because it failed to read it from the host ${READ_FAILURE_LIMIT} times in a row. Check it yourself, and call watch_pull_request only if it is still open.`
+          ? `T3 Code stopped watching pull request #${target.link.number} (${target.link.url}) because it failed to read it from the host ${READ_FAILURE_LIMIT} times in a row${detail === null ? "." : `: ${detail}`} Check it yourself, and call watch_pull_request only if it is still open.`
           : `T3 Code stopped watching pull request #${target.link.number} (${target.link.url}) because the T3 Code server cannot use the host: ${unusable} Fix that on the server, then call watch_pull_request only if it is still open.`,
       notification: {
         source: { kind: "monitor" },
