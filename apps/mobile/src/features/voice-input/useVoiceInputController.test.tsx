@@ -9,6 +9,8 @@ const harness = vi.hoisted(() => ({
 vi.mock("@react-navigation/native", () => ({
   useFocusEffect: (callback: () => void | (() => void)) => useEffect(callback, [callback]),
 }));
+vi.mock("../../components/ui/Dialog", () => ({}));
+vi.mock("../../lib/responseSpeech", () => ({ announce() {}, playCue() {} }));
 vi.mock("./VoiceInputProvider", () => ({
   useGlobalVoiceInput: () => {
     const session = harness.session!;
