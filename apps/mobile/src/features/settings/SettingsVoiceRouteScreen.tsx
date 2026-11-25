@@ -4,13 +4,34 @@ import { useAtomSet, useAtomValue } from "@effect/atom-react";
 import { AsyncResult } from "effect/reactivity";
 import { getRecordingPermissionsAsync, requestRecordingPermissionsAsync } from "expo-audio";
 import { useState } from "react";
-import { Linking, Platform, useWindowDimensions, View } from "react-native";
+import { Linking, Platform, Pressable, useWindowDimensions, View } from "react-native";
 import Reanimated, { ReduceMotion, useAnimatedStyle, withTiming } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { type AppSymbolName } from "../../components/ui/AppSymbol";
-import { AppText as Text } from "../../components/ui/AppText";
+import { type AppSymbolName, SymbolView } from "../../components/ui/AppSymbol";
+import { AppText as Text, AppTextInput as TextInput } from "../../components/ui/AppText";
+import { Menu } from "../../components/ui/Menu";
+import { copyTextWithHaptic } from "../../lib/copyTextWithHaptic";
+import { useVoiceSettings } from "../../state/voiceSettings";
+import { setVoiceApiKeyAtom, voiceApiKeyAtom } from "../../state/voiceApiKeys";
+import {
+  CLOUD_TRANSCRIPTION_SOURCES,
+  VOICE_TRANSCRIPTION_SOURCE_LABELS,
+  type VoiceTranscriptionSource,
+} from "../../lib/voiceTranscriptionSources";
+import {
+  SPEECH_MODELS,
+  SPEECH_PACES,
+  VOICE_API_KEYS,
+  VOICE_API_PROVIDERS,
+  type SpeechModel,
+  type SpeechPace,
+  type VoiceApiKey,
+  type VoiceReplyMode,
+} from "../../lib/speechSettings";
 import { cn } from "../../lib/cn";
+import type { AudioDevice } from "../../lib/nativeSpeech";
+import { useAudioDevices } from "../../lib/voiceReplies";
 import { m } from "../../i18n/messages";
 import { makePermissionStatusAtom } from "../../lib/permissionStatusAtom";
 import {
@@ -41,6 +62,7 @@ import { ListActionRow as SettingsActionRow } from "../../components/ui/ListActi
 import { SettingsDragHandle } from "./components/SettingsDragHandle";
 import { SettingsScreen } from "./components/SettingsScreen";
 import { SettingsSection } from "./components/SettingsSection";
+import { SettingsSwitchRow } from "./components/SettingsSwitchRow";
 import {
   deviceMicrophoneOrder,
   localVoiceTranscriberAtom,
@@ -287,6 +309,24 @@ export function SettingsVoiceRouteScreen() {
     drag === null ? -1 : entries.findIndex((entry) => microphoneEntryKey(entry) === drag.key);
   const dragTo = drag === null ? -1 : dragFrom + dropSteps(dragFrom, drag.translation);
 
+  const [instructionsDraft, setInstructionsDraft] = useState<string | null>(null);
+  const voice = useVoiceSettings();
+  const { preferences, speech } = voice;
+  const source = grant ? null : voice.transcriptionSource;
+  const chooseSource = (next: VoiceTranscriptionSource) => {
+    if (grant) saveDestination(null);
+    savePreferences({ voiceTranscriptionSource: next });
+  };
+  const model = SPEECH_MODELS[speech.model];
+  const speechProvider = VOICE_API_PROVIDERS[model.provider];
+  const commitInstructions = () => {
+    if (instructionsDraft === null) return;
+    setInstructionsDraft(null);
+    if (instructionsDraft !== speech.instructions) {
+      savePreferences({ responseSpeechInstructions: instructionsDraft.trim() });
+    }
+  };
+
   return (
     <SettingsScreen title={gt("Voice")}>
       <ScrollView
@@ -300,12 +340,25 @@ export function SettingsVoiceRouteScreen() {
           <ListChoiceRow
             label={gt("This device")}
             description={gt("Audio stays on this device and is transcribed here.")}
-            selected={!grant && !sheetEnvironment}
+            selected={source === "local" && !sheetEnvironment}
             onPress={() => {
               setCloudSheet(null);
-              saveDestination(null);
+              chooseSource("local");
             }}
           />
+          {CLOUD_TRANSCRIPTION_SOURCES.map((cloud) => (
+            <ListChoiceRow
+              key={cloud}
+              label={VOICE_TRANSCRIPTION_SOURCE_LABELS[cloud]}
+              description={`Recordings upload to ${VOICE_API_PROVIDERS[cloud].label} with its API key below.`}
+              selected={source === cloud && !sheetEnvironment}
+              separated
+              onPress={() => {
+                setCloudSheet(null);
+                chooseSource(cloud);
+              }}
+            />
+          ))}
           {hasEnvironmentVoiceCapture &&
             environments.map((environment) => (
               <EnvironmentChoice
@@ -340,7 +393,7 @@ export function SettingsVoiceRouteScreen() {
             }
           />
         ) : null}
-        {!grant && transcriber === null ? (
+        {source === "local" && transcriber === null ? (
           <Text className="px-2 text-sm text-foreground-muted">{m(UNAVAILABLE_EXPLANATION)}</Text>
         ) : null}
         {permission === "ask" || permission === "denied" ? (
@@ -405,6 +458,92 @@ export function SettingsVoiceRouteScreen() {
             : gt(
                 "Voice input uses the first connected microphone in this list. A wired or Bluetooth microphone is added by name the first time you dictate with it connected; until then it falls under Other. Swipe left on a named microphone to forget it.",
               )}
+        </Text>
+        <SettingsSection title="Read aloud">
+          <VoiceChoice
+            label="Model"
+            value={speech.model}
+            options={Object.entries(SPEECH_MODELS).map(([id, { label }]) => ({
+              id,
+              title: label,
+            }))}
+            onSelect={(id) => savePreferences({ responseSpeechModel: id as SpeechModel })}
+          />
+          <VoiceChoice
+            label="Voice"
+            value={speech.voice}
+            options={voice.voices.map(({ id, name }) => ({ id, title: name }))}
+            onSelect={(voice) => savePreferences({ responseSpeechVoice: voice })}
+          />
+          <VoiceChoice
+            label="Pace"
+            value={String(speech.pace)}
+            options={SPEECH_PACES.map((pace) => ({ id: String(pace), title: `${pace}×` }))}
+            onSelect={(pace) => savePreferences({ responseSpeechPace: Number(pace) as SpeechPace })}
+          />
+          {model.instructions ? (
+            <View className="gap-2 p-4">
+              <Text className="text-lg text-foreground">Delivery</Text>
+              <TextInput
+                accessibilityLabel="Reading instructions"
+                multiline
+                onBlur={commitInstructions}
+                onChangeText={setInstructionsDraft}
+                value={instructionsDraft ?? speech.instructions}
+              />
+            </View>
+          ) : null}
+          {voice.voicesError ? (
+            <Text className="px-4 text-sm text-foreground-muted">{voice.voicesError}</Text>
+          ) : null}
+          <Text className="px-4 pb-4 text-sm text-foreground-muted">
+            {model.instructions ? "Describe how the voice should sound. " : ""}
+            {model.voices === "account" ? "Voices come from your ElevenLabs account. " : ""}
+            Reading with {model.label} uses the {speechProvider.label} API key and costs about{" "}
+            {model.centsPerMinute} cents per minute of audio.
+          </Text>
+          <VoiceChoice
+            label="Read voice replies"
+            value={voice.voiceReplies}
+            options={[
+              { id: "always", title: "Always" },
+              { id: "inCar", title: "In the car" },
+              { id: "never", title: "Never" },
+            ]}
+            onSelect={(mode) => savePreferences({ voiceReplies: mode as VoiceReplyMode })}
+          />
+          <Text className="px-4 pb-4 text-sm text-foreground-muted">
+            Read the reply after using voice auto-send, and announce approvals and questions.
+            {voice.voiceReplies === "inCar"
+              ? " In the car means CarPlay, Android Auto, or a Bluetooth device turned on below. Connect a device to add it."
+              : ""}
+          </Text>
+          {voice.voiceReplies === "inCar" ? (
+            <CarAudioDeviceRows
+              saved={voice.carAudioDevices}
+              onChange={(carAudioDevices) => savePreferences({ carAudioDevices })}
+            />
+          ) : null}
+          <SettingsSwitchRow
+            icon="text.bubble"
+            label="Read thinking updates"
+            subtitle="Include written progress messages during voice replies."
+            disabled={voice.voiceReplies === "never"}
+            value={preferences.readThinkingUpdatesAloud ?? false}
+            onValueChange={(readThinkingUpdatesAloud) =>
+              savePreferences({ readThinkingUpdatesAloud })
+            }
+          />
+        </SettingsSection>
+        <SettingsSection title="API keys">
+          {(Object.keys(VOICE_API_KEYS) as VoiceApiKey[]).map((key) => (
+            <ApiKeyField key={key} slot={key} />
+          ))}
+        </SettingsSection>
+        <Text className="px-2 text-sm leading-normal text-foreground-muted">
+          Keys stay in this device's secure storage. Azure keys come from Speech resources in West
+          US 2; the free F0 key is used until its monthly quota runs out, then the S0 key until it
+          refills.
         </Text>
       </ScrollView>
     </SettingsScreen>
@@ -513,5 +652,144 @@ function MicrophoneRow(props: {
         row
       )}
     </Reanimated.View>
+  );
+}
+
+function ApiKeyField({ slot }: { slot: VoiceApiKey }) {
+  const { label, placeholder } = VOICE_API_KEYS[slot];
+  const storedResult = useAtomValue(voiceApiKeyAtom(slot));
+  const saveApiKey = useAtomSet(setVoiceApiKeyAtom(slot));
+  const storedKey = AsyncResult.isSuccess(storedResult) ? storedResult.value : null;
+  // A new key typed or pasted from scratch; the stored key is never edited in place.
+  const [draft, setDraft] = useState("");
+
+  const commitDraft = () => {
+    if (draft.trim() !== "" && draft.trim() !== storedKey) saveApiKey(draft);
+    setDraft("");
+  };
+
+  return (
+    <View className="gap-2 p-4">
+      <Text className="text-lg text-foreground">{label}</Text>
+      <View className="flex-row items-center gap-3">
+        <TextInput
+          accessibilityLabel={`${label} API key`}
+          autoCapitalize="none"
+          autoCorrect={false}
+          className="flex-1"
+          editable={AsyncResult.isSuccess(storedResult)}
+          onBlur={commitDraft}
+          onChangeText={setDraft}
+          onSubmitEditing={commitDraft}
+          placeholder={storedKey ? maskApiKey(storedKey) : placeholder}
+          placeholderTextColorClassName={storedKey ? "accent-foreground" : "accent-placeholder"}
+          returnKeyType="done"
+          value={draft}
+        />
+        {storedKey ? (
+          <>
+            <Pressable
+              accessibilityLabel={`Copy ${label} API key`}
+              accessibilityRole="button"
+              hitSlop={8}
+              onPress={() => copyTextWithHaptic(storedKey, { target: `${label} API key` })}
+            >
+              <SymbolView
+                name="doc.on.doc"
+                size={18}
+                tintColorClassName="accent-icon"
+                type="monochrome"
+              />
+            </Pressable>
+            <Pressable
+              accessibilityLabel={`Remove ${label} API key`}
+              accessibilityRole="button"
+              hitSlop={8}
+              onPress={() => confirmRemoveApiKey(label, () => saveApiKey(""))}
+            >
+              <SymbolView
+                name="xmark.circle.fill"
+                size={18}
+                tintColorClassName="accent-icon"
+                type="monochrome"
+              />
+            </Pressable>
+          </>
+        ) : null}
+      </View>
+    </View>
+  );
+}
+
+function confirmRemoveApiKey(label: string, onConfirm: () => void) {
+  const title = `Remove ${label} API key?`;
+  const message = "Copy it first if you don't have it saved elsewhere.";
+  Dialog.confirm({ title, message, confirmText: "Remove", destructive: true, onConfirm });
+}
+
+function maskApiKey(key: string): string {
+  return key.length > 24 ? `${key.slice(0, 8)}...${key.slice(-8)}` : "...";
+}
+
+function CarAudioDeviceRows(props: {
+  readonly saved: readonly AudioDevice[];
+  readonly onChange: (devices: readonly AudioDevice[]) => void;
+}) {
+  const connected = useAudioDevices().devices;
+  const isSaved = (device: AudioDevice) => props.saved.some(({ id }) => id === device.id);
+  return [...props.saved, ...connected.filter((device) => !isSaved(device))].map((device) => (
+    <SettingsSwitchRow
+      key={device.id}
+      icon="car"
+      label={device.name}
+      subtitle={connected.some(({ id }) => id === device.id) ? "Connected" : undefined}
+      value={isSaved(device)}
+      onValueChange={(on) =>
+        props.onChange(
+          on ? [...props.saved, device] : props.saved.filter(({ id }) => id !== device.id),
+        )
+      }
+    />
+  ));
+}
+
+function VoiceChoice({
+  label,
+  value,
+  options,
+  onSelect,
+}: {
+  label: string;
+  value: string;
+  options: { id: string; title: string }[];
+  onSelect: (value: string) => void;
+}) {
+  return (
+    <View className="flex-row items-center gap-4 p-4">
+      <Text className="flex-1 text-lg text-foreground">{label}</Text>
+      <Menu
+        accessibilityLabel={label}
+        accessibilityRole="button"
+        isAnchoredToRight
+        actions={options.map((option) => ({
+          ...option,
+          state: option.id === value ? ("on" as const) : undefined,
+        }))}
+        onPressAction={({ nativeEvent }) => onSelect(nativeEvent.event)}
+      >
+        <Pressable className="flex-row items-center gap-1.5 rounded-full bg-subtle px-3.5 py-2">
+          <Text className="text-base text-foreground">
+            {options.find((option) => option.id === value)?.title}
+          </Text>
+          <SymbolView
+            name="chevron.up.chevron.down"
+            size={12}
+            tintColorClassName="accent-icon"
+            type="monochrome"
+            weight="semibold"
+          />
+        </Pressable>
+      </Menu>
+    </View>
   );
 }

@@ -114,6 +114,17 @@ it("retains all PCM until stop, retries batch audio, and captures preferences be
   const pendingStatus = new Promise<Response>((resolve) => {
     resolveStatus = resolve;
   });
+  const sockets: string[] = [];
+  using _socket = stubGlobal(
+    "WebSocket",
+    class extends EventTarget {
+      constructor(url: string) {
+        super();
+        sockets.push(url);
+      }
+      close() {}
+    },
+  );
   const fetch = globalThis.fetch;
   using _network = vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
     const request = new Request(input, init);
@@ -184,8 +195,11 @@ it("retains all PCM until stop, retries batch audio, and captures preferences be
       Math.fround(0.2),
       Math.fround(0.3),
     ]);
-    expect(request.options.speechLanguage).toBe("fr");
   }
+  // The retry prepares again, so it takes the language chosen since the failure, and sends the
+  // kept recording as a file without opening the stream the new choice enables.
+  expect(requests.map((request) => request.options.speechLanguage)).toEqual(["fr", "en"]);
+  expect(sockets).toHaveLength(0);
   expect(platform.recorder.uri).toBeNull();
   expect(microphone.stopTrack).toHaveBeenCalledOnce();
   expect(onError).not.toHaveBeenCalled();
@@ -242,7 +256,7 @@ it.each(["prepare", "transcribe"] as const)(
         platform.cancelRecording();
       },
     };
-    const options = { signal: abort.signal };
+    const options = { signal: abort.signal, audio: "live" as const };
     const transcription = await platform.transcriber.prepare(options);
     const uri = URL.createObjectURL(new Blob([new Float32Array([0.5])]));
     using _blob = { [Symbol.dispose]: () => URL.revokeObjectURL(uri) };
@@ -277,7 +291,7 @@ it("streams the opening audio in order when the destination becomes ready during
       platform.cancelRecording();
     },
   };
-  const transcription = await platform.transcriber.prepare({ signal: abort.signal });
+  const transcription = await platform.transcriber.prepare({ signal: abort.signal, audio: "live" });
   await platform.recorder.prepareToRecordAsync(abort.signal);
   platform.recorder.record({ forDuration: 1 });
   const opening = new Float32Array([0.1]);
@@ -342,7 +356,10 @@ it.each([
       onText() {},
       onError() {},
     });
-    const transcription = await platform.transcriber.prepare({ signal: abort.signal });
+    const transcription = await platform.transcriber.prepare({
+      signal: abort.signal,
+      audio: "live",
+    });
     await vi.waitFor(() => expect(transcription.locale).toBe(native && enabled ? "fr" : "en"));
     expect(Boolean(transcription.streaming)).toBe(live);
     expect(sockets).toEqual(
