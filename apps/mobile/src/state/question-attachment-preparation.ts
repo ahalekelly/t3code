@@ -1,6 +1,7 @@
 import {
   pickComposerFiles,
   pickComposerMedia,
+  type ComposerMediaSource,
   type DraftComposerAttachment,
 } from "../lib/composerImages";
 import { startComposerDraftOperation } from "./composerDraftOperations";
@@ -83,7 +84,7 @@ interface QuestionAttachmentScope {
 export async function pickQuestionAttachments(
   input: QuestionAttachmentScope & {
     readonly key: string;
-    readonly kind: "media" | "files";
+    readonly kind: ComposerMediaSource | "files";
     readonly maxUploadBytes?: number | undefined;
   },
 ): Promise<{ error: string | null; rejected: number }> {
@@ -99,6 +100,7 @@ export async function pickQuestionAttachments(
             acceptSelection,
           })
         : await pickComposerMedia({
+            source: input.kind,
             existingCount,
             maxVideoBytes: input.maxUploadBytes,
             acceptSelection,
