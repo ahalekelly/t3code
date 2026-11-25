@@ -9,16 +9,12 @@ import { useGT } from "gt-react";
 import { PencilIcon, QuoteIcon } from "lucide-react";
 import {
   useEffect,
-  useEffectEvent,
   useRef,
   useState,
   type MouseEvent as ReactMouseEvent,
   type ReactNode,
 } from "react";
-import {
-  findAssistantCitationSourceAnchor,
-  type AssistantCitationSourceAnchor,
-} from "~/lib/assistantTextSelection";
+import { findAssistantCitationSourceAnchor } from "~/lib/assistantTextSelection";
 import {
   assistantCitationNavigation,
   assistantCitationRoute,
@@ -186,9 +182,7 @@ export function AssistantCitationChip({
   citation: AssistantCitation;
   commentEditor?: {
     open: boolean;
-    sourceAnchor?: AssistantCitationSourceAnchor | undefined;
     onOpenChange: (open: boolean) => void;
-    onCancel?: () => void;
     onSave: (comment: string) => boolean;
     onSaveAndSend?: (comment: string) => boolean;
     onDraftChange?: (comment: string) => void;
@@ -201,11 +195,7 @@ export function AssistantCitationChip({
   const commentPopupRef = useRef<HTMLDivElement>(null);
   const draftCommentRef = useRef<string | null>(null);
   const [voiceSetupOpen, setVoiceSetupOpen] = useState(false);
-  const [unavailableSourceAnchor, setUnavailableSourceAnchor] =
-    useState<AssistantCitationSourceAnchor | null>(null);
   const commentOpen = commentEditor?.open ?? false;
-  const sourceAnchor = commentEditor?.sourceAnchor;
-  const activeSourceAnchor = sourceAnchor === unavailableSourceAnchor ? undefined : sourceAnchor;
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- drops the uncommitted comment draft held in a ref once the parent closes the comment editor
   useEffect(() => {
     if (!commentOpen) draftCommentRef.current = null;
@@ -219,38 +209,13 @@ export function AssistantCitationChip({
     if (dismissal.kind === "commit") return commentEditor?.onSave(dismissal.comment) ?? true;
     return dismissal.kind !== "keep-open";
   };
-  // The timeline virtualizes rows, so a vanished source is routine; the user may still be typing.
-  const onSourceUnavailable = useEffectEvent(() => {
-    if (sourceAnchor) setUnavailableSourceAnchor(sourceAnchor);
-  });
-  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- observes the cited DOM source while the comment editor is open and reacts when it disappears
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- highlights the cited DOM source while the comment editor is open
   useEffect(() => {
-    if (!commentOpen || sourceAnchor === unavailableSourceAnchor) return;
-    const anchor = sourceAnchor ?? findAssistantCitationSourceAnchor(document, citation);
+    if (!commentOpen) return;
+    const anchor = findAssistantCitationSourceAnchor(document, citation);
     if (!anchor) return;
-    return observeAssistantCitationCommentSource({
-      anchor,
-      citation,
-      onUnavailable: onSourceUnavailable,
-    });
-  }, [citation, commentOpen, sourceAnchor, unavailableSourceAnchor]);
-  const popupAnchor = activeSourceAnchor
-    ? {
-        contextElement: activeSourceAnchor.source,
-        getBoundingClientRect: () => {
-          const rects = activeSourceAnchor.range.getClientRects();
-          const rect =
-            rects.item(rects.length - 1) ?? activeSourceAnchor.range.getBoundingClientRect();
-          // Code blocks and tables scroll sideways inside the message, so the cited
-          // text can end in their hidden overflow. Base UI only shifts the popup while
-          // it still touches the anchor, so clamp the anchor to the message's width.
-          const bounds = activeSourceAnchor.source.getBoundingClientRect();
-          const left = Math.min(Math.max(rect.left, bounds.left), bounds.right);
-          const right = Math.max(Math.min(rect.right, bounds.right), left);
-          return new DOMRect(left, rect.top, right - left, rect.height);
-        },
-      }
-    : undefined;
+    return observeAssistantCitationCommentSource({ anchor, citation });
+  }, [citation, commentOpen]);
   const label = assistantCitationLabel(citation);
   const composerSourceLink = (
     <Link
@@ -297,9 +262,8 @@ export function AssistantCitationChip({
               // The editor stays mounted while its voice setup dialog replaces the popover.
               keepMounted
               {...composerFloatingLayerProps}
-              side={activeSourceAnchor ? "bottom" : "top"}
+              side="top"
               align="end"
-              anchor={popupAnchor}
               initialFocus={() => {
                 const input = commentInputRef.current;
                 if (input) {
@@ -353,13 +317,7 @@ export function AssistantCitationChip({
                       },
                     }
                   : {})}
-                onCancel={() => {
-                  if (commentEditor.onCancel) {
-                    commentEditor.onCancel();
-                  } else {
-                    commentEditor.onOpenChange(false);
-                  }
-                }}
+                onCancel={() => commentEditor.onOpenChange(false)}
               />
             </PopoverPopup>
           ) : null}
