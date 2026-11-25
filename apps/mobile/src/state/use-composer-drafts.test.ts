@@ -137,6 +137,11 @@ const composerAttachmentCleanupMocks = vi.hoisted(() => ({
 
 const pickMedia = vi.hoisted(() => vi.fn());
 vi.mock("expo-image-picker", () => ({ launchImageLibraryAsync: pickMedia }));
+vi.mock("../lib/composerPickTrace", () => ({
+  startComposerPickTrace: () => () => {},
+  traceNativePicker: (_trace: unknown, launch: () => Promise<unknown>) => launch(),
+  traceComposerPickLanded: () => {},
+}));
 
 const incomingShareStorageMocks = vi.hoisted(() => ({
   load: vi.fn<typeof import("../features/sharing/incoming-share-storage").loadIncomingShareDrafts>(
