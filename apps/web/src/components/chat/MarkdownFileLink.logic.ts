@@ -1,9 +1,11 @@
 import type { EnvironmentId } from "@t3tools/contracts";
 import { splitFilePathPosition } from "@t3tools/shared/fileLinks";
+import { isMarkdownPath } from "@t3tools/shared/filePreview";
 import { msg } from "gt-react";
 
 import { m } from "../../i18n/messages";
 
+import { isBrowserPreviewFile } from "../../browser/openFileInPreview";
 import type { MarkdownFileLinkMeta } from "../../markdown-links";
 import type { RemoteOpenMode } from "../../remoteOpen";
 
@@ -53,10 +55,17 @@ export function markdownFileCopyMenuItems({
   return items;
 }
 
+/** HTML, PDF, and Markdown files open as pages, unless the link points at a line of source. */
 export function shouldUseMarkdownFileBrowserPrimaryAction(input: {
+  iconPath: string;
+  line: number | undefined;
   canOpenInEditor: boolean;
   canOpenInBrowser: boolean;
   canOpenInPanel: boolean;
 }): boolean {
-  return input.canOpenInBrowser && !input.canOpenInEditor && !input.canOpenInPanel;
+  return (
+    ((isBrowserPreviewFile(input.iconPath) || isMarkdownPath(input.iconPath)) &&
+      input.line === undefined) ||
+    (input.canOpenInBrowser && !input.canOpenInEditor && !input.canOpenInPanel)
+  );
 }

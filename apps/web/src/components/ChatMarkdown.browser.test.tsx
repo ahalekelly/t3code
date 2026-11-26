@@ -8,6 +8,7 @@ import { commands, page, userEvent } from "vite-plus/test/browser";
 import { act, render } from "../../test/render";
 import "../index.css";
 
+import { assetEnvironment } from "../state/assets";
 import { filesystemEnvironment } from "../state/filesystem";
 import {
   hostRightPanel,
@@ -19,9 +20,15 @@ import { setMarkdownTaskChecked } from "@t3tools/shared/markdownTaskEdits";
 import { HostImageUrlContext } from "./chat/hostImageUrl";
 import { getSyntaxHighlighterPromise } from "~/lib/syntaxHighlighting";
 
-const { workspaceSearch, filesystemMetadata } = vi.hoisted(() => ({
+const { workspaceSearch, filesystemMetadata, createAssetUrl, environment } = vi.hoisted(() => ({
   workspaceSearch: vi.fn(),
   filesystemMetadata: vi.fn(),
+  createAssetUrl: vi.fn(),
+  environment: {
+    httpBaseUrl: null as string | null,
+    previewAvailable: false,
+    openExternal: undefined as ((url: string) => Promise<void>) | undefined,
+  },
 }));
 const parsedSources = vi.hoisted(() => [] as string[]);
 const nativeFileDrag = vi.hoisted(() => ({ enabled: false }));
@@ -48,8 +55,26 @@ vi.mock(import("../markdown/wordsHast"), async (original) => {
 vi.mock(import("../state/use-atom-query-runner"), async (original) => ({
   ...(await original()),
   useAtomQueryRunner: ((family: unknown) =>
-    family === filesystemEnvironment.getMetadata ? filesystemMetadata : workspaceSearch) as never,
+    family === filesystemEnvironment.getMetadata
+      ? filesystemMetadata
+      : family === assetEnvironment.createUrl
+        ? createAssetUrl
+        : workspaceSearch) as never,
 }));
+vi.mock(import("../browser/previewRuntime"), async (original) => ({
+  ...(await original()),
+  isPreviewAvailableFor: () => environment.previewAvailable,
+}));
+vi.mock(import("../localApi"), async (original) => {
+  const actual = await original();
+  return {
+    ...actual,
+    readLocalApi: (() =>
+      environment.openExternal
+        ? { shell: { openExternal: environment.openExternal } }
+        : actual.readLocalApi()) as never,
+  };
+});
 
 // Atoms derived from the server config run in the real registry over a missing config.
 vi.mock(import("../state/server"), async (original) => {
@@ -83,10 +108,17 @@ vi.mock(import("../state/session"), async (original) => {
   const granted = new Set<string>(AuthStandardClientScopes);
   const hasScope = (environmentId: unknown, scope: string) =>
     environmentId !== null && granted.has(scope);
+  const actual = await original();
   return {
-    ...(await original()),
+    ...actual,
     useEnvironmentScope: hasScope as never,
     readEnvironmentScope: hasScope as never,
+    readPreparedConnection: ((
+      environmentId: Parameters<typeof actual.readPreparedConnection>[0],
+    ) =>
+      environment.httpBaseUrl === null
+        ? actual.readPreparedConnection(environmentId)
+        : { httpBaseUrl: environment.httpBaseUrl }) as never,
   };
 });
 const deniedEnvironmentId = vi.hoisted(() => "denied-environment");
@@ -146,7 +178,10 @@ vi.mock(import("../hooks/useTheme"), async (original) => {
   };
 });
 
-const settingsOverrides = vi.hoisted(() => ({ mathRenderingEnabled: false }));
+const settingsOverrides = vi.hoisted(() => ({
+  mathRenderingEnabled: false,
+  browserLinkTarget: "system" as "system" | "app",
+}));
 vi.mock(import("../hooks/useSettings"), async (original) => {
   const actual = await original();
   type Settings = ReturnType<typeof actual.getClientSettings>;
@@ -154,7 +189,12 @@ vi.mock(import("../hooks/useSettings"), async (original) => {
     const settings = { ...actual.getClientSettings(), ...settingsOverrides };
     return select ? select(settings) : (settings as T);
   }
-  return { ...actual, useClientSettings };
+  return {
+    ...actual,
+    useClientSettings,
+    ensureClientSettingsHydrated: async () => {},
+    getClientSettings: () => ({ ...actual.getClientSettings(), ...settingsOverrides }),
+  };
 });
 
 import ChatMarkdown from "./ChatMarkdown";
@@ -191,6 +231,11 @@ function setup() {
   parsedSources.length = 0;
   settingsOverrides.mathRenderingEnabled = false;
   nativeFileDrag.enabled = false;
+  settingsOverrides.browserLinkTarget = "system";
+  environment.httpBaseUrl = null;
+  environment.previewAvailable = false;
+  environment.openExternal = undefined;
+  createAssetUrl.mockReset();
   renderDiagram.mockReset();
   threadWorktrees.clear();
   workspaceSearch.mockReset().mockResolvedValue(AsyncResult.success({ entries: [] }));
@@ -672,7 +717,7 @@ describe("ChatMarkdown workspace file opens", () => {
     await using screen = await render(
       <>
         <ChatMarkdown cwd="/repo" threadRef={guest} text="[Cited](cited-note.txt)" />
-        <ChatMarkdown cwd="/repo" threadRef={other} text="[Other](/elsewhere/other.md)" />
+        <ChatMarkdown cwd="/repo" threadRef={other} text="[Other](/elsewhere/other.ts)" />
       </>,
     );
     const [cited, otherLink] = screen.container.querySelectorAll("a");
@@ -696,9 +741,60 @@ describe("ChatMarkdown workspace file opens", () => {
       });
       expect(selectActiveRightPanelSurface(byThreadKey, other)).toMatchObject({
         kind: "file",
-        relativePath: "/elsewhere/other.md",
+        relativePath: "/elsewhere/other.ts",
       });
     }
+  });
+});
+
+describe("ChatMarkdown HTML file links", () => {
+  const threadRef = {
+    environmentId: EnvironmentId.make("workspace"),
+    threadId: ThreadId.make("thread"),
+  };
+
+  it("opens HTML and Markdown pages in the default browser when links open there", async () => {
+    setup();
+    environment.httpBaseUrl = "http://host.test";
+    environment.previewAvailable = false;
+    const openExternal = vi.fn(async (_url: string) => {});
+    environment.openExternal = openExternal;
+    createAssetUrl.mockResolvedValue(AsyncResult.success({ relativeUrl: "/assets/report.html" }));
+    using openFile = vi
+      .spyOn(useRightPanelStore.getState(), "openFile")
+      .mockImplementation(() => {});
+    await using screen = await renderText(
+      "[Report](/tmp/project/report.html), [Source](/tmp/project/report.html:3), [Notes](/tmp/project/notes.md)",
+      { threadRef },
+    );
+    const [report, source, notes] = screen.container.querySelectorAll("a");
+
+    await act(async () => report!.click());
+    await vi.waitFor(() =>
+      expect(openExternal).toHaveBeenCalledExactlyOnceWith("http://host.test/assets/report.html"),
+    );
+    expect(createAssetUrl).toHaveBeenCalledExactlyOnceWith({
+      environmentId: threadRef.environmentId,
+      input: {
+        resource: {
+          _tag: "workspace-file",
+          threadId: threadRef.threadId,
+          path: "/tmp/project/report.html",
+        },
+      },
+    });
+    expect(openFile).not.toHaveBeenCalled();
+
+    await act(async () => source!.click());
+    expect(openFile).toHaveBeenCalledExactlyOnceWith(threadRef, "report.html", 3);
+    expect(openExternal).toHaveBeenCalledOnce();
+
+    createAssetUrl.mockResolvedValue(AsyncResult.success({ relativeUrl: "/assets/notes.md" }));
+    await act(async () => notes!.click());
+    await vi.waitFor(() =>
+      expect(openExternal).toHaveBeenLastCalledWith("http://host.test/assets/notes.md"),
+    );
+    expect(openFile).toHaveBeenCalledOnce();
   });
 });
 
