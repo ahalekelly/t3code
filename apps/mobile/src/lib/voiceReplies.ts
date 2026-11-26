@@ -1,23 +1,32 @@
 import { useEffect, useState } from "react";
 
-import { nativeSpeech, type AudioDevice, type AudioDevices } from "./nativeSpeech";
+import { isMicrophoneDevice, microphoneEntryKey, type MicrophoneEntry } from "./microphonePriority";
+import { nativeSpeech, type AudioDevices } from "./nativeSpeech";
 import type { VoiceReplyMode } from "./speechSettings";
 
-/** "In the car" means CarPlay, Android Auto, or a connected Bluetooth device the user picked. */
+export const bluetoothDevices = (audio: AudioDevices) =>
+  audio.devices.map(({ id, name }) => ({ kind: "bluetooth" as const, uid: id, name }));
+
+/** Selected devices are the CarPlay row and named Bluetooth rows with Read aloud on. */
 export function readsVoiceReplies(
   mode: VoiceReplyMode,
-  carAudioDevices: readonly AudioDevice[],
+  microphones: ReadonlyArray<MicrophoneEntry>,
   audio: AudioDevices,
 ): boolean {
-  if (mode !== "inCar") return mode === "always";
-  return (
-    audio.car || audio.devices.some(({ id }) => carAudioDevices.some((saved) => saved.id === id))
+  if (mode !== "selectedDevices") return mode === "always";
+  const connected = new Set(bluetoothDevices(audio).map(microphoneEntryKey));
+  return microphones.some(
+    (entry) =>
+      entry.readAloud === true &&
+      (isMicrophoneDevice(entry)
+        ? connected.has(microphoneEntryKey(entry))
+        : entry.kind === "carPlay" && audio.carPlay),
   );
 }
 
 export function useAudioDevices(): AudioDevices {
   const [devices, setDevices] = useState(() => nativeSpeech().audioDevices());
-  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- follows native audio route and Android Auto changes
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- follows native audio route changes
   useEffect(() => {
     const subscription = nativeSpeech().addListener("onAudioDevicesChange", () =>
       setDevices(nativeSpeech().audioDevices()),

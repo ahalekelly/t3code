@@ -30,8 +30,6 @@ import {
   type VoiceReplyMode,
 } from "../../lib/speechSettings";
 import { cn } from "../../lib/cn";
-import type { AudioDevice } from "../../lib/nativeSpeech";
-import { useAudioDevices } from "../../lib/voiceReplies";
 import { m } from "../../i18n/messages";
 import { makePermissionStatusAtom } from "../../lib/permissionStatusAtom";
 import {
@@ -63,6 +61,7 @@ import { SettingsDragHandle } from "./components/SettingsDragHandle";
 import { SettingsScreen } from "./components/SettingsScreen";
 import { SettingsSection } from "./components/SettingsSection";
 import { SettingsSwitchRow } from "./components/SettingsSwitchRow";
+import { ThemedSwitch } from "../../components/ui/ThemedSwitch";
 import {
   deviceMicrophoneOrder,
   localVoiceTranscriberAtom,
@@ -299,6 +298,15 @@ export function SettingsVoiceRouteScreen() {
       }),
     });
   };
+  const setReadAloud = (key: string, readAloud: boolean) => {
+    void savePreferences({
+      transform: (current) => ({
+        microphones: deviceMicrophoneOrder(current.microphones).map((entry) =>
+          microphoneEntryKey(entry) === key ? { ...entry, readAloud } : entry,
+        ),
+      }),
+    });
+  };
   const dropSteps = (from: number, translation: number) =>
     rowHeight === 0
       ? 0
@@ -416,7 +424,7 @@ export function SettingsVoiceRouteScreen() {
             </Text>
           </>
         ) : null}
-        <SettingsSection title={gt("Preferred order")}>
+        <SettingsSection title={gt("Devices")}>
           {entries.map((entry, index) => {
             const key = microphoneEntryKey(entry);
             const shift =
@@ -446,6 +454,13 @@ export function SettingsVoiceRouteScreen() {
                 }}
                 onStep={(direction) => move(key, direction === "up" ? -1 : 1)}
                 onForget={isMicrophoneDevice(entry) ? () => forget(key) : undefined}
+                onReadAloudChange={
+                  voice.voiceReplies === "selectedDevices" &&
+                  (entry.kind === "carPlay" ||
+                    (isMicrophoneDevice(entry) && entry.kind === "bluetooth"))
+                    ? (readAloud) => setReadAloud(key, readAloud)
+                    : undefined
+                }
               />
             );
           })}
@@ -453,10 +468,10 @@ export function SettingsVoiceRouteScreen() {
         <Text className="px-2 text-sm text-foreground-muted">
           {Platform.OS === "android"
             ? gt(
-                "Voice input uses the first connected microphone in this list. A wired or Bluetooth microphone is added by name the first time you dictate with it connected; until then it falls under Other. Swipe left on a named microphone to forget it. Android may still use a different microphone if the preferred one can’t be routed.",
+                "Voice input uses the first connected microphone in this list. Bluetooth devices are added when they connect, and wired microphones the first time you dictate with them; until then they fall under Other. Swipe left on a named device to forget it. Android may still use a different microphone if the preferred one can’t be routed.",
               )
             : gt(
-                "Voice input uses the first connected microphone in this list. A wired or Bluetooth microphone is added by name the first time you dictate with it connected; until then it falls under Other. Swipe left on a named microphone to forget it.",
+                "Voice input uses the first connected microphone in this list. Bluetooth devices are added when they connect, and wired microphones the first time you dictate with them; until then they fall under Other. Swipe left on a named device to forget it.",
               )}
         </Text>
         <SettingsSection title="Read aloud">
@@ -507,23 +522,17 @@ export function SettingsVoiceRouteScreen() {
             value={voice.voiceReplies}
             options={[
               { id: "always", title: "Always" },
-              { id: "inCar", title: "In the car" },
+              { id: "selectedDevices", title: "On selected devices" },
               { id: "never", title: "Never" },
             ]}
             onSelect={(mode) => savePreferences({ voiceReplies: mode as VoiceReplyMode })}
           />
           <Text className="px-4 pb-4 text-sm text-foreground-muted">
             Read the reply after using voice auto-send, and announce approvals and questions.
-            {voice.voiceReplies === "inCar"
-              ? " In the car means CarPlay, Android Auto, or a Bluetooth device turned on below. Connect a device to add it."
+            {voice.voiceReplies === "selectedDevices"
+              ? " Replies are read only while a device with Read aloud on, in Devices above, is connected."
               : ""}
           </Text>
-          {voice.voiceReplies === "inCar" ? (
-            <CarAudioDeviceRows
-              saved={voice.carAudioDevices}
-              onChange={(carAudioDevices) => savePreferences({ carAudioDevices })}
-            />
-          ) : null}
           <SettingsSwitchRow
             icon="text.bubble"
             label="Read thinking updates"
@@ -563,10 +572,12 @@ function MicrophoneRow(props: {
   readonly onDragEnd: (translation: number, cancelled: boolean) => void;
   readonly onStep: (direction: "up" | "down") => void;
   readonly onForget: (() => void) | undefined;
+  /** Set only on rows that can turn on reading replies aloud. */
+  readonly onReadAloudChange: ((readAloud: boolean) => void) | undefined;
 }) {
   const gt = useGT();
   const m = useMessages();
-  const { lifted, offset, entry, onForget } = props;
+  const { lifted, offset, entry, onForget, onReadAloudChange } = props;
   const kind = KINDS[entry.kind];
   const title = isMicrophoneDevice(entry) ? entry.name : m(kind.row);
   const { width: windowWidth } = useWindowDimensions();
@@ -607,6 +618,16 @@ function MicrophoneRow(props: {
           description={isMicrophoneDevice(entry) ? m(kind.label) : m(kind.rowDescription)}
         />
       </View>
+      {onReadAloudChange ? (
+        <View className="flex-row items-center gap-1.5">
+          <SymbolView name="speaker.wave.2" size={14} tintColorClassName="accent-icon" />
+          <ThemedSwitch
+            accessibilityLabel={gt("Read aloud on {title}", { title })}
+            onValueChange={onReadAloudChange}
+            value={entry.readAloud === true}
+          />
+        </View>
+      ) : null}
       {props.reorderable ? (
         <SettingsDragHandle
           title={title}
@@ -729,28 +750,6 @@ function confirmRemoveApiKey(label: string, onConfirm: () => void) {
 
 function maskApiKey(key: string): string {
   return key.length > 24 ? `${key.slice(0, 8)}...${key.slice(-8)}` : "...";
-}
-
-function CarAudioDeviceRows(props: {
-  readonly saved: readonly AudioDevice[];
-  readonly onChange: (devices: readonly AudioDevice[]) => void;
-}) {
-  const connected = useAudioDevices().devices;
-  const isSaved = (device: AudioDevice) => props.saved.some(({ id }) => id === device.id);
-  return [...props.saved, ...connected.filter((device) => !isSaved(device))].map((device) => (
-    <SettingsSwitchRow
-      key={device.id}
-      icon="car"
-      label={device.name}
-      subtitle={connected.some(({ id }) => id === device.id) ? "Connected" : undefined}
-      value={isSaved(device)}
-      onValueChange={(on) =>
-        props.onChange(
-          on ? [...props.saved, device] : props.saved.filter(({ id }) => id !== device.id),
-        )
-      }
-    />
-  ));
 }
 
 function VoiceChoice({

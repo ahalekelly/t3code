@@ -35,7 +35,10 @@ vi.mock("expo-haptics", () => ({
   NotificationFeedbackType: { Error: "error" },
 }));
 vi.mock("../../lib/nativeSpeech", () => ({
-  nativeSpeech: () => ({ audioDevices: () => ({ car: false, devices: [] }) }),
+  nativeSpeech: () => ({
+    audioDevices: () => ({ carPlay: false, devices: [] }),
+    addListener: () => ({ remove() {} }),
+  }),
 }));
 vi.mock("../../lib/responseSpeech", () => ({
   announce() {},
@@ -50,7 +53,7 @@ vi.mock("../../state/voiceSettings", async () => {
       transcriptionSource: "local",
       transcriptionKeys: [],
       voiceReplies: "never",
-      carAudioDevices: [],
+      microphones: [],
     }),
   };
 });

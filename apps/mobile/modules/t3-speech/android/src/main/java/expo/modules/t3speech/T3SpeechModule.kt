@@ -13,7 +13,7 @@ import expo.modules.kotlin.records.Required
 class T3SpeechModule : Module() {
   private val context
     get() = appContext.reactContext?.applicationContext ?: throw Exceptions.ReactContextLost()
-  private lateinit var carAudio: CarAudio
+  private lateinit var bluetoothAudio: BluetoothAudio
 
   override fun definition() = ModuleDefinition {
     Name("T3Speech")
@@ -21,11 +21,11 @@ class T3SpeechModule : Module() {
     Events("onSpeechState", "onAudioDevicesChange")
 
     OnCreate {
-      carAudio = CarAudio(context) { sendEvent("onAudioDevicesChange") }
-      carAudio.start()
+      bluetoothAudio = BluetoothAudio(context) { sendEvent("onAudioDevicesChange") }
+      bluetoothAudio.start()
     }
 
-    OnDestroy { carAudio.stop() }
+    OnDestroy { bluetoothAudio.stop() }
 
     // Calls run in order on the module queue, so blocks appended right after `start` reach
     // the reading it created. Events carry the caller's `reading` id, so a late event from a
@@ -71,7 +71,7 @@ class T3SpeechModule : Module() {
       BackgroundTasks.end(task)
     }.runOnQueue(Queues.MAIN)
 
-    Function("audioDevices") { carAudio.devices() }
+    Function("audioDevices") { bluetoothAudio.devices() }
   }
 }
 

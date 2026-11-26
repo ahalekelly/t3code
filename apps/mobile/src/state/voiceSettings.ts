@@ -41,7 +41,7 @@ export const voiceInputSettingsAtom = Atom.make((get) => {
           ? azureKeys
           : [],
     voiceReplies: preferences.voiceReplies ?? "always",
-    carAudioDevices: preferences.carAudioDevices ?? [],
+    microphones: preferences.microphones ?? [],
   };
 }).pipe(Atom.withLabel("mobile:voice:input-settings"));
 
@@ -93,7 +93,6 @@ export function useVoiceSettings() {
         ? Option.getOrNull(Cause.findErrorOption(accountVoicesResult.cause))
         : null,
       voiceReplies: input.voiceReplies,
-      carAudioDevices: input.carAudioDevices,
       readThinkingUpdates: preferences.readThinkingUpdatesAloud ?? false,
     };
   }, [accountVoicesResult, input, model, modelVoices, provider, preferences, speechKeysResult]);

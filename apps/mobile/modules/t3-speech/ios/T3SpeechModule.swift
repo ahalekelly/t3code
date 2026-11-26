@@ -112,7 +112,7 @@ public class T3SpeechModule: Module {
         devices[String(port.uid.prefix { $0 != "-" })] = port.portName
       }
       return [
-        "car": ports.contains { $0.portType == .carAudio },
+        "carPlay": ports.contains { $0.portType == .carAudio },
         "devices": devices.map { ["id": $0.key, "name": $0.value] },
       ]
     }

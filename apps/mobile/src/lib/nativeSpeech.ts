@@ -15,8 +15,8 @@ export type SpeechCue = "sent" | "attention" | "error";
 
 export type AudioDevice = { readonly id: string; readonly name: string };
 
-/** `car` is CarPlay or Android Auto; `devices` are the connected Bluetooth audio devices. */
-export type AudioDevices = { readonly car: boolean; readonly devices: readonly AudioDevice[] };
+/** The connected Bluetooth audio devices, and on iOS whether CarPlay is. */
+export type AudioDevices = { readonly carPlay: boolean; readonly devices: readonly AudioDevice[] };
 
 declare class SpeechModule extends NativeModule<{
   onSpeechState(state: NativeSpeechState): void;

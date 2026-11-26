@@ -122,10 +122,10 @@ export const DEFAULT_SPEECH_MODEL: SpeechModel = "MAI-Voice-2.1-Flash";
 export const SPEECH_PACES = [0.75, 1, 1.25, 1.5, 1.75, 2] as const;
 export type SpeechPace = (typeof SPEECH_PACES)[number];
 
-export type VoiceReplyMode = "always" | "inCar" | "never";
+export type VoiceReplyMode = "always" | "selectedDevices" | "never";
 
 export function isVoiceReplyMode(value: unknown): value is VoiceReplyMode {
-  return value === "always" || value === "inCar" || value === "never";
+  return value === "always" || value === "selectedDevices" || value === "never";
 }
 
 export const DEFAULT_SPEECH_INSTRUCTIONS = "Read at a brisk, clear pace.";

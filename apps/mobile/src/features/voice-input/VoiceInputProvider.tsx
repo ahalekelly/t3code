@@ -12,6 +12,7 @@ import { makeMutable } from "react-native-reanimated";
 
 import {
   type MicrophoneEntry,
+  microphoneDevices,
   microphoneOrder,
   preferredMicrophoneInput,
   rememberMicrophones,
@@ -20,7 +21,7 @@ import { autoReadResponse } from "../../lib/autoReadResponse";
 import { nativeSpeech, type AudioDevices } from "../../lib/nativeSpeech";
 import { announce, playCue, responseSpeech } from "../../lib/responseSpeech";
 import { VOICE_API_PROVIDERS } from "../../lib/speechSettings";
-import { readsVoiceReplies } from "../../lib/voiceReplies";
+import { bluetoothDevices, readsVoiceReplies } from "../../lib/voiceReplies";
 import type { CloudTranscriptionSource } from "../../lib/voiceTranscriptionSources";
 import { getLocalVoiceTranscriber } from "../../native/voiceTranscription";
 import { createVoiceRecorder } from "../../native/voiceRecorder";
@@ -75,9 +76,7 @@ function missingKeyTranscriber(source: CloudTranscriptionSource): VoiceTranscrib
 }
 
 export function readsRepliesAloud(settings: VoiceInputSettings, audio: AudioDevices): boolean {
-  return (
-    !settings.loaded || readsVoiceReplies(settings.voiceReplies, settings.carAudioDevices, audio)
-  );
+  return !settings.loaded || readsVoiceReplies(settings.voiceReplies, settings.microphones, audio);
 }
 
 function keepScreenAwake(tag: string): () => void {
@@ -126,6 +125,25 @@ export const voiceInputAtom = Atom.make((get) => {
   let keepAwakeSequence = 0;
   let audioToken: ReturnType<typeof acquireAudioSession> | null = null;
   let recordingMicrophoneOrder: ReadonlyArray<MicrophoneEntry> | null = null;
+  const remember = (devices: Parameters<typeof rememberMicrophones>[1]) =>
+    void runAtomCommand(registry, saveMobilePreferences, {
+      transform: (current) => ({
+        microphones: rememberMicrophones(deviceMicrophoneOrder(current.microphones), devices),
+      }),
+    });
+  // Bluetooth devices join the list on connect, so Read aloud can be turned on before dictating.
+  const rememberConnected = () => {
+    const current = registry.get(mobilePreferencesAtom);
+    if (!AsyncResult.isSuccess(current)) return;
+    const devices = bluetoothDevices(nativeSpeech().audioDevices());
+    const order = deviceMicrophoneOrder(current.value.microphones);
+    if (rememberMicrophones(order, devices) !== order) remember(devices);
+  };
+  const audioDevicesSubscription = nativeSpeech().addListener(
+    "onAudioDevicesChange",
+    rememberConnected,
+  );
+  get.subscribe(mobilePreferencesAtom, rememberConnected, { immediate: true });
   const permission = createVoiceRecordingPermission(() => {
     void session.controller.appMovedToBackground();
   });
@@ -152,14 +170,9 @@ export const voiceInputAtom = Atom.make((get) => {
     selectInput: (inputs) => {
       const known = recordingMicrophoneOrder;
       if (!known) return null;
-      const order = rememberMicrophones(known, inputs);
-      if (order !== known) {
-        void runAtomCommand(registry, saveMobilePreferences, {
-          transform: (current) => ({
-            microphones: rememberMicrophones(deviceMicrophoneOrder(current.microphones), inputs),
-          }),
-        });
-      }
+      const devices = microphoneDevices(inputs);
+      const order = rememberMicrophones(known, devices);
+      if (order !== known) remember(devices);
       return preferredMicrophoneInput(inputs, order);
     },
   });
@@ -256,6 +269,7 @@ export const voiceInputAtom = Atom.make((get) => {
   };
   get.subscribe(voiceRouteAtom, () => session.controller.cancel());
   get.addFinalizer(() => {
+    audioDevicesSubscription.remove();
     permission.dispose();
     unsubscribeSettled();
     session.dispose();

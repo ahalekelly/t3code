@@ -21,7 +21,6 @@ import {
 import { ToolCallVisibility } from "@t3tools/contracts/settings";
 import type { AndroidNavigationStyle } from "../lib/androidNavigationStyle";
 import type { ComposerEnterBehavior } from "../lib/composerEnterBehavior";
-import type { AudioDevice } from "../lib/nativeSpeech";
 import {
   VOICE_TRANSCRIPTION_SOURCE_LABELS,
   type VoiceTranscriptionSource,
@@ -202,7 +201,6 @@ export interface Preferences {
   readonly responseSpeechPace?: SpeechPace;
   readonly responseSpeechInstructions?: string;
   readonly voiceReplies?: VoiceReplyMode;
-  readonly carAudioDevices?: ReadonlyArray<AudioDevice>;
   readonly readThinkingUpdatesAloud?: boolean;
   readonly threadListWorkingShelfExpanded?: boolean;
   readonly threadListFilters?: ThreadListFilters;
@@ -300,7 +298,6 @@ function sanitizePreferences(parsed: Preferences): Preferences {
     responseSpeechPace?: SpeechPace;
     responseSpeechInstructions?: string;
     voiceReplies?: VoiceReplyMode;
-    carAudioDevices?: ReadonlyArray<AudioDevice>;
     readThinkingUpdatesAloud?: boolean;
     threadListWorkingShelfExpanded?: boolean;
     threadListFilters?: ThreadListFilters;
@@ -423,9 +420,10 @@ function sanitizePreferences(parsed: Preferences): Preferences {
   if (Array.isArray(parsed.microphones)) {
     preferences.microphones = parsed.microphones.flatMap((entry): MicrophoneEntry[] => {
       if (typeof entry !== "object" || entry === null || !isMicrophoneKind(entry.kind)) return [];
-      if (!("uid" in entry)) return [{ kind: entry.kind }];
+      const readAloud = entry.readAloud === true ? { readAloud: true } : {};
+      if (!("uid" in entry)) return [{ kind: entry.kind, ...readAloud }];
       return typeof entry.uid === "string" && typeof entry.name === "string"
-        ? [{ kind: entry.kind, uid: entry.uid, name: entry.name }]
+        ? [{ kind: entry.kind, uid: entry.uid, name: entry.name, ...readAloud }]
         : [];
     });
   }
@@ -496,15 +494,6 @@ function sanitizePreferences(parsed: Preferences): Preferences {
     preferences.responseSpeechInstructions = parsed.responseSpeechInstructions;
   }
   if (isVoiceReplyMode(parsed.voiceReplies)) preferences.voiceReplies = parsed.voiceReplies;
-  if (Array.isArray(parsed.carAudioDevices)) {
-    preferences.carAudioDevices = parsed.carAudioDevices.filter(
-      (device) =>
-        typeof device === "object" &&
-        device !== null &&
-        typeof device.id === "string" &&
-        typeof device.name === "string",
-    );
-  }
   if (typeof parsed.readThinkingUpdatesAloud === "boolean") {
     preferences.readThinkingUpdatesAloud = parsed.readThinkingUpdatesAloud;
   }

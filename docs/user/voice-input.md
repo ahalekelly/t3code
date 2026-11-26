@@ -24,7 +24,7 @@ In **Settings → Voice → Transcription**, filter by language, download a mode
 
 ## Dictate on mobile
 
-- Record, then confirm to insert text where your selection was. The send button beside the check mark transcribes and sends at once; a tone confirms, and the reply is read aloud while you stay in the thread; the send button shows a speaker when it will be. Set **Read voice replies** in **Settings → Voice** to **Never**, or **In the car** to read only over CarPlay, Android Auto, or Bluetooth devices you turn on there (a device appears while connected). Approvals, questions, and failures are announced; enable **Read thinking updates** to hear progress messages too.
+- Record, then confirm to insert text where your selection was. The send button beside the check mark transcribes and sends at once; a tone confirms, and the reply is read aloud while you stay in the thread; the send button shows a speaker when it will be. Set **Read voice replies** in **Settings → Voice** to **Never**, or **On selected devices** to read only while a device with **Read aloud** on is connected, such as your car. Approvals, questions, and failures are announced; enable **Read thinking updates** to hear progress messages too.
 - Recordings last up to 5 minutes, or 20 with a cloud service. On iPhone they continue with the phone locked; a call, Siri, or an alarm ends the recording with a tone and adds what was captured without sending.
 - Failed transcriptions keep the recording so you can retry. Canceling discards it and keeps your draft. Dictation continues on other screens; use the floating controls to finish or cancel.
 - iPhone dictates in your first preferred language that Apple's speech model supports, else the app's language.
@@ -44,6 +44,6 @@ In **Settings → Voice → Transcription**, filter by language, download a mode
 
 ## Microphones and testing
 
-- **Microphone priority**: Rank built-in, wired, Bluetooth, and CarPlay (iOS) devices in **Settings → Voice**—T3 Code uses the first connected device in the list. Devices you've dictated with appear by name, so you can rank them against kinds (e.g. **Other Bluetooth** above your AirPods); swipe left to forget one.
+- **Microphone priority**: Rank built-in, wired, Bluetooth, and CarPlay (iOS) devices in **Settings → Voice**—T3 Code uses the first connected device in the list. Bluetooth devices appear by name once connected, and wired ones once you've dictated with them, so you can rank them against kinds (e.g. **Other Bluetooth** above your AirPods); swipe left to forget one.
 - **Test**: Use **Test microphone** (local 10-second loopback, no transcription) to verify input, and **Test model** to preview raw transcription without cleanup.
 - Browser recording requires **HTTPS** or `localhost`—for plain-HTTP remote servers, use the desktop app.
