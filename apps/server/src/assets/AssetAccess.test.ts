@@ -768,6 +768,7 @@ describe("AssetAccess", () => {
           ),
       });
       const result = yield* issueAssetUrl({
+        sessionId: sessionId1,
         resource: { _tag: "media-file", threadId: ThreadId.make("thread-1"), path: filePath },
       }).pipe(Effect.provideService(FileSystem.FileSystem, nativeRealPathFails));
       const suffix = result.relativeUrl.slice(`${ASSET_ROUTE_PREFIX}/`.length);
@@ -1317,6 +1318,7 @@ describe("AssetAccess", () => {
 
         const tokenFor = Effect.fn(function* (entry: string) {
           const result = yield* issueAssetUrl({
+            sessionId: sessionId1,
             resource: {
               _tag: "workspace-file",
               threadId: ThreadId.make("thread-1"),
@@ -1971,6 +1973,7 @@ describe("AssetAccess", () => {
       yield* fileSystem.writeFile(attachmentPath, screenshotPng);
 
       const result = yield* issueAssetUrl({
+        sessionId: sessionId1,
         resource: { _tag: "attachment", attachmentId, mimeType: "text/html" },
       });
       const suffix = result.relativeUrl.slice(`${ASSET_ROUTE_PREFIX}/`.length);
