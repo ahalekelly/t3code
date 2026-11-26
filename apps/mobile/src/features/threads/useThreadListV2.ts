@@ -6,6 +6,7 @@ import { keepMarked } from "../../i18n/messages";
 import { scopedProjectKey } from "../../lib/scopedEntities";
 import { useOlderSettledShelf, useOlderSettledShelfGrowth } from "../../state/olderSettledShelf";
 import type { PendingNewTask } from "../../state/use-pending-new-tasks";
+import type { HomeProjectScope } from "../home/homeThreadList";
 import {
   buildThreadListV2Items,
   buildThreadListV2ListItems,
@@ -66,6 +67,9 @@ export function useThreadListV2(input: {
   readonly snoozedShelfExpanded: boolean;
   readonly settledShelfExpanded: boolean;
   readonly selectedThreadKey: string | null;
+  /** Project scopes to group active threads into, or null for one list. */
+  readonly projectFolderScopes: ReadonlyArray<HomeProjectScope> | null;
+  readonly collapsedProjectFolders: ReadonlySet<string>;
 }) {
   const { threads, workingShelfEnabled } = input;
   const layoutTime = useMemo(
@@ -102,7 +106,9 @@ export function useThreadListV2(input: {
       });
     return new Map([
       ...sectionAvailability("pinned"),
-      ...(workingShelfEnabled ? [] : sectionAvailability("active")),
+      ...(workingShelfEnabled || input.projectFolderScopes !== null
+        ? []
+        : sectionAvailability("active")),
     ]);
   }, [
     threads,
@@ -114,6 +120,7 @@ export function useThreadListV2(input: {
     input.snoozeEnvironmentIds,
     input.queuedThreadKeys,
     workingShelfEnabled,
+    input.projectFolderScopes,
   ]);
   // Older settled threads load in pages; the shelf lists them only as far as they are loaded.
   const scopes = useMemo(
@@ -154,6 +161,16 @@ export function useThreadListV2(input: {
         settledShelfExpanded: input.settledShelfExpanded,
         selectedThreadKey: input.selectedThreadKey,
         isListedSettled: isListed,
+        projectFolders:
+          input.projectFolderScopes?.map((scope) => ({
+            key: scope.key,
+            title: scope.title,
+            project: scope.representative,
+            memberProjectRefs: scope.projectRefs,
+            pinned: scope.pinned,
+            archived: scope.archived,
+            collapsed: input.collapsedProjectFolders.has(scope.key),
+          })) ?? null,
         unloadedSettledCount: unloadedCount(
           threads.filter(
             (thread) =>
@@ -186,6 +203,8 @@ export function useThreadListV2(input: {
       input.settledShelfExpanded,
       input.selectedThreadKey,
       isListed,
+      input.projectFolderScopes,
+      input.collapsedProjectFolders,
       unloadedCount,
       scopes,
     ],
@@ -224,6 +243,7 @@ export function useThreadListV2(input: {
         settledCount: layout.settledCount,
         settledShelfExpanded: input.settledShelfExpanded,
         settledShelfHeaderIndex: layout.settledShelfHeaderIndex,
+        folderHeaders: layout.folderHeaders,
         snoozeLabelNow: `${input.now.slice(0, 16)}:00.000Z`,
         snoozeEnvironmentIds: input.snoozeEnvironmentIds,
         queuedThreadKeys: input.queuedThreadKeys,
