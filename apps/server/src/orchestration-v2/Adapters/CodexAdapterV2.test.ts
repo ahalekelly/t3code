@@ -1922,7 +1922,7 @@ describe("CodexAdapterV2 post-settle continuation", () => {
                 prompt,
                 turnPolicy: {
                   approvalPolicy: "on-request",
-                  sandboxPolicy: { type: "workspaceWrite" },
+                  permissions: ":workspace",
                 },
               }),
               {
