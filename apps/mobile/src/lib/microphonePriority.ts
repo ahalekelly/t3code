@@ -6,9 +6,12 @@ export interface MicrophoneDevice {
   readonly kind: MicrophoneKind;
   readonly uid: string;
   readonly name: string;
+  readonly readAloud?: boolean;
 }
 
-export type MicrophoneEntry = { readonly kind: MicrophoneKind } | MicrophoneDevice;
+export type MicrophoneEntry =
+  | { readonly kind: MicrophoneKind; readonly readAloud?: boolean }
+  | MicrophoneDevice;
 
 interface MicrophoneInput {
   readonly uid: string;
@@ -32,6 +35,13 @@ const DEVICE_KINDS: ReadonlySet<MicrophoneKind> = new Set(["wired", "bluetooth"]
 
 const rank = (kind: MicrophoneKind) => MICROPHONE_KINDS.indexOf(kind);
 
+// iOS suffixes a Bluetooth port UID with its profile (-tsco, -tacl) and Android prefixes its
+// device type, so one device's microphone and speaker share the address between.
+const deviceKey = (kind: MicrophoneKind | undefined, uid: string) =>
+  kind === "bluetooth" ? uid.replace(/^android:\d+:/, "").replace(/-[^-:]*$/, "") : uid;
+
+const inputKey = (input: MicrophoneInput) => deviceKey(KIND_BY_PORT_TYPE[input.type], input.uid);
+
 export function isMicrophoneKind(value: unknown): value is MicrophoneKind {
   return (MICROPHONE_KINDS as ReadonlyArray<unknown>).includes(value);
 }
@@ -41,7 +51,7 @@ export function isMicrophoneDevice(entry: MicrophoneEntry): entry is MicrophoneD
 }
 
 export function microphoneEntryKey(entry: MicrophoneEntry): string {
-  return isMicrophoneDevice(entry) ? entry.uid : `kind:${entry.kind}`;
+  return isMicrophoneDevice(entry) ? deviceKey(entry.kind, entry.uid) : `kind:${entry.kind}`;
 }
 
 export function microphoneOrder(
@@ -54,7 +64,9 @@ export function microphoneOrder(
   for (const entry of saved) {
     if (!kinds.includes(entry.kind)) continue;
     const row =
-      isMicrophoneDevice(entry) && DEVICE_KINDS.has(entry.kind) ? entry : { kind: entry.kind };
+      isMicrophoneDevice(entry) && DEVICE_KINDS.has(entry.kind)
+        ? entry
+        : { kind: entry.kind, readAloud: entry.readAloud };
     const key = microphoneEntryKey(row);
     if (keys.has(key)) continue;
     keys.add(key);
@@ -73,25 +85,32 @@ export function microphoneOrder(
   return order;
 }
 
+export function microphoneDevices(
+  inputs: ReadonlyArray<MicrophoneInput>,
+): ReadonlyArray<MicrophoneDevice> {
+  return inputs.flatMap((input) => {
+    const kind = KIND_BY_PORT_TYPE[input.type];
+    return kind && DEVICE_KINDS.has(kind) ? [{ kind, uid: input.uid, name: input.name }] : [];
+  });
+}
+
 export function rememberMicrophones(
   order: ReadonlyArray<MicrophoneEntry>,
-  inputs: ReadonlyArray<MicrophoneInput>,
+  devices: ReadonlyArray<MicrophoneDevice>,
 ): ReadonlyArray<MicrophoneEntry> {
   let next: MicrophoneEntry[] | null = null;
-  for (const input of inputs) {
-    const kind = KIND_BY_PORT_TYPE[input.type];
-    if (!kind || !DEVICE_KINDS.has(kind)) continue;
+  for (const device of devices) {
     const current = next ?? order;
-    const index = current.findIndex((entry) => microphoneEntryKey(entry) === input.uid);
+    const key = microphoneEntryKey(device);
+    const index = current.findIndex((entry) => microphoneEntryKey(entry) === key);
     const existing = current[index];
-    if (existing && isMicrophoneDevice(existing) && existing.name === input.name) continue;
+    if (existing && isMicrophoneDevice(existing) && existing.name === device.name) continue;
     next ??= [...order];
-    const device = { kind, uid: input.uid, name: input.name };
-    if (index !== -1) {
-      next[index] = device;
+    if (existing) {
+      next[index] = { ...existing, name: device.name };
       continue;
     }
-    const kindRow = next.findIndex((entry) => microphoneEntryKey(entry) === `kind:${kind}`);
+    const kindRow = next.findIndex((entry) => microphoneEntryKey(entry) === `kind:${device.kind}`);
     next.splice(kindRow === -1 ? next.length : kindRow, 0, device);
   }
   return next ?? order;
@@ -102,12 +121,12 @@ export function preferredMicrophoneInput<Input extends MicrophoneInput>(
   inputs: ReadonlyArray<Input>,
   order: ReadonlyArray<MicrophoneEntry>,
 ): Input | null {
-  const listed = new Set(order.filter(isMicrophoneDevice).map((device) => device.uid));
+  const listed = new Set(order.filter(isMicrophoneDevice).map(microphoneEntryKey));
   for (const entry of order) {
     const input = inputs.find((candidate) =>
       isMicrophoneDevice(entry)
-        ? candidate.uid === entry.uid
-        : KIND_BY_PORT_TYPE[candidate.type] === entry.kind && !listed.has(candidate.uid),
+        ? inputKey(candidate) === microphoneEntryKey(entry)
+        : KIND_BY_PORT_TYPE[candidate.type] === entry.kind && !listed.has(inputKey(candidate)),
     );
     if (input) return input;
   }

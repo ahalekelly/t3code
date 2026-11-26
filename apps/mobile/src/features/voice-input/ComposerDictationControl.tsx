@@ -1,3 +1,4 @@
+import { useAtomValue } from "@effect/atom-react";
 import type { VoiceInputPhase, VoiceInputState } from "@t3tools/client-runtime/voice-input";
 import { useGT } from "gt-react-native";
 import { memo, useState, type ReactNode } from "react";
@@ -18,6 +19,9 @@ import { AppText as Text } from "../../components/ui/AppText";
 import { SymbolView, type AppSymbolName } from "../../components/ui/AppSymbol";
 import { useAndroidControlSizing } from "../../components/ui/useAndroidControlSizing";
 import { cn } from "../../lib/cn";
+import { useAudioDevices } from "../../lib/voiceReplies";
+import { voiceInputSettingsAtom } from "../../state/voiceSettings";
+import { readsRepliesAloud } from "./VoiceInputProvider";
 import type { VoiceComposerPresentation } from "./voiceInputPresentation";
 import { VOICE_WAVEFORM_SAMPLE_COUNT } from "./voiceInputMetering";
 
@@ -323,6 +327,7 @@ function VoiceActionButton(props: {
 export function ComposerDictationError(props: {
   readonly error: string | null;
   readonly onDismiss: () => void;
+  readonly onTranscribeAgain: (() => void) | null;
 }) {
   const gt = useGT();
   if (!props.error) return null;
@@ -331,6 +336,22 @@ export function ComposerDictationError(props: {
       <Text accessibilityRole="alert" className="min-w-0 flex-1 text-sm text-danger-foreground">
         {props.error}
       </Text>
+      {props.onTranscribeAgain ? (
+        <Pressable
+          accessibilityLabel="Transcribe the recording again"
+          accessibilityRole="button"
+          className="size-7 items-center justify-center active:opacity-70"
+          hitSlop={8}
+          onPress={props.onTranscribeAgain}
+        >
+          <SymbolView
+            name="arrow.clockwise"
+            size={14}
+            tintColorClassName="accent-icon"
+            type="monochrome"
+          />
+        </Pressable>
+      ) : null}
       <Pressable
         accessibilityLabel={gt("Dismiss voice input error")}
         accessibilityRole="button"
@@ -436,6 +457,29 @@ export function ComposerDictationPrimaryAction(props: {
   }
 
   return <ComposerDictationStartAction {...props} />;
+}
+
+export function ComposerDictationSendAction(props: {
+  readonly presentation: VoiceComposerPresentation;
+  readonly onSend: () => void;
+}) {
+  const settings = useAtomValue(voiceInputSettingsAtom);
+  const audio = useAudioDevices();
+  if (props.presentation.trailingAction !== "confirm") return null;
+  const readsAloud = readsRepliesAloud(settings, audio);
+  return (
+    <VoiceActionButton
+      accessibilityLabel={
+        readsAloud
+          ? "Finish dictation, send, and read the reply aloud"
+          : "Finish dictation and send"
+      }
+      disabled={!props.presentation.confirmationEnabled}
+      icon={readsAloud ? "speaker.wave.2" : "arrow.up"}
+      onPress={props.onSend}
+      variant="primary"
+    />
+  );
 }
 
 export function ComposerDictationStartAction(props: {

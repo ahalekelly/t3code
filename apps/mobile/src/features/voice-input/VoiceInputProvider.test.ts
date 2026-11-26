@@ -18,6 +18,7 @@ vi.mock("expo-keep-awake", () => ({
 }));
 vi.mock("expo-audio", () => ({
   AudioModule: {},
+  AudioQuality: { MAX: 127 },
   RecordingPresets: { HIGH_QUALITY: { ios: {}, android: {} } },
   requestRecordingPermissionsAsync: async () => ({ granted: true }),
   setAudioModeAsync: vi.fn(async () => {}),
@@ -28,6 +29,33 @@ vi.mock("../../native/voiceTranscription", () => ({ getLocalVoiceTranscriber: as
 vi.mock("../../state/preferences", async () => {
   const { AsyncResult, Atom } = await import("effect/reactivity");
   return { mobilePreferencesAtom: Atom.make(AsyncResult.initial()) };
+});
+vi.mock("expo-haptics", () => ({
+  notificationAsync: async () => {},
+  NotificationFeedbackType: { Error: "error" },
+}));
+vi.mock("../../lib/nativeSpeech", () => ({
+  nativeSpeech: () => ({
+    audioDevices: () => ({ carPlay: false, devices: [] }),
+    addListener: () => ({ remove() {} }),
+  }),
+}));
+vi.mock("../../lib/responseSpeech", () => ({
+  announce() {},
+  playCue() {},
+  responseSpeech: { stop: async () => {} },
+}));
+vi.mock("../../state/voiceSettings", async () => {
+  const { Atom } = await import("effect/reactivity");
+  return {
+    voiceInputSettingsAtom: Atom.make({
+      loaded: true,
+      transcriptionSource: "local",
+      transcriptionKeys: [],
+      voiceReplies: "never",
+      microphones: [],
+    }),
+  };
 });
 vi.mock("./voiceDestination", async () => {
   const { Atom } = await import("effect/reactivity");

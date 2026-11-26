@@ -4,7 +4,7 @@ import {
   type VoiceRecorder,
   type VoiceStreamingSession,
   type VoiceInputErrorCode,
-  type VoiceTranscriptionOptions,
+  type VoicePreparationOptions,
 } from "@t3tools/client-runtime/voice-input";
 import * as Schema from "effect/Schema";
 import { requestMicrophone } from "./requestMicrophone";
@@ -26,7 +26,7 @@ export function createBrowserPcmCapture(
     readonly onError: (message: string, code?: VoiceInputErrorCode) => void;
   },
   prepare: (
-    options: VoiceTranscriptionOptions,
+    options: VoicePreparationOptions,
     canStream: () => boolean,
   ) => Promise<PreparedBrowserTranscription>,
 ) {
@@ -185,7 +185,7 @@ export function createBrowserPcmCapture(
       if (recordingUri === uri) recordingUri = null;
     },
     transcriber: {
-      prepare: async (options: VoiceTranscriptionOptions): Promise<PreparedVoiceTranscription> => {
+      prepare: async (options: VoicePreparationOptions): Promise<PreparedVoiceTranscription> => {
         signal = options.signal;
         let acceptingAudio = true;
         stopAcceptingAudio = () => {

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vite-plus/test";
 
 import {
   type MicrophoneEntry,
+  microphoneDevices,
   microphoneEntryKey,
   microphoneOrder,
   preferredMicrophoneInput,
@@ -43,24 +44,42 @@ describe("microphoneOrder", () => {
 describe("rememberMicrophones", () => {
   it("lists a new device just above its kind and leaves built-in and CarPlay as kinds", () => {
     const order = microphoneOrder();
-    expect(keys(rememberMicrophones(order, [iPhone, carPlay, airPods]))).toEqual([
-      "kind:wired",
-      "airpods",
-      "kind:bluetooth",
-      "kind:builtIn",
-      "kind:carPlay",
-    ]);
+    expect(keys(rememberMicrophones(order, microphoneDevices([iPhone, carPlay, airPods])))).toEqual(
+      ["kind:wired", "airpods", "kind:bluetooth", "kind:builtIn", "kind:carPlay"],
+    );
   });
 
   it("refreshes renamed devices and returns the same order when nothing changed", () => {
-    const order = rememberMicrophones(microphoneOrder(), [airPods]);
-    expect(rememberMicrophones(order, [airPods, iPhone])).toBe(order);
+    const order = rememberMicrophones(microphoneOrder(), microphoneDevices([airPods]));
+    expect(rememberMicrophones(order, microphoneDevices([airPods, iPhone]))).toBe(order);
 
-    const renamed = rememberMicrophones(order, [{ ...airPods, name: "AirPods Max" }]);
+    const renamed = rememberMicrophones(
+      order,
+      microphoneDevices([{ ...airPods, name: "AirPods Max" }]),
+    );
     expect(renamed.find((entry) => microphoneEntryKey(entry) === "airpods")).toEqual({
       kind: "bluetooth",
       uid: "airpods",
       name: "AirPods Max",
+    });
+  });
+
+  it("treats a Bluetooth device's speaker and microphone as one device", () => {
+    const civicSpeaker = { kind: "bluetooth" as const, uid: "AA:BB:CC:DD:EE:FF", name: "Civic" };
+    const order = rememberMicrophones(microphoneOrder(), [{ ...civicSpeaker, readAloud: true }]);
+    const civicMic = { uid: "AA:BB:CC:DD:EE:FF-tsco", name: "Civic", type: "BluetoothHFP" };
+    expect(rememberMicrophones(order, microphoneDevices([civicMic]))).toBe(order);
+    expect(preferredMicrophoneInput([civicMic], order)).toBe(civicMic);
+
+    const androidMic = { uid: "android:7:AA:BB:CC:DD:EE:FF", name: "Civic", type: "BluetoothSCO" };
+    const renamed = rememberMicrophones(
+      order,
+      microphoneDevices([{ ...androidMic, name: "Honda" }]),
+    );
+    expect(renamed.find((entry) => microphoneEntryKey(entry) === "AA:BB:CC:DD:EE:FF")).toEqual({
+      ...civicSpeaker,
+      name: "Honda",
+      readAloud: true,
     });
   });
 });
