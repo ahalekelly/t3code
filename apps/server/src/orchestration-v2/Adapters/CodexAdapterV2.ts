@@ -838,6 +838,7 @@ const decodeTurnApprovalPolicy = Schema.decodeUnknownEffect(
 const decodeTurnSandboxPolicy = Schema.decodeUnknownEffect(
   Schema.Union([CodexSchema.V2TurnStartParams__SandboxPolicy, Schema.Null]),
 );
+const decodeConfiguredPermissions = Schema.decodeUnknownEffect(Schema.NullOr(Schema.String));
 const decodeTurnReasoningEffort = Schema.decodeUnknownEffect(
   Schema.Union([CodexSchema.V2TurnStartParams__ReasoningEffort, Schema.Null]),
 );
@@ -849,36 +850,20 @@ const isProviderAdapterRuntimeRequestResponseError = Schema.is(
   ProviderAdapter.ProviderAdapterRuntimeRequestResponseError,
 );
 
+// A null profile selects the user's `default_permissions`. Profiles carry network, extra roots,
+// and denied paths, which a legacy `sandboxPolicy` would replace.
 function codexRuntimeModeTurnDefaults(runtimeMode: RuntimeMode): {
   readonly approvalPolicy: CodexSchema.V2TurnStartParams__AskForApproval;
   readonly approvalsReviewer: CodexSchema.V2TurnStartParams__ApprovalsReviewer;
-  readonly sandboxPolicy: CodexSchema.V2TurnStartParams__SandboxPolicy;
+  readonly permissions: string | null;
 } {
   switch (runtimeMode) {
     case "approval-required":
-      return {
-        approvalPolicy: "untrusted",
-        approvalsReviewer: "user",
-        sandboxPolicy: {
-          type: "readOnly",
-        },
-      };
+      return { approvalPolicy: "untrusted", approvalsReviewer: "user", permissions: ":read-only" };
     case "auto-accept-edits":
-      return {
-        approvalPolicy: "on-request",
-        approvalsReviewer: "user",
-        sandboxPolicy: {
-          type: "workspaceWrite",
-        },
-      };
+      return { approvalPolicy: "on-request", approvalsReviewer: "user", permissions: null };
     case "auto":
-      return {
-        approvalPolicy: "on-request",
-        approvalsReviewer: "auto_review",
-        sandboxPolicy: {
-          type: "workspaceWrite",
-        },
-      };
+      return { approvalPolicy: "on-request", approvalsReviewer: "auto_review", permissions: null };
     case "full-access":
       return {
         // `never` also rejects browser and app access prompts before the client sees them.
@@ -892,9 +877,7 @@ function codexRuntimeModeTurnDefaults(runtimeMode: RuntimeMode): {
           },
         },
         approvalsReviewer: "user",
-        sandboxPolicy: {
-          type: "dangerFullAccess",
-        },
+        permissions: ":danger-full-access",
       };
   }
 }
@@ -917,6 +900,11 @@ export const buildCodexTurnStartParams = Effect.fn("CodexAdapterV2.buildCodexTur
     readonly codexInput: ReadonlyArray<CodexSchema.V2TurnStartParams__UserInput>;
     readonly runtimePolicy: ProviderAdapter.ProviderAdapterV2RuntimePolicy;
     readonly modelSelection: ModelSelection;
+    /** Reads `default_permissions` from the Codex config for the turn's cwd. */
+    readonly readConfiguredPermissions: Effect.Effect<
+      string | null,
+      CodexErrors.CodexAppServerError | Schema.SchemaError
+    >;
     readonly hasT3Mcp?: boolean;
     readonly agentFeedback?: AgentFeedbackMode;
     readonly browserToolsAvailable?: boolean;
@@ -934,20 +922,32 @@ export const buildCodexTurnStartParams = Effect.fn("CodexAdapterV2.buildCodexTur
       input.runtimePolicy.approvalPolicy === undefined
         ? runtimeModeDefaults.approvalPolicy
         : yield* decodeTurnApprovalPolicy(input.runtimePolicy.approvalPolicy);
-    const baseSandboxPolicy =
-      input.runtimePolicy.sandboxPolicy === undefined
-        ? runtimeModeDefaults.sandboxPolicy
-        : yield* decodeTurnSandboxPolicy(input.runtimePolicy.sandboxPolicy);
     const extraRoots = input.runtimePolicy.workspace?.extraRoots ?? [];
-    const sandboxPolicy =
-      baseSandboxPolicy?.type === "workspaceWrite" && extraRoots.length > 0
+    const withExtraRoots = (
+      policy: CodexSchema.V2TurnStartParams__SandboxPolicy | null,
+    ): CodexSchema.V2TurnStartParams__SandboxPolicy | null =>
+      policy?.type === "workspaceWrite" && extraRoots.length > 0
         ? {
-            ...baseSandboxPolicy,
-            writableRoots: [
-              ...new Set([...(baseSandboxPolicy.writableRoots ?? []), ...extraRoots]),
-            ],
+            ...policy,
+            writableRoots: [...new Set([...(policy.writableRoots ?? []), ...extraRoots])],
           }
-        : baseSandboxPolicy;
+        : policy;
+    const sandbox =
+      input.runtimePolicy.sandboxPolicy !== undefined
+        ? {
+            sandboxPolicy: withExtraRoots(
+              yield* decodeTurnSandboxPolicy(input.runtimePolicy.sandboxPolicy),
+            ),
+          }
+        : // A permissions profile takes no per-turn roots, so other project folders need a policy.
+          runtimeModeDefaults.permissions === null && extraRoots.length > 0
+          ? { sandboxPolicy: withExtraRoots({ type: "workspaceWrite" }) }
+          : {
+              permissions:
+                runtimeModeDefaults.permissions ??
+                (yield* input.readConfiguredPermissions) ??
+                ":workspace",
+            };
     const selectedEffort =
       getModelSelectionStringOptionValue(input.modelSelection, "reasoningEffort") ??
       codexDefaultReasoningEffortOverride(input.modelSelection.model);
@@ -1010,7 +1010,7 @@ export const buildCodexTurnStartParams = Effect.fn("CodexAdapterV2.buildCodexTur
       // Omitting the reviewer on resume preserves the previous Auto reviewer.
       approvalsReviewer: runtimeModeDefaults.approvalsReviewer,
       ...(approvalPolicy === undefined ? {} : { approvalPolicy }),
-      ...(sandboxPolicy === undefined ? {} : { sandboxPolicy }),
+      ...sandbox,
       ...(effort === undefined ? {} : { effort }),
       ...(serviceTier === undefined ? {} : { serviceTier }),
       // Codex keeps no per-thread choice for this, so every turn must carry it.
@@ -8084,21 +8084,25 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
             }
             const mcpSession = yield* mcpSessions.read(turnInput.threadId);
             const models = adapterOptions.models === undefined ? [] : yield* adapterOptions.models;
-            const configuredReasoningSummary = yield* client
+            const configRead = yield* client
               .request("config/read", { cwd: turnInput.runtimePolicy.cwd, includeLayers: false })
               .pipe(
-                Effect.map((response) => response.config.model_reasoning_summary ?? undefined),
-                Effect.catch(() =>
-                  Effect.logDebug("Codex config read failed.").pipe(Effect.as(undefined)),
-                ),
+                Effect.map((response) => response.config),
+                Effect.exit,
                 withAppServerDeadline("config/read"),
               );
+            const configuredReasoningSummary = Exit.isSuccess(configRead)
+              ? (configRead.value.model_reasoning_summary ?? undefined)
+              : yield* Effect.logDebug("Codex config read failed.").pipe(Effect.as(undefined));
             const turnStartParams = yield* buildCodexTurnStartParams({
               cyberAccess: codexCyberAccess(models, turnInput.modelSelection.model),
               nativeThreadId: threadId,
               codexInput,
               runtimePolicy: turnInput.runtimePolicy,
               modelSelection: turnInput.modelSelection,
+              readConfiguredPermissions: Effect.flatMap(configRead, (config) =>
+                decodeConfiguredPermissions(config.default_permissions ?? null),
+              ),
               hasT3Mcp: mcpSession !== undefined,
               agentFeedback: turnInput.agentFeedback ?? "off",
               browserToolsAvailable: mcpSession?.browserToolsAvailable ?? true,
