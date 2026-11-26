@@ -13,6 +13,7 @@ import {
   AssetWorkspacePathValidationError,
   AssetWorkspaceResolutionError,
   AssetWorkspaceRootNormalizationError,
+  AuthSessionId,
   SOURCE_CONTROL_MEDIA_ASSET,
   ThreadId,
   NativeAppIconReference,
@@ -51,6 +52,7 @@ import * as Stream from "effect/Stream";
 
 import { base64UrlDecodeUtf8, base64UrlEncode } from "../auth/utils.ts";
 import * as AssetSigner from "./AssetSigner.ts";
+import * as SessionStore from "../auth/SessionStore.ts";
 import { makeIsServerInternalPath } from "../auth/serverInternalPaths.ts";
 import { parseAttachmentFileExtension, resolveAttachmentPathById } from "../attachmentStore.ts";
 import * as ServerConfig from "../config.ts";
@@ -142,14 +144,14 @@ const AssetClaimsSchema = Schema.Union([
     baseRelativePath: Schema.String,
     /** The opened page, which the files it requests are tracked under; absent on older URLs. */
     entryFileName: Schema.optionalKey(Schema.String),
-    expiresAt: Schema.Number,
+    sessionId: AuthSessionId,
   }),
   Schema.Struct({
     version: Schema.Literal(1),
     kind: Schema.Literal("workspace-file-exact"),
     workspaceRoot: Schema.String,
     relativePath: Schema.String,
-    expiresAt: Schema.Number,
+    sessionId: AuthSessionId,
   }),
   Schema.Struct({
     version: Schema.Literal(1),
@@ -158,7 +160,7 @@ const AssetClaimsSchema = Schema.Union([
     download: Schema.optionalKey(Schema.Boolean),
     device: Schema.String,
     inode: Schema.String,
-    expiresAt: Schema.Number,
+    sessionId: AuthSessionId,
   }),
   Schema.Struct({
     version: Schema.Literal(1),
@@ -423,7 +425,7 @@ const finalizeAbsoluteMediaFileAsset = Effect.fn("AssetAccess.finalizeAbsoluteMe
     readonly expectedCanonicalPath?: string;
     readonly workspaceRoot: string | undefined;
     readonly resource: AssetResource;
-    readonly expiresAt: number;
+    readonly sessionId: AuthSessionId;
   }) {
     const path = yield* Path.Path;
     // Resolving a network path makes Windows sign in to its host with the
@@ -497,7 +499,7 @@ const finalizeAbsoluteMediaFileAsset = Effect.fn("AssetAccess.finalizeAbsoluteMe
         filePath: canonicalFile,
         ...(download ? { download: true } : {}),
         ...opened.identity,
-        expiresAt: input.expiresAt,
+        sessionId: input.sessionId,
       },
       fileName: path.basename(canonicalFile),
       fileRevision: opened.fileRevision,
@@ -511,7 +513,7 @@ const finalizeWorkspaceFileAsset = Effect.fn("AssetAccess.finalizeWorkspaceFileA
     readonly workspaceRoot: string;
     readonly requestedPath: string;
     readonly resource: AssetResource;
-    readonly expiresAt: number;
+    readonly sessionId: AuthSessionId;
   }) {
     const path = yield* Path.Path;
     const fileSystem = yield* FileSystem.FileSystem;
@@ -592,7 +594,7 @@ const finalizeWorkspaceFileAsset = Effect.fn("AssetAccess.finalizeWorkspaceFileA
           kind: "workspace-file-exact" as const,
           workspaceRoot: canonicalWorkspaceRoot,
           relativePath: resolved.relativePath,
-          expiresAt: input.expiresAt,
+          sessionId: input.sessionId,
         },
         fileName: path.basename(resolved.relativePath),
         imageDimensions,
@@ -607,7 +609,7 @@ const finalizeWorkspaceFileAsset = Effect.fn("AssetAccess.finalizeWorkspaceFileA
         workspaceRoot: canonicalWorkspaceRoot,
         baseRelativePath: path.dirname(resolved.relativePath),
         entryFileName: path.basename(resolved.relativePath),
-        expiresAt: input.expiresAt,
+        sessionId: input.sessionId,
       },
       fileName: path.basename(resolved.relativePath),
       imageDimensions,
@@ -621,6 +623,8 @@ const finalizeWorkspaceFileAsset = Effect.fn("AssetAccess.finalizeWorkspaceFileA
 
 export const issueAssetUrl = Effect.fn("AssetAccess.issueAssetUrl")(function* (input: {
   readonly resource: AssetResource;
+  /** File URLs resolve while this session is active, so a tab or copied link outlives `expiresAt`. */
+  readonly sessionId: AuthSessionId;
   readonly workspaceRoot?: string;
   readonly projectFaviconPath?: string;
   /** Where a cloned project's checkout stands, while the clone tracker still knows it. */
@@ -660,7 +664,7 @@ export const issueAssetUrl = Effect.fn("AssetAccess.issueAssetUrl")(function* (i
         requestedPath,
         workspaceRoot: input.workspaceRoot,
         resource: input.resource,
-        expiresAt,
+        sessionId: input.sessionId,
       });
       claims = finalized.claims;
       fileName = finalized.fileName;
@@ -687,7 +691,7 @@ export const issueAssetUrl = Effect.fn("AssetAccess.issueAssetUrl")(function* (i
         workspaceRoot,
         requestedPath: input.resource.path,
         resource: input.resource,
-        expiresAt,
+        sessionId: input.sessionId,
       });
       claims = finalized.claims;
       fileName = finalized.fileName;
@@ -706,7 +710,7 @@ export const issueAssetUrl = Effect.fn("AssetAccess.issueAssetUrl")(function* (i
           requestedPath: hostPath,
           workspaceRoot: draftWorkspaceRoot,
           resource: input.resource,
-          expiresAt,
+          sessionId: input.sessionId,
         });
         claims = finalized.claims;
         fileName = finalized.fileName;
@@ -727,7 +731,7 @@ export const issueAssetUrl = Effect.fn("AssetAccess.issueAssetUrl")(function* (i
         workspaceRoot,
         requestedPath: input.resource.path,
         resource: input.resource,
-        expiresAt,
+        sessionId: input.sessionId,
       });
       claims = finalized.claims;
       fileName = finalized.fileName;
@@ -984,10 +988,7 @@ export const issueAssetUrl = Effect.fn("AssetAccess.issueAssetUrl")(function* (i
   };
 });
 
-export const resolveAsset = Effect.fn("AssetAccess.resolveAsset")(function* (
-  token: string,
-  relativePath: string,
-) {
+const verifiedClaims = Effect.fn("AssetAccess.verifiedClaims")(function* (token: string) {
   const [encodedPayload, signature] = token.split(".");
   if (!encodedPayload || !signature) return null;
 
@@ -996,10 +997,26 @@ export const resolveAsset = Effect.fn("AssetAccess.resolveAsset")(function* (
     Effect.tapError((cause) => Effect.logError("Failed to load the asset signing key.", { cause })),
     Effect.orElseSucceed(() => false),
   );
-  if (!verified) return null;
+  return verified ? decodeClaims(encodedPayload) : null;
+});
 
-  const claims = decodeClaims(encodedPayload);
-  if (!claims || claims.expiresAt <= (yield* Clock.currentTimeMillis)) return null;
+export const resolveAsset = Effect.fn("AssetAccess.resolveAsset")(function* (
+  token: string,
+  relativePath: string,
+) {
+  const claims = yield* verifiedClaims(token);
+  if (!claims) return null;
+  if ("sessionId" in claims) {
+    const active = yield* (yield* SessionStore.SessionStore).isActive(claims.sessionId).pipe(
+      Effect.tapError((cause) =>
+        Effect.logError("Failed to look up an asset's session.", { cause }),
+      ),
+      Effect.orElseSucceed(() => false),
+    );
+    if (!active) return null;
+  } else if (claims.expiresAt <= (yield* Clock.currentTimeMillis)) {
+    return null;
+  }
 
   if (claims.kind === "attachment") {
     const config = yield* ServerConfig.ServerConfig;
