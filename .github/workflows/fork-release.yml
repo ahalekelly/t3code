@@ -280,6 +280,9 @@ jobs:
         env:
           T3CODE_TELEMETRY_CHANNEL: dev
         run: vp run build:desktop
+      # Upload hides dotfiles; release-desktop.yml moves this back to client/.vite.
+      - name: Stage web asset manifest
+        run: cp apps/server/dist/client/.vite/manifest.json apps/server/dist/client/vite-manifest.release.json
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: js-bundle
