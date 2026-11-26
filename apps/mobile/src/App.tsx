@@ -5,7 +5,7 @@ import * as Linking from "expo-linking";
 import * as SplashScreen from "expo-splash-screen";
 import { NativeModule, requireNativeModule } from "expo";
 import { useLocale } from "gt-react-native";
-import { useEffect, useRef, useState } from "react";
+import { Profiler, useEffect, useRef, useState } from "react";
 import { Platform, StatusBar } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { KeyboardProvider } from "react-native-keyboard-controller";
@@ -48,6 +48,7 @@ import {
   installAppearanceRuntime,
   useAppearancePreferences,
 } from "./features/settings/appearance/AppearancePreferencesProvider";
+import { recordReactCommit, traceAppLifecycle } from "./features/observability/appTraces";
 import { RootStack, rootPathnameFromState, workspaceLocationFromState } from "./Stack";
 import { I18nProvider } from "./i18n/I18nProvider";
 import { DEFAULT_LOCALE } from "./i18n/locales";
@@ -210,6 +211,7 @@ function handleNavigationStateChange(state: NavigationState | undefined): void {
 function handleNavigationReady(): void {
   handleNavigationStateChange(rootNavigationRef.getRootState());
   flushRootNavigationQueue();
+  traceAppLifecycle();
 }
 
 declare const module: { readonly hot?: FoundationHotModule } | undefined;
@@ -294,7 +296,9 @@ export default function App() {
       <CloudAuthProvider>
         <AppearancePreferencesProvider>
           <I18nProvider>
-            <AppContent />
+            <Profiler id="app" onRender={recordReactCommit}>
+              <AppContent />
+            </Profiler>
           </I18nProvider>
         </AppearancePreferencesProvider>
       </CloudAuthProvider>
