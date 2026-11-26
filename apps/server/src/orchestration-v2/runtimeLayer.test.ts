@@ -4872,12 +4872,13 @@ it.layer(layerTest)("OrchestrationV2LayerLive lifecycle", (it) => {
               })
             : new PullRequestOperationError({
                 operation,
-                detail: "host read failed",
+                detail: "Host read failed.",
                 cause: new PullRequestProviderError({
                   provider: SourceControlProviderKind.make("github"),
                   operation,
                   reason: failure,
-                  detail: "host read failed",
+                  detail: "Host read failed.",
+                  accessHint: "Give the token access.",
                 }),
               });
         const reactor = yield* PullRequestWatchReactor.make.pipe(
@@ -4958,6 +4959,11 @@ it.layer(layerTest)("OrchestrationV2LayerLive lifecycle", (it) => {
           if (reason === "cli-unauthenticated") {
             assert.include(stopped[0]?.text, "Run `gh auth login`.");
             assert.notInclude(stopped[0]?.text, "private subprocess output");
+          } else {
+            assert.include(
+              stopped[0]?.text,
+              "8 times in a row: Host read failed. Give the token access. Check it yourself,",
+            );
           }
           return;
         }
