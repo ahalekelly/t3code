@@ -5775,6 +5775,8 @@ interface ActiveClaudeSubagent {
   // Clients group cards by launching turn; later updates can arrive during another turn.
   readonly providerTurnId: OrchestrationV2ProviderTurn["id"];
   readonly runToolUseId: string | null;
+  // A Skill launch: its notification summary is only the skill's name.
+  readonly forkedSkill: boolean;
   readonly effort: string | undefined;
   nextChildItemOrdinal: number;
   // Keyed on Claude's per-run id so a resumed run's result never replaces an earlier one.
@@ -6158,6 +6160,13 @@ function claudeCreatedTaskFromText(
 }
 
 const CLAUDE_TASK_TOOL_NAMES = new Set(["TaskCreate", "TaskUpdate", "TaskList"]);
+const decodeClaudeForkedSkillResult = Schema.decodeUnknownOption(
+  Schema.Struct({
+    status: Schema.Literal("forked"),
+    agentId: Schema.String,
+    result: Schema.String,
+  }),
+);
 const decodeClaudeTaskFile = Schema.decodeUnknownOption(
   Schema.fromJsonString(
     Schema.Struct({
@@ -8171,6 +8180,7 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
             ),
             providerTurnId: resume.context.providerTurnId,
             runToolUseId: launchToolUseId,
+            forkedSkill: false,
             effort: undefined,
             nextChildItemOrdinal: 100,
             resultNativeItemId: `task:${resume.taskId}:result`,
@@ -8833,8 +8843,13 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
           const movesToCurrentRun =
             input.reopen === true && input.status === "running" && existingSubagent !== undefined;
           const handbackText = isReopen ? null : (existingSubagent?.handbackText ?? null);
+          // A forked skill's report arrives in its Skill call's result, not its notification.
           const result =
-            input.status === "completed" && handbackText !== null ? handbackText : input.result;
+            input.status === "completed" && handbackText !== null
+              ? handbackText
+              : input.nativeOutcome !== undefined && existingSubagent?.forkedSkill === true
+                ? undefined
+                : input.result;
           const task = {
             ...(priorTask ?? {
               id: nodeId,
@@ -8902,6 +8917,10 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
               existingSubagent === undefined
                 ? (input.toolUseId ?? null)
                 : (resumeToolUseId ?? existingSubagent.runToolUseId),
+            forkedSkill:
+              existingSubagent?.forkedSkill ??
+              (input.toolUseId !== undefined &&
+                findToolCall(input.context, input.toolUseId)?.toolName === "Skill"),
             childThread: existingSubagent?.childThread ?? null,
             effort,
             nextChildItemOrdinal: existingSubagent?.nextChildItemOrdinal ?? 100,
@@ -12713,6 +12732,27 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
                 status: isClaudeToolResultError(toolResult) ? "failed" : "completed",
               });
               continue;
+            }
+            const forkedSkill =
+              subagent !== undefined && output.type === "structured_tool_use_result"
+                ? decodeClaudeForkedSkillResult(output.value)
+                : Option.none();
+            if (
+              subagent !== undefined &&
+              Option.isSome(forkedSkill) &&
+              forkedSkill.value.agentId === subagent.task.nativeTaskRef?.nativeId
+            ) {
+              yield* updateClaudeSubagentNode({
+                context,
+                taskId: forkedSkill.value.agentId,
+                toolUseId: toolResult.tool_use_id,
+                result: forkedSkill.value.result,
+                // The notification, when it came first, already settled the outcome.
+                status:
+                  subagent.task.status === "failed" || subagent.task.status === "cancelled"
+                    ? subagent.task.status
+                    : "completed",
+              });
             }
             const parentToolUseId = parentToolUseIdFromSdkMessage(message);
             const toolCall =
