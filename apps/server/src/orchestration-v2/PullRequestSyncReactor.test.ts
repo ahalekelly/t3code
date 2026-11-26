@@ -1456,9 +1456,20 @@ describe("PullRequestSyncReactor", () => {
     }),
   );
 
-  it.effect("reads a settled thread's links once when it settles, then until unsettled", () =>
+  it.effect("reads a settled thread's watched links, and the rest once when it settles", () =>
     Effect.gen(function* () {
       yield* TestClock.setTime(Date.parse(NOW));
+      const watch = {
+        startedAt: "2026-08-21T00:00:00.000Z",
+        headSha: null,
+        failedChecks: [],
+        passed: false,
+        passedChecks: [],
+        remarksThrough: "2026-08-21T00:00:00.000Z",
+        remarkIds: [],
+        conflicting: false,
+        wakes: 0,
+      };
       const fixture = yield* makeHarness({
         snapshot: makeSnapshot([
           makeThread("settled", {
@@ -1468,14 +1479,18 @@ describe("PullRequestSyncReactor", () => {
               makeLink(5, { state: "open" }),
               makeLink(6, { state: "closed" }),
               makeLink(7),
+              makeLink(8, { state: "open", updatedAt: NOW }, { watch }),
             ],
           }),
         ]),
       });
+      const readNumbers = Effect.map(Ref.getAndSet(fixture.summaryCalls, []), (calls) =>
+        [...new Set(calls.map((call) => call.number))].toSorted(),
+      );
 
       yield* Effect.gen(function* () {
         const reactor = yield* startAndSweep(fixture);
-        assert.deepStrictEqual(yield* Ref.get(fixture.summaryCalls), []);
+        assert.deepStrictEqual(yield* readNumbers, [8]);
 
         const threadId = ThreadId.make("settled");
         const at = DateTime.makeUnsafe(NOW);
@@ -1511,12 +1526,9 @@ describe("PullRequestSyncReactor", () => {
         yield* Queue.take(fixture.snapshotReads);
         yield* Queue.take(fixture.snapshotReads);
         yield* reactor.drain;
-        assert.deepStrictEqual(
-          (yield* Ref.getAndSet(fixture.summaryCalls, [])).map((call) => call.number).toSorted(),
-          [5, 6],
-        );
+        assert.deepStrictEqual(yield* readNumbers, [5, 6, 8]);
         for (let index = 0; index < 15; index += 1) yield* sweepAgain(fixture, reactor);
-        assert.deepStrictEqual(yield* Ref.get(fixture.summaryCalls), []);
+        assert.deepStrictEqual(yield* readNumbers, [8]);
 
         yield* Ref.update(fixture.snapshots, (snapshot) => ({
           ...snapshot,
@@ -1527,10 +1539,7 @@ describe("PullRequestSyncReactor", () => {
           })),
         }));
         yield* sweepAgain(fixture, reactor);
-        assert.deepStrictEqual(
-          (yield* Ref.get(fixture.summaryCalls)).map((call) => call.number).toSorted(),
-          [5, 6, 7],
-        );
+        assert.deepStrictEqual(yield* readNumbers, [5, 6, 7, 8]);
       }).pipe(Effect.provide(fixture.layer));
     }),
   );
