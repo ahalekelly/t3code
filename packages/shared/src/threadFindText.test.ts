@@ -109,7 +109,7 @@ it("searches displayed prose and file-chip labels without hidden paths", () => {
       "[![a](https://example.com/a.png)](src/index.ts) [![b](https://example.com/b.png)](lib/index.ts)",
       "/workspace/repo",
     ),
-  ).toEqual(["index.ts · repo/src index.ts · repo/lib"]);
+  ).toEqual(["src/index.ts lib/index.ts"]);
   for (const text of [
     "[a](/repo/app/(a)/page.tsx) and [b](/repo/app/(b)/page.tsx)",
     String.raw`[a](/repo/app/\(a\)/page.tsx) and [b](/repo/app/\(b\)/page.tsx)`,

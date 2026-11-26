@@ -26,7 +26,6 @@ import {
 } from "./markdownLeadingWhitespace.ts";
 import { remarkCodexDirectives } from "./codexMarkdownDirectives.ts";
 import { absoluteFilePathMatches } from "./markdownLinks.ts";
-import { isWindowsAbsolutePath } from "./path.ts";
 import {
   CHAT_MARKDOWN_SANITIZE_SCHEMA,
   chatMarkdownImageSource,
@@ -732,22 +731,4 @@ export function chatMarkdownImageSources(markdown: string): Array<string> {
   };
   visit(imageSourceProcessor.runSync(imageSourceProcessor.parse(markdown)) as ImageSourceNode);
   return sources;
-}
-
-const linkDestinationProcessor = unified().use(remarkParse).use(remarkKeepWindowsPaths);
-
-// An angle destination cannot hold an unescaped `<` or `>`, or end on a lone backslash.
-const ANGLE_DESTINATION_CONTENT = /^(?:[^\\<>]|\\.)*$/;
-
-/** Reads a destination from `extractMarkdownLinkHrefs` as the renderer's parser does. */
-export function decodeMarkdownLinkEscapes(href: string): string {
-  // Only the parser knows character references, so destinations that may have one go through it.
-  if (href.includes("&")) {
-    // The extractor drops angle brackets, and only that form keeps an unmatched `)` in the path.
-    const destination = ANGLE_DESTINATION_CONTENT.test(href) ? `<${href}>` : href;
-    const paragraph = linkDestinationProcessor.parse(`[](${destination})`).children[0];
-    const link = paragraph?.type === "paragraph" ? paragraph.children[0] : undefined;
-    if (link?.type === "link") return link.url;
-  }
-  return isWindowsAbsolutePath(href) ? href : href.replace(/\\([!-/:-@[-`{-~])/g, "$1");
 }
