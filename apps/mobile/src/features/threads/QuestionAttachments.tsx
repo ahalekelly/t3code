@@ -5,7 +5,10 @@ import * as Dialog from "../../components/ui/Dialog";
 import { TextInputWrapper } from "expo-paste-input";
 import { AppTextInput as TextInput } from "../../components/ui/AppText";
 import { useNativePaste } from "../../lib/useNativePaste";
-import { convertPastedImagesToAttachments } from "../../lib/composerImages";
+import {
+  convertPastedImagesToAttachments,
+  type ComposerMediaSource,
+} from "../../lib/composerImages";
 import { PROVIDER_SEND_TURN_MAX_ATTACHMENTS, type UserInputQuestion } from "@t3tools/contracts";
 import { useAtomValue } from "@effect/atom-react";
 import { View, type TextInputInstance } from "react-native";
@@ -140,7 +143,7 @@ export function QuestionAttachments(props: {
     props.question.id,
   );
   const attachments = drafts[key]?.attachments ?? [];
-  const pick = async (kind: "media" | "files") => {
+  const pick = async (kind: ComposerMediaSource | "files") => {
     const scope = pickerScope.current;
     const picked = await settlePromise(async () => {
       const result = await pickQuestionAttachments({
@@ -164,7 +167,7 @@ export function QuestionAttachments(props: {
         <ComposerAttachmentButton
           disabled={props.disabled}
           supportsFiles
-          onPickMedia={() => pick("media")}
+          onPickMedia={pick}
           onPickFiles={() => pick("files")}
         />
       ) : null}
