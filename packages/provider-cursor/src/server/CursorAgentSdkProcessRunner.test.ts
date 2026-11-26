@@ -301,13 +301,14 @@ describe("CursorAgentSdkProcessRunner", () => {
             Effect.provideService(AgentScope, {
               wrap: ({ command, args, name }) =>
                 Effect.succeed({ command, args, unit: `unit-${name}` }),
-              oomKilled: () => Effect.succeed(false),
+              takeOomKills: () => Effect.succeed(0),
               stop: (unit) =>
                 Effect.sync(() => {
                   stoppedUnits.push(unit);
                 }),
               kill: () => Effect.succeed(false),
               clear: () => Effect.void,
+              toolShellEnv: undefined,
             }),
           );
 
